@@ -1,0 +1,367 @@
+use super::{motion::Spring, theme::*};
+use gpui::{
+    App, Bounds, BoxShadow, Context, PathBuilder, Render, TextRun, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div,
+    fill, font, layer_shell::*, point, prelude::*, px, rgb, rgba, size,
+};
+use hermes::engine::Phase;
+use std::time::{Duration, Instant};
+
+#[derive(Clone, PartialEq)]
+enum Visual {
+    Listening,
+    Processing,
+    Success,
+    Cancel,
+    Error(String),
+    Exit,
+}
+
+pub struct Overlay {
+    phase: Visual,
+    phase_at: Instant,
+    entered: Instant,
+    last_frame: Instant,
+    width: Spring,
+    rise: Spring,
+    scale: Spring,
+    dot: Spring,
+    bars: [Spring; BARS],
+    positions: [Spring; BARS],
+    levels: [f32; BARS],
+    quiet: bool,
+}
+
+impl Overlay {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            phase: Visual::Listening,
+            phase_at: now,
+            entered: now,
+            last_frame: now,
+            width: Spring::new(PILL_HEIGHT),
+            rise: Spring::new(8.),
+            scale: Spring::new(0.9),
+            dot: Spring::new(0.),
+            bars: [Spring::new(0.); BARS],
+            positions: std::array::from_fn(|i| Spring::new((i as f32 - BAR_CENTER) * 5.)),
+            levels: [0.15; BARS],
+            quiet: false,
+        }
+    }
+
+    pub fn level(&mut self, level: f32, cx: &mut Context<Self>) {
+        self.levels.rotate_left(1);
+        self.levels[BARS - 1] = if level.is_finite() {
+            level.clamp(0., 1.)
+        } else {
+            0.
+        };
+        self.quiet = level < 0.05;
+        cx.notify();
+    }
+
+    pub fn phase(&mut self, phase: Phase, window: &mut Window, cx: &mut Context<Self>) {
+        let next = match phase {
+            Phase::Listening => Visual::Listening,
+            Phase::Transcribing | Phase::Cleaning => Visual::Processing,
+            Phase::Error(message) => Visual::Error(message),
+            Phase::Idle if self.phase == Visual::Listening => Visual::Cancel,
+            Phase::Idle if self.phase == Visual::Processing => Visual::Exit,
+            Phase::Idle => return,
+        };
+        self.set(next, window, cx);
+    }
+
+    pub fn success(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.set(Visual::Success, window, cx);
+    }
+
+    fn set(&mut self, phase: Visual, window: &mut Window, cx: &mut Context<Self>) {
+        if self.phase == phase {
+            return;
+        }
+        self.phase = phase;
+        self.phase_at = Instant::now();
+        if let Visual::Error(message) = &self.phase {
+            let line = window.text_system().shape_line(
+                message.clone().into(),
+                px(13.),
+                &[TextRun {
+                    len: message.len(),
+                    font: font("Inter"),
+                    color: rgb(WHITE).into(),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+                None,
+            );
+            self.width.target = (f32::from(line.width) + 46.).clamp(96., SURFACE_WIDTH - 48.);
+            self.dot = Spring::new(0.);
+            self.dot.target = 1.;
+        }
+        let hold = match self.phase {
+            Visual::Success => Some(CHECK_TIME + SUCCESS_HOLD),
+            Visual::Cancel => Some(CANCEL_TIME),
+            Visual::Error(_) => Some(ERROR_HOLD),
+            _ => None,
+        };
+        if let Some(hold) = hold {
+            let phase_at = self.phase_at;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(Duration::from_secs_f32(hold))
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    if this.phase_at == phase_at {
+                        this.phase = Visual::Exit;
+                        this.phase_at = Instant::now();
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    fn advance(&mut self, window: &mut Window) -> (f32, f32, f32) {
+        let now = Instant::now();
+        let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.032);
+        self.last_frame = now;
+        let entered = now.duration_since(self.entered).as_secs_f32();
+        let elapsed = now.duration_since(self.phase_at).as_secs_f32();
+        if self.phase == Visual::Exit && elapsed >= EXIT_TIME {
+            window.remove_window();
+        }
+        let exit = if self.phase == Visual::Exit {
+            (elapsed / EXIT_TIME).clamp(0., 1.).powi(2)
+        } else {
+            0.
+        };
+        let opacity = (entered / ENTER_FADE).min(1.) * (1. - exit);
+        self.rise.target = 0.;
+        self.scale.target = if self.phase == Visual::Exit { 0.92 } else { 1. };
+        match self.phase {
+            Visual::Listening => {
+                self.width.target = if entered > OPEN_DELAY {
+                    LISTEN_WIDTH
+                } else {
+                    PILL_HEIGHT
+                }
+            }
+            Visual::Processing => self.width.target = WORK_WIDTH,
+            Visual::Success => self.width.target = PILL_HEIGHT,
+            Visual::Cancel | Visual::Exit => {}
+            Visual::Error(_) => {}
+        }
+        let mut moving = self.width.step(dt, PILL_STIFFNESS, PILL_DAMPING);
+        moving |= self.rise.step(dt, PILL_STIFFNESS, PILL_DAMPING);
+        moving |= self.scale.step(dt, PILL_STIFFNESS, PILL_DAMPING);
+        moving |= self.dot.step(dt, PILL_STIFFNESS, PILL_DAMPING);
+        for i in 0..BARS {
+            let distance = (i as f32 - BAR_CENTER).abs();
+            self.bars[i].target = if self.phase == Visual::Listening
+                && entered >= OPEN_DELAY + distance * STAGGER
+            {
+                if self.quiet {
+                    3. + (entered * std::f32::consts::TAU / QUIET_PERIOD - i as f32 * 0.45).sin()
+                } else {
+                    (22. * self.levels[i]
+                        * (-((i as f32 - BAR_CENTER) / BAR_ENVELOPE).powi(2)).exp())
+                    .max(3.)
+                }
+            } else if matches!(self.phase, Visual::Processing | Visual::Cancel) {
+                3.
+            } else {
+                0.
+            };
+            self.positions[i].target = if self.phase == Visual::Listening {
+                (i as f32 - BAR_CENTER) * 5.
+            } else {
+                (i.clamp(PROCESS_START, PROCESS_END) as f32 - BAR_CENTER) * 5.
+            };
+            moving |= self.bars[i].step(dt, BAR_STIFFNESS, BAR_DAMPING);
+            moving |= self.positions[i].step(dt, PILL_STIFFNESS, PILL_DAMPING);
+        }
+        let active = matches!(self.phase, Visual::Listening | Visual::Processing)
+            || self.phase == Visual::Success && elapsed < CHECK_TIME
+            || self.phase == Visual::Cancel && elapsed < CANCEL_TIME
+            || matches!(self.phase, Visual::Error(_)) && elapsed < SHAKE_TIME;
+        if (moving || active || self.phase == Visual::Exit)
+            && !(self.phase == Visual::Exit && elapsed >= EXIT_TIME)
+        {
+            window.request_animation_frame();
+        }
+        (opacity, elapsed, entered)
+    }
+}
+
+impl Render for Overlay {
+    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let (opacity, elapsed, _) = self.advance(window);
+        let scale = self.scale.value;
+        let width = self.width.value * scale;
+        let height = PILL_HEIGHT * scale;
+        let shake = if matches!(self.phase, Visual::Error(_)) && elapsed < SHAKE_TIME {
+            (elapsed / SHAKE_TIME * std::f32::consts::TAU * 3.).sin()
+                * 5.
+                * (1. - elapsed / SHAKE_TIME).powi(2)
+        } else {
+            0.
+        };
+        let mut pill = div()
+            .absolute()
+            .left(px((SURFACE_WIDTH - width) / 2. + shake))
+            .top(px(SURFACE_HEIGHT - SHADOW_SPACE - height + self.rise.value))
+            .w(px(width))
+            .h(px(height))
+            .rounded(px(height / 2.))
+            .bg(rgb(BLACK))
+            .border_1()
+            .border_color(rgba(0xffffff24))
+            .shadow(vec![BoxShadow {
+                color: rgba(0x00000073).into(),
+                offset: point(px(0.), px(8.)),
+                blur_radius: px(24.),
+                spread_radius: px(0.),
+                inset: false,
+            }])
+            .opacity(opacity)
+            .flex()
+            .items_center()
+            .justify_center()
+            .overflow_hidden();
+        if let Visual::Error(message) = &self.phase {
+            let text_progress = (elapsed / ERROR_TEXT_TIME).min(1.);
+            pill = pill.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(14.))
+                    .child(
+                        div()
+                            .size(px(6. * self.dot.value.max(0.)))
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .bg(rgb(RED)),
+                    )
+                    .child(
+                        div()
+                            .relative()
+                            .left(px(6. * (1. - text_progress)))
+                            .opacity(text_progress)
+                            .text_color(rgba(0xffffffd9))
+                            .text_size(px(13.))
+                            .text_ellipsis()
+                            .child(message.clone()),
+                    ),
+            );
+        } else {
+            let phase = self.phase.clone();
+            let bars = self.bars;
+            let positions = self.positions;
+            pill = pill.child(
+                canvas(
+                    |_, _, _| (),
+                    move |bounds, _, window, _| {
+                        let center = bounds.center();
+                        for i in 0..BARS {
+                            let retained = (PROCESS_START..=PROCESS_END).contains(&i);
+                            let processing = phase == Visual::Processing;
+                            let fade = if processing && !retained {
+                                (1. - elapsed / 0.15).max(0.)
+                            } else if phase == Visual::Success {
+                                (1. - elapsed / 0.1).max(0.)
+                            } else {
+                                1.
+                            };
+                            let wave = ((elapsed - (i as f32 - PROCESS_START as f32) * WAVE_STEP)
+                                * std::f32::consts::TAU
+                                / WAVE_PERIOD)
+                                .sin()
+                                * 0.5
+                                + 0.5;
+                            let alpha = if processing {
+                                (0.35 + 0.65 * wave) * fade
+                            } else {
+                                fade
+                            };
+                            let y = if processing && retained {
+                                -2. * wave
+                            } else {
+                                0.
+                            };
+                            let h = bars[i].value.max(0.) * scale;
+                            let x = positions[i].value;
+                            let rect = Bounds::new(
+                                point(center.x + px(x * scale - 1.5), center.y + px(y - h / 2.)),
+                                size(px(3. * scale), px(h)),
+                            );
+                            window.paint_quad(
+                                fill(rect, rgb(WHITE).alpha(alpha)).corner_radii(px(1.5)),
+                            );
+                        }
+                        if phase == Visual::Success {
+                            let progress = (elapsed / CHECK_TIME).min(1.);
+                            let points = [
+                                point(center.x - px(6.), center.y),
+                                point(center.x - px(2.), center.y + px(4.)),
+                                point(center.x + px(6.), center.y - px(5.)),
+                            ];
+                            let mut path = PathBuilder::stroke(px(2.));
+                            path.move_to(points[0]);
+                            let split = 0.32;
+                            if progress < split {
+                                path.line_to(
+                                    points[0] + (points[1] - points[0]) * (progress / split),
+                                );
+                            } else {
+                                path.line_to(points[1]);
+                                path.line_to(
+                                    points[1]
+                                        + (points[2] - points[1])
+                                            * ((progress - split) / (1. - split)),
+                                );
+                            }
+                            if let Ok(path) = path.build() {
+                                window.paint_path(path, rgb(WHITE));
+                            }
+                        }
+                    },
+                )
+                .size_full(),
+            );
+        }
+        div().size_full().font_family("Inter").child(pill)
+    }
+}
+
+pub fn open(cx: &mut App) -> anyhow::Result<WindowHandle<Overlay>> {
+    cx.open_window(
+        WindowOptions {
+            titlebar: None,
+            focus: false,
+            app_id: Some("hermes-overlay".into()),
+            window_background: WindowBackgroundAppearance::Transparent,
+            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                point(px(0.), px(0.)),
+                size(px(SURFACE_WIDTH), px(SURFACE_HEIGHT)),
+            ))),
+            kind: WindowKind::LayerShell(LayerShellOptions {
+                namespace: "hermes-overlay".into(),
+                layer: Layer::Overlay,
+                anchor: Anchor::BOTTOM,
+                keyboard_interactivity: KeyboardInteractivity::None,
+                // The transparent shadow gutter places the visible pill 24px above the edge.
+                margin: Some((px(0.), px(0.), px(0.), px(0.))),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        |_, cx| cx.new(|_| Overlay::new()),
+    )
+}
