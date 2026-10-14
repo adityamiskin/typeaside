@@ -1,4 +1,4 @@
-use crate::{config::AppConfig, credentials::endpoint_key, paths::AppPaths};
+use crate::{config::AppConfig, credentials::endpoint_key};
 use anyhow::{Context, Result};
 use reqwest::blocking::multipart;
 use serde::Deserialize;
@@ -14,8 +14,8 @@ pub(crate) fn has_speech(audio: &[f32]) -> bool {
         >= 0.003
 }
 
-pub(crate) fn transcribe(config: &AppConfig, paths: &AppPaths, audio: &[f32]) -> Result<String> {
-    request(config, audio, &endpoint_key(paths, &config.stt.base_url)?)
+pub(crate) fn transcribe(config: &AppConfig, audio: &[f32]) -> Result<String> {
+    request(config, audio, &endpoint_key(&config.stt.base_url)?)
 }
 
 fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {

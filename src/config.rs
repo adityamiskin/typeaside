@@ -117,13 +117,16 @@ pub struct Snippet {
 pub struct Cleanup {
     pub enabled: bool,
     pub endpoint: Endpoint,
+    /// Sent as `reasoning_effort`; "none" keeps reasoning models at chat latency.
+    pub reasoning_effort: Option<String>,
 }
 
 impl Default for Cleanup {
     fn default() -> Self {
         Self {
             enabled: true,
-            endpoint: Endpoint::new("https://api.openai.com/v1", "gpt-6-luna"),
+            endpoint: Endpoint::new("https://api.groq.com/openai/v1", "qwen/qwen3.8-27b"),
+            reasoning_effort: Some("none".into()),
         }
     }
 }

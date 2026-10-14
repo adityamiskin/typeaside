@@ -61,7 +61,7 @@ fn fixture_config() -> AppConfig {
     }
 }
 
-fn fixtures(paths: &AppPaths, generate: bool) -> Result<()> {
+fn fixtures(generate: bool) -> Result<()> {
     let cases = [
         (
             "cleanup",
@@ -86,7 +86,7 @@ fn fixtures(paths: &AppPaths, generate: bool) -> Result<()> {
     std::fs::create_dir_all("tests/fixtures")?;
     std::fs::create_dir_all("/tmp/hermes-perf")?;
     if generate {
-        let key = credentials::get_credential(paths, "api.openai.com")?
+        let key = credentials::get_credential("api.openai.com")?
             .context("no OpenAI key in system keyring")?;
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(60))
@@ -135,7 +135,6 @@ fn fixtures(paths: &AppPaths, generate: bool) -> Result<()> {
         let started = Instant::now();
         let output = pipeline::run(
             &config,
-            paths,
             &audio,
             Some("org.mozilla.Thunderbird"),
             if selection.is_some() {
@@ -173,7 +172,7 @@ fn main() -> Result<()> {
     let input = args.next().context("usage: pipeline WAV [--app ID] [--translate LANGUAGE] [--command SELECTION], or --fixtures [--generate-fixtures]")?;
     let paths = AppPaths::discover()?;
     if input == "--fixtures" {
-        return fixtures(&paths, args.any(|arg| arg == "--generate-fixtures"));
+        return fixtures(args.any(|arg| arg == "--generate-fixtures"));
     }
     let mut config = match std::fs::read(&paths.config_file) {
         Ok(bytes) => serde_json::from_slice(&bytes)?,
@@ -194,7 +193,6 @@ fn main() -> Result<()> {
     let audio = read_wav(Path::new(&input))?;
     let output = pipeline::run(
         &config,
-        &paths,
         &audio,
         app.as_deref(),
         if selection.is_some() {

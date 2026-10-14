@@ -1,89 +1,66 @@
-use crate::paths::AppPaths;
 use anyhow::{Context, Result, anyhow};
-use keyring::use_named_store;
 use keyring_core::{Entry, Error};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
-const SERVICE_NAME: &str = "hermes";
-
-#[cfg(target_os = "macos")]
-const STORE_NAME: &str = "keychain";
-#[cfg(target_os = "macos")]
-const STORE_LABEL: &str = "macOS Keychain";
-
-#[cfg(target_os = "windows")]
-const STORE_NAME: &str = "windows";
-#[cfg(target_os = "windows")]
-const STORE_LABEL: &str = "Windows Credential Manager";
-
-#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))]
-const STORE_NAME: &str = "secret-service";
-#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))]
-const STORE_LABEL: &str = "Secret Service keyring";
-
-#[cfg(target_os = "android")]
-const STORE_NAME: &str = "android";
-#[cfg(target_os = "android")]
-const STORE_LABEL: &str = "Android credential store";
-
-fn configure_store() -> Result<()> {
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "openbsd",
-        target_os = "windows",
-    ))]
-    {
-        use_named_store(STORE_NAME).with_context(|| format!("failed to open {STORE_LABEL}"))?;
-        Ok(())
-    }
-
-    #[cfg(not(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "openbsd",
-        target_os = "windows",
-    )))]
-    {
-        Err(anyhow!(
-            "secure credential storage is not supported on {}",
-            std::env::consts::OS
-        ))
-    }
+/// Secret Service lookups are D-Bus round trips, so keys are cached per host for the process.
+fn cache() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
 }
 
-fn entry_for(provider: &str) -> Result<Entry> {
-    configure_store()?;
-    Entry::new(SERVICE_NAME, provider)
-        .with_context(|| format!("failed to create credential entry for provider '{provider}'"))
+fn entry(host: &str) -> Result<Entry> {
+    static STORE: OnceLock<Result<(), String>> = OnceLock::new();
+    STORE
+        .get_or_init(|| {
+            keyring::use_named_store("secret-service").map_err(|error| error.to_string())
+        })
+        .clone()
+        .map_err(|error| anyhow!("failed to open Secret Service keyring: {error}"))?;
+    Entry::new("hermes", host).with_context(|| format!("failed to open credential for {host}"))
 }
 
-pub fn get_credential(_paths: &AppPaths, provider: &str) -> Result<Option<String>> {
-    let entry = entry_for(provider)?;
-    match entry.get_password() {
-        Ok(key) => Ok(Some(key)),
+pub fn get_credential(host: &str) -> Result<Option<String>> {
+    if let Some(key) = cache().lock().expect("credential cache").get(host) {
+        return Ok(Some(key.clone()));
+    }
+    match entry(host)?.get_password() {
+        Ok(key) => {
+            cache()
+                .lock()
+                .expect("credential cache")
+                .insert(host.into(), key.clone());
+            Ok(Some(key))
+        }
         Err(Error::NoEntry) => Ok(None),
-        Err(err) => Err(anyhow!(
-            "failed to read credential for provider '{provider}': {err}"
-        )),
+        Err(error) => Err(anyhow!("failed to read credential for {host}: {error}")),
     }
 }
 
-pub fn save_credential(_paths: &AppPaths, provider: &str, key: &str) -> Result<()> {
-    let entry = entry_for(provider)?;
-    entry
+pub fn save_credential(host: &str, key: &str) -> Result<()> {
+    entry(host)?
         .set_password(key)
-        .with_context(|| format!("failed to save credential for provider '{provider}'"))?;
+        .with_context(|| format!("failed to save credential for {host}"))?;
+    cache()
+        .lock()
+        .expect("credential cache")
+        .insert(host.into(), key.into());
     Ok(())
 }
 
-pub(crate) fn endpoint_key(paths: &AppPaths, base_url: &str) -> Result<String> {
-    let url = reqwest::Url::parse(base_url).context("invalid endpoint URL")?;
-    let host = url.host_str().context("endpoint has no host")?;
-    let stored = get_credential(paths, host);
+pub fn endpoint_host(base_url: &str) -> Result<String> {
+    reqwest::Url::parse(base_url)
+        .context("invalid endpoint URL")?
+        .host_str()
+        .map(str::to_owned)
+        .context("endpoint has no host")
+}
+
+pub(crate) fn endpoint_key(base_url: &str) -> Result<String> {
+    let host = endpoint_host(base_url)?;
+    let stored = get_credential(&host);
     if let Ok(Some(key)) = &stored
         && !key.trim().is_empty()
     {

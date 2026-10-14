@@ -34,7 +34,7 @@ impl AppState {
                     let host = url
                         .host_str()
                         .ok_or_else(|| anyhow::anyhow!("endpoint has no host"))?;
-                    credentials::save_credential(&self.paths, host, key)?;
+                    credentials::save_credential(host, key)?;
                 }
                 self.config.save(&self.paths)?;
                 if let Some(engine) = &self.engine {
@@ -46,7 +46,7 @@ impl AppState {
             if !key.is_empty() {
                 self.key_hint = "••••••••".into();
             } else if !self.is_demo {
-                self.key_hint = key_hint(&self.paths, &self.config.stt.base_url);
+                self.key_hint = key_hint(&self.config.stt.base_url);
             }
             Ok(())
         })();
@@ -83,7 +83,7 @@ pub fn run(is_demo: bool, started: std::time::Instant) -> anyhow::Result<()> {
     let key_hint = if is_demo {
         "••••••••".into()
     } else {
-        key_hint(&paths, &config.stt.base_url)
+        key_hint(&config.stt.base_url)
     };
     let initial_page = if is_demo {
         match std::env::var("HERMES_DEMO_PAGE").as_deref() {
@@ -223,10 +223,9 @@ pub fn run(is_demo: bool, started: std::time::Instant) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn key_hint(paths: &AppPaths, endpoint: &str) -> String {
-    reqwest::Url::parse(endpoint)
+fn key_hint(endpoint: &str) -> String {
+    credentials::endpoint_host(endpoint)
         .ok()
-        .and_then(|url| url.host_str().map(str::to_owned))
-        .and_then(|host| credentials::get_credential(paths, &host).ok().flatten())
+        .and_then(|host| credentials::get_credential(&host).ok().flatten())
         .map_or_else(|| "Enter API key".into(), |_| "••••••••".into())
 }

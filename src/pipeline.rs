@@ -1,4 +1,4 @@
-use crate::{cleanup, config::AppConfig, engine::Mode, paths::AppPaths, snippets, transcribe};
+use crate::{cleanup, config::AppConfig, engine::Mode, snippets, transcribe};
 use anyhow::Result;
 use std::time::{Duration, Instant};
 
@@ -11,7 +11,6 @@ pub struct Output {
 
 pub fn run(
     config: &AppConfig,
-    paths: &AppPaths,
     audio: &[f32],
     app_id: Option<&str>,
     mode: Mode,
@@ -19,22 +18,19 @@ pub fn run(
     cleaning: impl FnOnce(),
 ) -> Result<Output> {
     let started = Instant::now();
-    let raw = transcribe::transcribe(config, paths, audio)?;
+    let raw = transcribe::transcribe(config, audio)?;
     let stt = started.elapsed();
     let started = Instant::now();
     let text = if raw.is_empty() {
         String::new()
     } else if mode == Mode::Command {
         cleaning();
-        cleanup::command(config, paths, &raw, selection)?
+        cleanup::command(config, &raw, selection)?
     } else {
         if config.cleanup.enabled || config.translate_to.is_some() {
             cleaning();
         }
-        snippets::expand(
-            &cleanup::cleanup(config, paths, &raw, app_id),
-            &config.snippets,
-        )
+        snippets::expand(&cleanup::cleanup(config, &raw, app_id), &config.snippets)
     };
     let llm = started.elapsed();
     if std::env::var_os("HERMES_TRACE").is_some_and(|value| value == "1") {

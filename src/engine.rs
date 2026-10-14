@@ -337,7 +337,7 @@ fn run(
                 } else {
                     String::new()
                 };
-                crate::http::prewarm(&config, &paths);
+                crate::http::prewarm(&config);
                 match AudioRecorder::start(&config) {
                     Ok(capture) => {
                         recorder = Some(capture);
@@ -385,7 +385,6 @@ fn run(
                 busy = Some(id);
                 phase(&events, Phase::Transcribing);
                 let pipeline_config = config.clone();
-                let paths = paths.clone();
                 let tx = tx.clone();
                 let (mode, app_id, selection) = context.clone();
                 let spawned = thread::Builder::new()
@@ -395,7 +394,6 @@ fn run(
                             let started = Instant::now();
                             let output = crate::pipeline::run(
                                 &pipeline_config,
-                                &paths,
                                 &audio,
                                 app_id.as_deref(),
                                 mode,
