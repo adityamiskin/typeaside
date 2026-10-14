@@ -4,6 +4,7 @@ use gpui::{
     ClipboardItem, Context, FontFeatures, FontWeight, IntoElement, Styled, div, prelude::*, px,
     rgb, rgba,
 };
+use hermes::config::RecordingMode;
 use std::time::Duration;
 
 impl MainWindow {
@@ -25,7 +26,7 @@ impl MainWindow {
                 .sum::<u64>()
                 / count as u64
         };
-        let key = match state.preferences.hotkey.as_str() {
+        let key = match state.config.hotkey.as_str() {
             "RIGHTCTRL" => "Right Ctrl",
             other => other,
         };
@@ -34,7 +35,7 @@ impl MainWindow {
             .items_center()
             .gap(px(5.))
             .text_size(px(13.))
-            .child(if state.preferences.toggle {
+            .child(if state.config.mode == RecordingMode::Toggle {
                 "Press"
             } else {
                 "Hold"
@@ -50,7 +51,7 @@ impl MainWindow {
                     .py(px(1.))
                     .child(key.to_owned()),
             )
-            .child(if state.preferences.toggle {
+            .child(if state.config.mode == RecordingMode::Toggle {
                 "to start and stop"
             } else {
                 "to dictate"

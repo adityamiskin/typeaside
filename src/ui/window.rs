@@ -24,26 +24,40 @@ pub struct MainWindow {
     pub copy_generation: u64,
     page: Page,
     dirty: bool,
+    trace_started: Option<std::time::Instant>,
 }
 
 impl MainWindow {
     fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        let preferences = state.read(cx).preferences.clone();
-        let settings = SettingsInputs::new(&preferences, window, cx);
+        let config = state.read(cx).config.clone();
+        let settings = SettingsInputs::new(&config, &state.read(cx).key_hint.clone(), window, cx);
         for input in settings.text_inputs() {
             cx.subscribe_in(input, window, |this, _, event, window, cx| match event {
-                InputEvent::Change => this.dirty = true,
+                InputEvent::Change => {
+                    this.dirty = true;
+                    this.save_settings(window, cx);
+                }
                 InputEvent::Blur | InputEvent::PressEnter { .. } => this.save_settings(window, cx),
                 InputEvent::Focus => {}
             })
             .detach();
         }
+        cx.subscribe_in(
+            &settings.key,
+            window,
+            |this, _, event, window, cx| match event {
+                InputEvent::Change => this.dirty = true,
+                InputEvent::Blur | InputEvent::PressEnter { .. } => this.save_settings(window, cx),
+                InputEvent::Focus => {}
+            },
+        )
+        .detach();
         cx.subscribe(&settings.device, |this, _, event, cx| {
             let SelectEvent::Confirm(value) = event;
             if let Some(value) = value {
                 this.state.update(cx, |state, cx| {
-                    state.preferences.device.clone_from(value);
+                    state.config.input_device = (value != "System default").then(|| value.clone());
                     state.persist("");
                     cx.notify();
                 });
@@ -63,6 +77,7 @@ impl MainWindow {
             true
         });
         let page = state.read(cx).initial_page;
+        let trace_started = state.read(cx).trace_started;
         Self {
             state,
             settings,
@@ -71,6 +86,7 @@ impl MainWindow {
             copy_generation: 0,
             page,
             dirty: false,
+            trace_started,
         }
     }
 
@@ -78,6 +94,7 @@ impl MainWindow {
         if !self.dirty {
             return;
         }
+        self.dirty = false;
         let inputs = &self.settings;
         let key = inputs.key.read(cx).value().to_string();
         let hotkey = inputs.hotkey.read(cx).value().trim().to_owned();
@@ -87,25 +104,25 @@ impl MainWindow {
         let cleanup_endpoint = inputs.cleanup_endpoint.read(cx).value().trim().to_owned();
         let cleanup_model = inputs.cleanup_model.read(cx).value().trim().to_owned();
         self.state.update(cx, |state, cx| {
-            let preferences = &mut state.preferences;
-            preferences.hotkey = hotkey;
-            preferences.endpoint = endpoint;
-            preferences.model = model;
-            preferences.language = language;
-            preferences.cleanup_endpoint = cleanup_endpoint;
-            preferences.cleanup_model = cleanup_model;
+            let config = &mut state.config;
+            config.hotkey = hotkey;
+            config.stt.base_url = endpoint;
+            config.stt.model = model;
+            config.language = (!language.is_empty()).then_some(language);
+            config.cleanup.endpoint.base_url = cleanup_endpoint;
+            config.cleanup.endpoint.model = cleanup_model;
             state.persist(&key);
             cx.notify();
         });
         if !key.is_empty() && self.state.read(cx).save_error.is_none() {
-            let hint = super::binding::mask_key(&key);
-            self.state
-                .update(cx, |state, _| state.preferences.key_hint.clone_from(&hint));
             self.settings.key.update(cx, |input, cx| {
                 input.set_value("", window, cx);
-                input.set_placeholder(hint, window, cx);
             });
         }
+        let hint = self.state.read(cx).key_hint.clone();
+        self.settings
+            .key
+            .update(cx, |input, cx| input.set_placeholder(hint, window, cx));
         self.dirty = self.state.read(cx).save_error.is_some();
     }
 
@@ -118,6 +135,19 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let trace = self.trace_started.take().map(|started| {
+            gpui::canvas(
+                |_, _, _| (),
+                move |_, _, _, _| {
+                    eprintln!(
+                        "hermes first main frame: {:.3} ms",
+                        started.elapsed().as_secs_f64() * 1000.
+                    );
+                },
+            )
+            .absolute()
+            .size(px(1.))
+        });
         let state = self.state.read(cx);
         let (color, status) = if let Some(error) = &state.save_error {
             (RED, error.clone())
@@ -192,7 +222,13 @@ impl Render for MainWindow {
                             .rounded_full()
                             .bg(rgb(color)),
                     )
-                    .child(div().min_w_0().text_ellipsis().child(status)),
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_ellipsis()
+                            .text_color(if color == RED { rgb(RED) } else { rgba(MUTED) })
+                            .child(status),
+                    ),
             );
         let content = match self.page {
             Page::Home => self.home(cx).into_any_element(),
@@ -207,6 +243,7 @@ impl Render for MainWindow {
             .text_size(px(13.))
             .line_height(px(19.))
             .flex()
+            .children(trace)
             .child(side)
             .child(div().flex_1().min_w_0().h_full().child(content))
     }

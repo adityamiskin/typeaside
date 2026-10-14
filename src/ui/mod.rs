@@ -1,4 +1,3 @@
-mod binding;
 mod demo;
 mod dictionary;
 mod home;
@@ -9,55 +8,81 @@ mod theme;
 mod tray;
 mod window;
 
-use binding::{Binding, Preferences};
 use gpui::{App, AppContext, QuitMode, WindowHandle};
 use hermes::engine::{Dictation, Engine, Event, Phase};
+use hermes::{config::AppConfig, credentials, paths::AppPaths};
 
 pub struct AppState {
-    preferences: Preferences,
-    binding: Binding,
+    config: AppConfig,
+    paths: AppPaths,
+    engine: Option<Engine>,
+    is_demo: bool,
+    key_hint: String,
     history: Vec<Dictation>,
     phase: Phase,
     save_error: Option<String>,
+    trace_started: Option<std::time::Instant>,
     initial_page: window::Page,
 }
 
 impl AppState {
     fn persist(&mut self, key: &str) {
-        self.save_error = self
-            .binding
-            .save(&self.preferences, key)
-            .err()
-            .map(|error| format!("Could not save: {error}"));
+        let result = (|| -> anyhow::Result<()> {
+            if !self.is_demo {
+                if !key.is_empty() {
+                    let url = reqwest::Url::parse(&self.config.stt.base_url)?;
+                    let host = url
+                        .host_str()
+                        .ok_or_else(|| anyhow::anyhow!("endpoint has no host"))?;
+                    credentials::save_credential(&self.paths, host, key)?;
+                }
+                self.config.save(&self.paths)?;
+                if let Some(engine) = &self.engine {
+                    engine.send(hermes::engine::Command::Reload(self.config.clone()));
+                }
+            }
+            if !key.is_empty() {
+                self.key_hint = "••••••••".into();
+            } else if !self.is_demo {
+                self.key_hint = key_hint(&self.paths, &self.config.stt.base_url);
+            }
+            Ok(())
+        })();
+        self.save_error = result.err().map(|error| format!("Could not save: {error}"));
     }
 }
 
-pub fn run(is_demo: bool) -> anyhow::Result<()> {
-    let (mut binding, mut preferences) = if is_demo {
-        (Binding::demo(), Preferences::default())
+pub fn run(is_demo: bool, started: std::time::Instant) -> anyhow::Result<()> {
+    let paths = AppPaths::discover()?;
+    let mut config = if is_demo {
+        AppConfig::default()
     } else {
-        Binding::load()?
+        AppConfig::load(&paths)?
     };
-    let events = if is_demo {
-        preferences.dictionary = vec![
+    let mut startup_error = None;
+    let (engine, events) = if is_demo {
+        config.dictionary = vec![
             "Aditya".into(),
             "GPUI".into(),
             "niri".into(),
             "Zapsight".into(),
         ];
-        preferences.key_hint = "gsk_••••••••3f9a".into();
-        demo::spawn()
+        (None, demo::spawn())
     } else {
-        let (engine, events) = Engine::spawn(binding.config())?;
-        binding.engine = Some(engine);
-        events
+        match Engine::spawn(config.clone()) {
+            Ok((engine, events)) => (Some(engine), events),
+            Err(error) => {
+                startup_error = Some(format!("Engine startup failed: {error}"));
+                let (_, events) = async_channel::unbounded();
+                (None, events)
+            }
+        }
     };
-    preferences
-        .dictionary
-        .sort_by_key(|word| word.to_lowercase());
-    preferences
-        .dictionary
-        .dedup_by(|a, b| a.to_lowercase() == b.to_lowercase());
+    let key_hint = if is_demo {
+        "••••••••".into()
+    } else {
+        key_hint(&paths, &config.stt.base_url)
+    };
     let initial_page = if is_demo {
         match std::env::var("HERMES_DEMO_PAGE").as_deref() {
             Ok("dictionary") => window::Page::Dictionary,
@@ -67,18 +92,28 @@ pub fn run(is_demo: bool) -> anyhow::Result<()> {
     } else {
         window::Page::Home
     };
-    let history = if is_demo { demo::history() } else { Vec::new() };
+    let mut history = if is_demo {
+        demo::history()
+    } else {
+        hermes::engine::load_history(&paths)
+    };
+    history.sort_by_key(|item| std::cmp::Reverse(item.at));
     gpui_platform::application()
         .with_assets(gpui_kit::assets::Assets)
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             theme::init(cx);
             let state = cx.new(|_| AppState {
-                preferences,
-                binding,
+                config,
+                paths,
+                engine,
+                is_demo,
+                key_hint,
                 history,
                 phase: Phase::Idle,
-                save_error: None,
+                save_error: startup_error,
+                trace_started: (std::env::var("HERMES_TRACE").as_deref() == Ok("1"))
+                    .then_some(started),
                 initial_page,
             });
             let mut main_window = match window::open(state.clone(), cx) {
@@ -133,9 +168,23 @@ pub fn run(is_demo: bool) -> anyhow::Result<()> {
                                 state.history.insert(0, dictation);
                                 cx.notify();
                             });
-                            if let Some(surface) = surface {
-                                let _ =
-                                    surface.update(cx, |view, window, cx| view.success(window, cx));
+                            let updated = surface.is_some_and(|surface| {
+                                surface
+                                    .update(cx, |view, window, cx| view.success(window, cx))
+                                    .is_ok()
+                            });
+                            if !updated {
+                                match overlay::open(cx) {
+                                    Ok(opened) => {
+                                        let _ = opened.update(cx, |view, window, cx| {
+                                            view.success(window, cx)
+                                        });
+                                        surface = Some(opened);
+                                    }
+                                    Err(error) => {
+                                        eprintln!("hermes: cannot open overlay: {error:#}")
+                                    }
+                                }
                             }
                         }
                         Event::Phase(phase) => {
@@ -170,4 +219,12 @@ pub fn run(is_demo: bool) -> anyhow::Result<()> {
             .detach();
         });
     Ok(())
+}
+
+fn key_hint(paths: &AppPaths, endpoint: &str) -> String {
+    reqwest::Url::parse(endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .and_then(|host| credentials::get_credential(paths, &host).ok().flatten())
+        .map_or_else(|| "Enter API key".into(), |_| "••••••••".into())
 }

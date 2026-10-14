@@ -10,14 +10,14 @@ impl MainWindow {
         }
         self.state.update(cx, |state, cx| {
             if !state
-                .preferences
+                .config
                 .dictionary
                 .iter()
                 .any(|existing| existing.to_lowercase() == word.to_lowercase())
             {
-                state.preferences.dictionary.push(word);
+                state.config.dictionary.push(word);
                 state
-                    .preferences
+                    .config
                     .dictionary
                     .sort_by_key(|word| word.to_lowercase());
                 state.persist("");
@@ -75,7 +75,7 @@ impl MainWindow {
                     .children(
                         self.state
                             .read(cx)
-                            .preferences
+                            .config
                             .dictionary
                             .iter()
                             .enumerate()
@@ -100,7 +100,7 @@ impl MainWindow {
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.state.update(cx, |state, cx| {
                                                     state
-                                                        .preferences
+                                                        .config
                                                         .dictionary
                                                         .retain(|existing| *existing != word);
                                                     state.persist("");

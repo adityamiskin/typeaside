@@ -1,4 +1,4 @@
-use super::{binding::Preferences, theme::*, window::MainWindow};
+use super::{theme::*, window::MainWindow};
 use gpui::{
     AppContext, Context, Entity, IntoElement, Styled, Window, div, prelude::*, px, rgb, rgba,
 };
@@ -7,6 +7,7 @@ use gpui_kit::component::{
     input::{Input, InputState},
     select::{Select, SelectState},
 };
+use hermes::config::{AppConfig, RecordingMode};
 
 pub struct SettingsInputs {
     pub hotkey: Entity<InputState>,
@@ -21,7 +22,8 @@ pub struct SettingsInputs {
 
 impl SettingsInputs {
     pub fn new(
-        preferences: &Preferences,
+        config: &AppConfig,
+        key_hint: &str,
         window: &mut Window,
         cx: &mut Context<MainWindow>,
     ) -> Self {
@@ -33,21 +35,25 @@ impl SettingsInputs {
                     .masked(masked)
             })
         };
-        let hotkey = input(&preferences.hotkey, "RIGHTCTRL", false);
+        let hotkey = input(&config.hotkey, "RIGHTCTRL", false);
         let endpoint = input(
-            &preferences.endpoint,
+            &config.stt.base_url,
             "https://api.groq.com/openai/v1",
             false,
         );
-        let model = input(&preferences.model, "whisper-large-v3-turbo", false);
-        let key = input("", &preferences.key_hint, true);
-        let language = input(&preferences.language, "Auto detect", false);
+        let model = input(&config.stt.model, "whisper-large-v3-turbo", false);
+        let key = input("", key_hint, true);
+        let language = input(
+            config.language.as_deref().unwrap_or_default(),
+            "Auto detect",
+            false,
+        );
         let cleanup_endpoint = input(
-            &preferences.cleanup_endpoint,
+            &config.cleanup.endpoint.base_url,
             "https://api.groq.com/openai/v1",
             false,
         );
-        let cleanup_model = input(&preferences.cleanup_model, "openai/gpt-oss-20b", false);
+        let cleanup_model = input(&config.cleanup.endpoint.model, "openai/gpt-oss-20b", false);
         let mut devices = vec!["System default".to_owned()];
         match hermes::audio::list_input_devices() {
             Ok(inputs) => devices.extend(inputs.into_iter().map(|input| input.name)),
@@ -56,7 +62,9 @@ impl SettingsInputs {
         devices.dedup();
         let index = devices
             .iter()
-            .position(|device| *device == preferences.device)
+            .position(|device| {
+                device.as_str() == config.input_device.as_deref().unwrap_or("System default")
+            })
             .unwrap_or(0);
         let device = cx
             .new(|cx| SelectState::new(devices, Some(IndexPath::default().row(index)), window, cx));
@@ -72,12 +80,11 @@ impl SettingsInputs {
         }
     }
 
-    pub fn text_inputs(&self) -> [&Entity<InputState>; 7] {
+    pub fn text_inputs(&self) -> [&Entity<InputState>; 6] {
         [
             &self.hotkey,
             &self.endpoint,
             &self.model,
-            &self.key,
             &self.language,
             &self.cleanup_endpoint,
             &self.cleanup_model,
@@ -99,9 +106,9 @@ pub fn input(state: &Entity<InputState>, width: f32) -> impl IntoElement {
 
 impl MainWindow {
     pub fn settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let prefs = &self.state.read(cx).preferences;
-        let toggle = prefs.toggle;
-        let cleanup = prefs.cleanup;
+        let prefs = &self.state.read(cx).config;
+        let mode_value = prefs.mode;
+        let cleanup = prefs.cleanup.enabled;
         let auto_submit = prefs.auto_submit;
         let mode = div()
             .flex()
@@ -110,29 +117,32 @@ impl MainWindow {
             .rounded(px(RADIUS))
             .overflow_hidden()
             .children(
-                [(false, "Hold"), (true, "Toggle")]
-                    .into_iter()
-                    .map(|(value, label)| {
-                        div()
-                            .id(label)
-                            .px(px(12.))
-                            .py(px(5.))
-                            .cursor_pointer()
-                            .bg(rgb(if value == toggle { WHITE } else { BLACK }))
-                            .text_color(if value == toggle {
-                                rgb(BLACK)
-                            } else {
-                                rgba(MUTED)
-                            })
-                            .child(label)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.state.update(cx, |state, cx| {
-                                    state.preferences.toggle = value;
-                                    state.persist("");
-                                    cx.notify();
-                                });
-                            }))
-                    }),
+                [
+                    (RecordingMode::Hold, "Hold"),
+                    (RecordingMode::Toggle, "Toggle"),
+                ]
+                .into_iter()
+                .map(|(value, label)| {
+                    div()
+                        .id(label)
+                        .px(px(12.))
+                        .py(px(5.))
+                        .cursor_pointer()
+                        .bg(rgb(if value == mode_value { WHITE } else { BLACK }))
+                        .text_color(if value == mode_value {
+                            rgb(BLACK)
+                        } else {
+                            rgba(MUTED)
+                        })
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.state.update(cx, |state, cx| {
+                                state.config.mode = value;
+                                state.persist("");
+                                cx.notify();
+                            });
+                        }))
+                }),
             );
         div()
             .flex()
@@ -176,17 +186,14 @@ impl MainWindow {
                             .flex_wrap()
                             .gap(px(8.))
                             .child(input(&self.settings.key, 260.))
-                            .when(
-                                self.state.read(cx).preferences.key_hint != "Enter API key",
-                                |row| {
-                                    row.child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .text_color(rgba(MUTED))
-                                            .child("Stored in keyring"),
-                                    )
-                                },
-                            ),
+                            .when(self.state.read(cx).key_hint != "Enter API key", |row| {
+                                row.child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(rgba(MUTED))
+                                        .child("Stored in keyring"),
+                                )
+                            }),
                     ))
                     .child(form_row("Language", input(&self.settings.language, 180.)))
                     .child(section("Cleanup"))
@@ -194,7 +201,7 @@ impl MainWindow {
                         "Remove fillers and fix punctuation",
                         switch("cleanup", cleanup).on_click(cx.listener(|this, _, _, cx| {
                             this.state.update(cx, |state, cx| {
-                                state.preferences.cleanup = !state.preferences.cleanup;
+                                state.config.cleanup.enabled = !state.config.cleanup.enabled;
                                 state.persist("");
                                 cx.notify();
                             });
@@ -211,7 +218,7 @@ impl MainWindow {
                         switch("auto-submit", auto_submit).on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.state.update(cx, |state, cx| {
-                                    state.preferences.auto_submit = !state.preferences.auto_submit;
+                                    state.config.auto_submit = !state.config.auto_submit;
                                     state.persist("");
                                     cx.notify();
                                 });

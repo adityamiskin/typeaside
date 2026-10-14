@@ -133,7 +133,7 @@ fn open_hotkeys(
     }) {
         Ok(service) => Some(service),
         Err(error) => {
-            report_error(events, error);
+            phase(events, Phase::Error(error.to_string()));
             None
         }
     }
