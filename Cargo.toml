@@ -28,3 +28,10 @@ nix = { version = "0.30", features = ["poll"] }
 
 [patch.crates-io]
 keyring = { path = "vendor/keyring" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+opt-level = 3
