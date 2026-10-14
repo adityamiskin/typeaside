@@ -79,3 +79,21 @@ pub fn save_credential(_paths: &AppPaths, provider: &str, key: &str) -> Result<(
         .with_context(|| format!("failed to save credential for provider '{provider}'"))?;
     Ok(())
 }
+
+pub(crate) fn endpoint_key(paths: &AppPaths, base_url: &str) -> Result<String> {
+    let url = reqwest::Url::parse(base_url).context("invalid endpoint URL")?;
+    let host = url.host_str().context("endpoint has no host")?;
+    let stored = get_credential(paths, host);
+    if let Ok(Some(key)) = &stored
+        && !key.trim().is_empty()
+    {
+        return Ok(key.clone());
+    }
+    if let Ok(key) = std::env::var("HERMES_API_KEY")
+        && !key.trim().is_empty()
+    {
+        return Ok(key);
+    }
+    stored?;
+    Err(anyhow!("no API key saved for {host}"))
+}
