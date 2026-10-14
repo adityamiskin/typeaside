@@ -44,6 +44,14 @@ pub fn list_input_devices() -> Result<Vec<InputDeviceInfo>> {
 
 impl AudioRecorder {
     pub fn start(config: &AppConfig) -> Result<Self> {
+        Self::open(config, true)
+    }
+
+    pub fn monitor(config: &AppConfig) -> Result<Self> {
+        Self::open(config, false)
+    }
+
+    fn open(config: &AppConfig, retain: bool) -> Result<Self> {
         let host = cpal::default_host();
         let device = if let Some(name) = &config.input_device {
             host.input_devices()?
@@ -65,6 +73,7 @@ impl AudioRecorder {
                 buffer.clone(),
                 level.clone(),
                 error.clone(),
+                retain,
             ),
             SampleFormat::I16 => capture::<i16>(
                 &device,
@@ -72,6 +81,7 @@ impl AudioRecorder {
                 buffer.clone(),
                 level.clone(),
                 error.clone(),
+                retain,
             ),
             SampleFormat::U16 => capture::<u16>(
                 &device,
@@ -79,6 +89,7 @@ impl AudioRecorder {
                 buffer.clone(),
                 level.clone(),
                 error.clone(),
+                retain,
             ),
             format => bail!("unsupported input format: {format:?}"),
         }?;
@@ -90,6 +101,10 @@ impl AudioRecorder {
             error,
             sample_rate: stream_config.sample_rate,
         })
+    }
+
+    pub(crate) fn take_error(&self) -> Option<String> {
+        self.error.lock().ok()?.take()
     }
 
     pub fn current_level(&self) -> f32 {
@@ -120,6 +135,7 @@ fn capture<T: SizedSample + Sample>(
     buffer: Arc<Mutex<Vec<f32>>>,
     level: Arc<AtomicU32>,
     error: Arc<Mutex<Option<String>>>,
+    retain: bool,
 ) -> Result<Stream>
 where
     f32: FromSample<T>,
@@ -142,7 +158,9 @@ where
                     } else {
                         0.0
                     };
-                    buffer.push(mono);
+                    if retain {
+                        buffer.push(mono);
+                    }
                     power += smoothing * (mono * mono - power);
                 }
                 let perceptual =

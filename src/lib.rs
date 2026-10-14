@@ -8,3 +8,9 @@ pub mod hotkeys;
 pub mod paths;
 pub mod text_injector;
 mod transcribe;
+
+mod cues;
+mod http;
+mod media;
+pub mod pipeline;
+mod snippets;

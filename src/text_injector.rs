@@ -166,3 +166,21 @@ fn set_clipboard(text: &str) -> Result<()> {
     }
     Ok(())
 }
+
+pub(crate) fn primary_selection() -> String {
+    Command::new("timeout")
+        .args([
+            "0.3s",
+            "wl-paste",
+            "--primary",
+            "--no-newline",
+            "--type",
+            "text",
+        ])
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .unwrap_or_default()
+}

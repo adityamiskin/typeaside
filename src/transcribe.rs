@@ -1,6 +1,6 @@
 use crate::{config::AppConfig, credentials::endpoint_key, paths::AppPaths};
 use anyhow::{Context, Result};
-use reqwest::blocking::{Client, multipart};
+use reqwest::blocking::multipart;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -35,15 +35,13 @@ fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {
     struct Response {
         text: String,
     }
-    let response = Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(30))
-        .build()?
+    let response = crate::http::client()
         .post(format!(
             "{}/audio/transcriptions",
             config.stt.base_url.trim_end_matches('/')
         ))
         .bearer_auth(key)
+        .timeout(Duration::from_secs(30))
         .multipart(form)
         .send()?
         .error_for_status()?

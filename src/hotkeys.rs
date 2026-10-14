@@ -13,6 +13,8 @@ use std::{
 pub enum HotkeyEvent {
     Main(bool),
     Cancel(bool),
+    Command(bool),
+    PasteLast(bool),
 }
 
 pub struct HotkeyService {
@@ -23,11 +25,11 @@ pub struct HotkeyService {
 struct Combo {
     keys: Vec<Vec<KeyCode>>,
     active: bool,
-    cancel: bool,
+    event: fn(bool) -> HotkeyEvent,
 }
 
 impl Combo {
-    fn parse(value: &str, cancel: bool) -> Result<Self> {
+    fn parse(value: &str, event: fn(bool) -> HotkeyEvent) -> Result<Self> {
         let keys = value
             .split('+')
             .map(|part| {
@@ -51,16 +53,30 @@ impl Combo {
         Ok(Self {
             keys,
             active: false,
-            cancel,
+            event,
         })
     }
 }
 
 impl HotkeyService {
     pub fn start(config: &AppConfig, emit: impl Fn(HotkeyEvent) + Send + 'static) -> Result<Self> {
-        let mut combos = vec![Combo::parse(&config.hotkey, false)?];
+        let mut combos = vec![Combo::parse(&config.hotkey, HotkeyEvent::Main)?];
         if let Some(cancel) = &config.cancel_hotkey {
-            combos.push(Combo::parse(cancel, true)?);
+            combos.push(Combo::parse(cancel, HotkeyEvent::Cancel)?);
+        }
+        for (value, event) in [
+            (
+                &config.command_hotkey,
+                HotkeyEvent::Command as fn(bool) -> HotkeyEvent,
+            ),
+            (
+                &config.paste_last_hotkey,
+                HotkeyEvent::PasteLast as fn(bool) -> HotkeyEvent,
+            ),
+        ] {
+            if let Some(value) = value {
+                combos.push(Combo::parse(value, event)?);
+            }
         }
         let mut devices: Vec<_> = evdev::enumerate()
             .map(|(_, device)| device)
@@ -142,11 +158,7 @@ impl HotkeyService {
                                     });
                                     if active != combo.active {
                                         combo.active = active;
-                                        emit(if combo.cancel {
-                                            HotkeyEvent::Cancel(active)
-                                        } else {
-                                            HotkeyEvent::Main(active)
-                                        });
+                                        emit((combo.event)(active));
                                     }
                                 }
                             }

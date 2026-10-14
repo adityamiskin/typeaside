@@ -42,7 +42,7 @@ pub struct Dictation {
     pub at: SystemTime,
     pub raw: String,
     pub cleaned: String,
-    /// niri app_id of the window the text was pasted into.
+    /// niri app_id captured when recording started.
     pub app_id: Option<String>,
     pub audio_ms: u32,
     pub latency_ms: u32,
@@ -77,8 +77,6 @@ pub struct Engine {
 impl Engine {
     /// Starts hotkey listening and the pipeline on background threads.
     pub fn spawn(config: AppConfig) -> anyhow::Result<(Self, async_channel::Receiver<Event>)> {
-        let paths = AppPaths::discover()?;
-        paths.ensure()?;
         let (commands, incoming) = async_channel::unbounded();
         let (events, receiver) = async_channel::unbounded();
         let (tx, rx) = mpsc::channel();
@@ -93,11 +91,15 @@ impl Engine {
                 }
                 let _ = commands_tx.send(Message::Shutdown);
             })?;
-        thread::Builder::new()
-            .name("hermes-engine".into())
-            .spawn(move || {
-                run(config, paths, tx, rx, events);
-            })?;
+        thread::Builder::new().name("hermes-engine".into()).spawn(
+            move || match AppPaths::discover().and_then(|paths| {
+                paths.ensure()?;
+                Ok(paths)
+            }) {
+                Ok(paths) => run(config, paths, tx, rx, events),
+                Err(error) => report_error(&events, error),
+            },
+        )?;
         Ok((Self { commands }, receiver))
     }
 
@@ -159,6 +161,9 @@ fn open_hotkeys(
         Ok(service) => Some(service),
         Err(error) => {
             phase(events, Phase::Error(error.to_string()));
+            if config.sounds {
+                crate::cues::play(crate::cues::Cue::Error);
+            }
             None
         }
     }
@@ -178,31 +183,81 @@ fn run(
     let mut generation = 0u64;
     let mut busy = None;
     let mut injector: Option<TextInjector> = None;
+    let mut last = load_history(&paths).pop().map(|entry| entry.cleaned);
+    let mut context = (Mode::Dictate, None, String::new());
+    let mut start_mode = Mode::Dictate;
+    let mut monitor: Option<(AudioRecorder, Instant)> = None;
+    let mut effects = None;
+    let mut restoring = Vec::new();
+    let mut tick = Instant::now();
     loop {
         if events.is_closed() {
             break;
         }
-        let message = match rx.recv_timeout(Duration::from_millis(33)) {
-            Ok(message) => message,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if let Some(recorder) = &recorder {
-                    let _ = events.try_send(Event::Level(recorder.current_level()));
-                }
-                continue;
+        restoring.retain(|thread: &thread::JoinHandle<()>| !thread.is_finished());
+        if tick.elapsed() >= Duration::from_millis(33) {
+            tick = Instant::now();
+            if monitor
+                .as_ref()
+                .is_some_and(|(_, deadline)| Instant::now() >= *deadline)
+            {
+                monitor = None;
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        };
+            if let Some(capture) = recorder
+                .as_ref()
+                .or_else(|| monitor.as_ref().map(|(capture, _)| capture))
+            {
+                let _ = events.try_send(Event::Level(capture.current_level()));
+                if let Some(error) = capture.take_error() {
+                    recorder = None;
+                    monitor = None;
+                    stop_effects(&mut effects, &mut restoring);
+                    report_error(&events, error);
+                    if config.sounds {
+                        crate::cues::play(crate::cues::Cue::Error);
+                    }
+                }
+            }
+        }
+        let message =
+            match rx.recv_timeout(Duration::from_millis(33).saturating_sub(tick.elapsed())) {
+                Ok(message) => message,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            };
         let command = match message {
             Message::Shutdown => break,
-            Message::Command(command) => command,
+            Message::Command(command) => {
+                if matches!(command, Command::Start) {
+                    start_mode = Mode::Dictate;
+                }
+                command
+            }
             Message::Hotkey(source, event) if source == epoch => match event {
                 HotkeyEvent::Cancel(true) => Command::Cancel,
-                HotkeyEvent::Main(true) => match config.mode {
-                    RecordingMode::Hold => Command::Start,
-                    RecordingMode::Toggle if recorder.is_some() => Command::Stop,
-                    RecordingMode::Toggle => Command::Start,
-                },
-                HotkeyEvent::Main(false) if config.mode == RecordingMode::Hold => Command::Stop,
+                HotkeyEvent::PasteLast(true) => Command::PasteLast,
+                HotkeyEvent::Main(pressed) | HotkeyEvent::Command(pressed) => {
+                    let mode = if matches!(event, HotkeyEvent::Command(_)) {
+                        Mode::Command
+                    } else {
+                        Mode::Dictate
+                    };
+                    if recorder.is_some() && context.0 != mode {
+                        continue;
+                    }
+                    if pressed {
+                        start_mode = mode;
+                        match config.mode {
+                            RecordingMode::Hold => Command::Start,
+                            RecordingMode::Toggle if recorder.is_some() => Command::Stop,
+                            RecordingMode::Toggle => Command::Start,
+                        }
+                    } else if config.mode == RecordingMode::Hold {
+                        Command::Stop
+                    } else {
+                        continue;
+                    }
+                }
                 _ => continue,
             },
             Message::Hotkey(_, _) => continue,
@@ -225,12 +280,14 @@ fn run(
                                 Some(injector) => injector,
                                 slot => slot.insert(TextInjector::new()?),
                             };
-                            dictation.app_id = focused_app_id();
                             injector.inject_text(
                                 &dictation.cleaned,
                                 dictation.app_id.as_deref(),
                                 config.auto_submit,
                             )?;
+                            if std::env::var_os("HERMES_TRACE").is_some_and(|value| value == "1") {
+                                eprintln!("hermes: inject={}ms", started.elapsed().as_millis());
+                            }
                             dictation.latency_ms = dictation.latency_ms.saturating_add(
                                 started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32,
                             );
@@ -246,10 +303,14 @@ fn run(
                         })();
                         match completed {
                             Ok(()) => {
+                                last = Some(dictation.cleaned.clone());
                                 let _ = events.try_send(Event::Done(dictation));
                             }
                             Err(error) => {
                                 report_error(&events, error);
+                                if config.sounds {
+                                    crate::cues::play(crate::cues::Cue::Error);
+                                }
                                 continue;
                             }
                         }
@@ -257,6 +318,9 @@ fn run(
                     Ok(None) => {}
                     Err(error) => {
                         report_error(&events, error);
+                        if config.sounds {
+                            crate::cues::play(crate::cues::Cue::Error);
+                        }
                         continue;
                     }
                 }
@@ -266,22 +330,42 @@ fn run(
         };
         match command {
             Command::Start if recorder.is_none() && busy.is_none() => {
+                monitor = None;
+                let app_id = focused_app_id();
+                let selection = if start_mode == Mode::Command {
+                    crate::text_injector::primary_selection()
+                } else {
+                    String::new()
+                };
+                crate::http::prewarm(&config, &paths);
                 match AudioRecorder::start(&config) {
                     Ok(capture) => {
                         recorder = Some(capture);
-                        phase(&events, Phase::Listening(Mode::Dictate));
+                        context = (start_mode, app_id, selection);
+                        effects =
+                            crate::media::ListeningEffects::start(config.sounds, config.duck_media);
+                        phase(&events, Phase::Listening(start_mode));
                     }
-                    Err(error) => report_error(&events, error),
+                    Err(error) => {
+                        report_error(&events, error);
+                        if config.sounds {
+                            crate::cues::play(crate::cues::Cue::Error);
+                        }
+                    }
                 }
             }
             Command::Stop => {
                 let Some(capture) = recorder.take() else {
                     continue;
                 };
+                stop_effects(&mut effects, &mut restoring);
                 let audio = match capture.stop() {
                     Ok(audio) => audio,
                     Err(error) => {
                         report_error(&events, error);
+                        if config.sounds {
+                            crate::cues::play(crate::cues::Cue::Error);
+                        }
                         continue;
                     }
                 };
@@ -291,37 +375,47 @@ fn run(
                 }
                 if !crate::transcribe::has_speech(&audio) {
                     report_error(&events, "No speech detected");
+                    if config.sounds {
+                        crate::cues::play(crate::cues::Cue::Error);
+                    }
                     continue;
                 }
                 generation = generation.wrapping_add(1);
                 let id = generation;
                 busy = Some(id);
                 phase(&events, Phase::Transcribing);
-                let config = config.clone();
+                let pipeline_config = config.clone();
                 let paths = paths.clone();
                 let tx = tx.clone();
+                let (mode, app_id, selection) = context.clone();
                 let spawned = thread::Builder::new()
                     .name("hermes-transcription".into())
                     .spawn(move || {
                         let result = (|| -> Result<Option<Dictation>> {
                             let started = Instant::now();
-                            let raw = crate::transcribe::transcribe(&config, &paths, &audio)?;
-                            if raw.is_empty() {
+                            let output = crate::pipeline::run(
+                                &pipeline_config,
+                                &paths,
+                                &audio,
+                                app_id.as_deref(),
+                                mode,
+                                &selection,
+                                || {
+                                    let _ = tx.send(Message::Cleaning(id));
+                                },
+                            )?;
+                            if output.text.is_empty() {
                                 return Ok(None);
                             }
-                            if config.cleanup.enabled {
-                                let _ = tx.send(Message::Cleaning(id));
-                            }
-                            let cleaned = crate::cleanup::cleanup(&config, &paths, &raw);
                             Ok(Some(Dictation {
                                 at: SystemTime::now(),
-                                raw,
-                                cleaned,
-                                app_id: None,
+                                raw: output.raw,
+                                cleaned: output.text,
+                                app_id,
                                 audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX)) as u32,
                                 latency_ms: started.elapsed().as_millis().min(u128::from(u32::MAX))
                                     as u32,
-                                mode: Mode::Dictate,
+                                mode,
                             }))
                         })();
                         let _ = tx.send(Message::Finished(id, result));
@@ -329,15 +423,22 @@ fn run(
                 if let Err(error) = spawned {
                     busy = None;
                     report_error(&events, error);
+                    if config.sounds {
+                        crate::cues::play(crate::cues::Cue::Error);
+                    }
                 }
             }
             Command::Cancel => {
                 recorder = None;
+                monitor = None;
+                stop_effects(&mut effects, &mut restoring);
                 busy = None;
                 phase(&events, Phase::Idle);
             }
             Command::Reload(next) => {
                 recorder = None;
+                monitor = None;
+                stop_effects(&mut effects, &mut restoring);
                 busy = None;
                 drop(hotkeys.take());
                 epoch = epoch.wrapping_add(1);
@@ -345,7 +446,51 @@ fn run(
                 phase(&events, Phase::Idle);
                 hotkeys = open_hotkeys(&config, &tx, epoch, &events);
             }
-            Command::Start | Command::PasteLast | Command::MicTest(_) => {}
+            Command::PasteLast => {
+                if let Some(text) = &last {
+                    let result = (|| -> Result<()> {
+                        let injector = match &mut injector {
+                            Some(injector) => injector,
+                            slot => slot.insert(TextInjector::new()?),
+                        };
+                        injector.inject_text(text, focused_app_id().as_deref(), config.auto_submit)
+                    })();
+                    if let Err(error) = result {
+                        report_error(&events, error);
+                        if config.sounds {
+                            crate::cues::play(crate::cues::Cue::Error);
+                        }
+                    }
+                }
+            }
+            Command::MicTest(false) => {
+                monitor = None;
+            }
+            Command::MicTest(true) if recorder.is_none() => match AudioRecorder::monitor(&config) {
+                Ok(capture) => monitor = Some((capture, Instant::now() + Duration::from_secs(10))),
+                Err(error) => {
+                    report_error(&events, error);
+                    if config.sounds {
+                        crate::cues::play(crate::cues::Cue::Error);
+                    }
+                }
+            },
+            Command::Start | Command::MicTest(true) => {}
         }
+    }
+    drop(recorder);
+    drop(monitor);
+    stop_effects(&mut effects, &mut restoring);
+    for thread in restoring {
+        let _ = thread.join();
+    }
+}
+
+fn stop_effects(
+    effects: &mut Option<crate::media::ListeningEffects>,
+    restoring: &mut Vec<thread::JoinHandle<()>>,
+) {
+    if let Some(effects) = effects.take() {
+        restoring.push(effects.finish());
     }
 }
