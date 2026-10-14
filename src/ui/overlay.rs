@@ -64,7 +64,7 @@ impl Overlay {
 
     pub fn phase(&mut self, phase: Phase, window: &mut Window, cx: &mut Context<Self>) {
         let next = match phase {
-            Phase::Listening => Visual::Listening,
+            Phase::Listening(_) => Visual::Listening,
             Phase::Transcribing | Phase::Cleaning => Visual::Processing,
             Phase::Error(message) => Visual::Error(message),
             Phase::Idle if self.phase == Visual::Listening => Visual::Cancel,

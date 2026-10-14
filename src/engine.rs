@@ -19,10 +19,19 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    Dictate,
+    /// Voice instruction applied to the selected text.
+    Command,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Phase {
     Idle,
-    Listening,
+    Listening(Mode),
     Transcribing,
     Cleaning,
     Error(String),
@@ -37,6 +46,8 @@ pub struct Dictation {
     pub app_id: Option<String>,
     pub audio_ms: u32,
     pub latency_ms: u32,
+    #[serde(default)]
+    pub mode: Mode,
 }
 
 #[derive(Debug, Clone)]
@@ -47,14 +58,16 @@ pub enum Event {
     Done(Dictation),
 }
 
-// Reload carries the config by value to preserve the UI contract.
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Command {
     Start,
     Stop,
     Cancel,
-    Reload(AppConfig),
+    Reload(Box<AppConfig>),
+    /// Re-pastes the latest dictation into the focused app.
+    PasteLast,
+    /// Streams Event::Level from the mic without recording, for settings and onboarding.
+    MicTest(bool),
 }
 
 pub struct Engine {
@@ -102,6 +115,18 @@ pub fn load_history(paths: &AppPaths) -> Vec<Dictation> {
         .map_while(std::result::Result::ok)
         .filter_map(|line| serde_json::from_str(&line).ok())
         .collect()
+}
+
+/// Rewrites history atomically, e.g. after the user deletes an entry.
+pub fn save_history(paths: &AppPaths, history: &[Dictation]) -> Result<()> {
+    let temporary = paths.history_file.with_extension("jsonl.tmp");
+    let mut bytes = Vec::new();
+    for dictation in history {
+        serde_json::to_writer(&mut bytes, dictation)?;
+        bytes.push(b'\n');
+    }
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(temporary, &paths.history_file).context("failed to save history")
 }
 
 enum Message {
@@ -244,7 +269,7 @@ fn run(
                 match AudioRecorder::start(&config) {
                     Ok(capture) => {
                         recorder = Some(capture);
-                        phase(&events, Phase::Listening);
+                        phase(&events, Phase::Listening(Mode::Dictate));
                     }
                     Err(error) => report_error(&events, error),
                 }
@@ -296,6 +321,7 @@ fn run(
                                 audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX)) as u32,
                                 latency_ms: started.elapsed().as_millis().min(u128::from(u32::MAX))
                                     as u32,
+                                mode: Mode::Dictate,
                             }))
                         })();
                         let _ = tx.send(Message::Finished(id, result));
@@ -315,11 +341,11 @@ fn run(
                 busy = None;
                 drop(hotkeys.take());
                 epoch = epoch.wrapping_add(1);
-                config = next;
+                config = *next;
                 phase(&events, Phase::Idle);
                 hotkeys = open_hotkeys(&config, &tx, epoch, &events);
             }
-            Command::Start => {}
+            Command::Start | Command::PasteLast | Command::MicTest(_) => {}
         }
     }
 }

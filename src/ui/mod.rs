@@ -38,7 +38,9 @@ impl AppState {
                 }
                 self.config.save(&self.paths)?;
                 if let Some(engine) = &self.engine {
-                    engine.send(hermes::engine::Command::Reload(self.config.clone()));
+                    engine.send(hermes::engine::Command::Reload(Box::new(
+                        self.config.clone(),
+                    )));
                 }
             }
             if !key.is_empty() {

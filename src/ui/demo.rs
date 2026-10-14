@@ -10,7 +10,7 @@ pub fn history() -> Vec<Dictation> {
         ("Refactor the transcribe module so the HTTP client is created once and reused across dictations.", "t3-code", 87300),
     ].into_iter().map(|(text, app, ago)| Dictation {
         at: SystemTime::now() - Duration::from_secs(ago), raw: text.into(), cleaned: text.into(),
-        app_id: Some(app.into()), audio_ms: 3800, latency_ms: 640,
+        app_id: Some(app.into()), audio_ms: 3800, latency_ms: 640, mode: Default::default(),
     }).collect()
 }
 
@@ -34,7 +34,9 @@ pub fn spawn() -> async_channel::Receiver<Event> {
         std::thread::sleep(Duration::from_secs(2));
         let mut cycle = 0;
         loop {
-            if !send(Event::Phase(Phase::Listening)) {
+            if !send(Event::Phase(Phase::Listening(
+                hermes::engine::Mode::Dictate,
+            ))) {
                 break;
             }
             for tick in 0..91 {

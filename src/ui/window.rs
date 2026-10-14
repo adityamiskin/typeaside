@@ -154,7 +154,7 @@ impl Render for MainWindow {
         } else {
             match &state.phase {
                 Phase::Idle => (GREEN, "Ready".into()),
-                Phase::Listening => (WHITE, "Listening".into()),
+                Phase::Listening(_) => (WHITE, "Listening".into()),
                 Phase::Transcribing => (WHITE, "Transcribing".into()),
                 Phase::Cleaning => (WHITE, "Cleaning".into()),
                 Phase::Error(error) => (RED, error.clone()),

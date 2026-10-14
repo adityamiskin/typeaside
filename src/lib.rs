@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod autostart;
 mod cleanup;
 pub mod config;
 pub mod credentials;
