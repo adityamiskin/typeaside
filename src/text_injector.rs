@@ -95,19 +95,11 @@ impl TextInjector {
             }
             Ok(())
         })();
-        thread::sleep(Duration::from_millis(300));
-        let restored = match previous {
-            Some(text) => set_clipboard(&text),
-            None => {
-                let status = Command::new("wl-copy").arg("--clear").status()?;
-                if status.success() {
-                    Ok(())
-                } else {
-                    anyhow::bail!("failed to restore empty clipboard")
-                }
-            }
+        let Some(previous) = previous else {
+            return result;
         };
-        result.and(restored)
+        thread::sleep(Duration::from_millis(300));
+        result.and(set_clipboard(&previous))
     }
 
     fn combo(&mut self, modifiers: &[KeyCode], key: KeyCode) -> Result<()> {
@@ -134,6 +126,7 @@ fn key_event(code: KeyCode, value: i32) -> InputEvent {
     InputEvent::new(EventType::KEY.0, code.code(), value)
 }
 
+/// `None` when the clipboard is empty or holds non-text data, which wl-copy cannot restore.
 fn read_clipboard() -> Result<Option<String>> {
     let types = Command::new("wl-paste")
         .arg("--list-types")
@@ -144,7 +137,7 @@ fn read_clipboard() -> Result<Option<String>> {
     }
     let types = String::from_utf8_lossy(&types.stdout);
     if !types.lines().any(|line| line.starts_with("text/")) {
-        bail!("clipboard contains non-text data; refusing to replace it");
+        return Ok(None);
     }
     let output = Command::new("wl-paste")
         .args(["--no-newline", "--type", "text"])

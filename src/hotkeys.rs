@@ -88,7 +88,7 @@ impl HotkeyService {
             .name("hermes-hotkeys".into())
             .spawn(move || {
                 let mut pressed = vec![HashSet::new(); devices.len()];
-                loop {
+                while !devices.is_empty() {
                     let mut fds = vec![PollFd::new(reader.as_fd(), PollFlags::POLLIN)];
                     fds.extend(
                         devices
@@ -109,11 +109,13 @@ impl HotkeyService {
                         .map(|fd| fd.revents().unwrap_or_else(PollFlags::empty))
                         .collect();
                     drop(fds);
-                    for (index, flags) in ready.iter().enumerate() {
+                    for (index, flags) in ready.iter().enumerate().rev() {
                         if flags.intersects(
                             PollFlags::POLLHUP | PollFlags::POLLERR | PollFlags::POLLNVAL,
                         ) {
-                            return;
+                            devices.swap_remove(index);
+                            pressed.swap_remove(index);
+                            continue;
                         }
                         if !flags.contains(PollFlags::POLLIN) {
                             continue;

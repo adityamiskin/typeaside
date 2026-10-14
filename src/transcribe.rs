@@ -4,16 +4,17 @@ use reqwest::blocking::{Client, multipart};
 use serde::Deserialize;
 use std::time::Duration;
 
+/// Presses under 250 ms are accidental taps (the hotkey doubles as a modifier).
+pub(crate) fn is_tap(audio: &[f32]) -> bool {
+    audio.len() < 4000
+}
+
 pub(crate) fn has_speech(audio: &[f32]) -> bool {
-    audio.len() >= 4000
-        && (audio.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>() / audio.len() as f64).sqrt()
-            >= 0.003
+    (audio.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>() / audio.len().max(1) as f64).sqrt()
+        >= 0.003
 }
 
 pub(crate) fn transcribe(config: &AppConfig, paths: &AppPaths, audio: &[f32]) -> Result<String> {
-    if !has_speech(audio) {
-        return Ok(String::new());
-    }
     request(config, audio, &endpoint_key(paths, &config.stt.base_url)?)
 }
 
@@ -158,12 +159,8 @@ mod tests {
         assert_eq!(request(&config, &[0.1; 4800], "test-key")?, "Hello.");
         mock.join()
             .map_err(|_| anyhow::anyhow!("mock panicked"))??;
-        assert!(!has_speech(&[0.2; 3999]));
+        assert!(is_tap(&[0.2; 3999]));
         assert!(!has_speech(&[0.0; 8000]));
-        config.stt.base_url = "invalid endpoint".into();
-        let paths = AppPaths::discover()?;
-        assert_eq!(transcribe(&config, &paths, &[0.0; 8000])?, "");
-        assert_eq!(transcribe(&config, &paths, &[0.2; 3999])?, "");
         Ok(())
     }
 }

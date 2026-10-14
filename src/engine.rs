@@ -152,6 +152,7 @@ fn run(
     let mut recorder: Option<AudioRecorder> = None;
     let mut generation = 0u64;
     let mut busy = None;
+    let mut injector: Option<TextInjector> = None;
     loop {
         if events.is_closed() {
             break;
@@ -195,7 +196,10 @@ fn run(
                     Ok(Some(mut dictation)) => {
                         let completed = (|| -> Result<()> {
                             let started = Instant::now();
-                            let mut injector = TextInjector::new()?;
+                            let injector = match &mut injector {
+                                Some(injector) => injector,
+                                slot => slot.insert(TextInjector::new()?),
+                            };
                             dictation.app_id = focused_app_id();
                             injector.inject_text(
                                 &dictation.cleaned,
@@ -256,8 +260,12 @@ fn run(
                         continue;
                     }
                 };
-                if !crate::transcribe::has_speech(&audio) {
+                if crate::transcribe::is_tap(&audio) {
                     phase(&events, Phase::Idle);
+                    continue;
+                }
+                if !crate::transcribe::has_speech(&audio) {
+                    report_error(&events, "No speech detected");
                     continue;
                 }
                 generation = generation.wrapping_add(1);

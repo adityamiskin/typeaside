@@ -53,7 +53,7 @@ pub(crate) fn cleanup(config: &AppConfig, paths: &AppPaths, raw: &str) -> String
     if prepared.is_empty() {
         return raw.into();
     }
-    checked_output(raw, request(config, paths, &prepared))
+    checked_output(&prepared, request(config, paths, &prepared))
 }
 
 fn request(config: &AppConfig, paths: &AppPaths, text: &str) -> Result<String> {
