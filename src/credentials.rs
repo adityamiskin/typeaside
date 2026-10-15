@@ -5,7 +5,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-/// Secret Service lookups are D-Bus round trips, so keys are cached per host for the process.
+/// Keyring lookups can be IPC round trips (D-Bus on Linux), so keys are cached per host for the process.
 fn cache() -> &'static Mutex<HashMap<String, String>> {
     static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
     CACHE.get_or_init(Default::default)
@@ -14,11 +14,9 @@ fn cache() -> &'static Mutex<HashMap<String, String>> {
 fn entry(host: &str) -> Result<Entry> {
     static STORE: OnceLock<Result<(), String>> = OnceLock::new();
     STORE
-        .get_or_init(|| {
-            keyring::use_named_store("secret-service").map_err(|error| error.to_string())
-        })
+        .get_or_init(|| keyring::use_named_store(store_name()).map_err(|error| error.to_string()))
         .clone()
-        .map_err(|error| anyhow!("failed to open Secret Service keyring: {error}"))?;
+        .map_err(|error| anyhow!("failed to open {} keyring: {error}", store_name()))?;
     Entry::new("hermes", host).with_context(|| format!("failed to open credential for {host}"))
 }
 
@@ -73,4 +71,19 @@ pub(crate) fn endpoint_key(base_url: &str) -> Result<String> {
     }
     stored?;
     Err(anyhow!("no API key saved for {host}"))
+}
+
+fn store_name() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "secret-service"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "keychain"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
 }

@@ -2,6 +2,7 @@ mod ui;
 
 fn main() {
     let started = std::time::Instant::now();
+    #[cfg(target_os = "linux")]
     prefer_integrated_gpu();
     let demo = std::env::args().any(|arg| arg == "--demo");
     if let Err(error) = ui::run(demo, std::env::args().any(|arg| arg == "--hidden"), started) {
@@ -12,6 +13,7 @@ fn main() {
 
 /// On hybrid laptops, loading the NVIDIA Vulkan driver wakes the discrete GPU (about 2 s) and
 /// maps ~50 MiB of driver libraries, for a UI the integrated GPU draws just as well.
+#[cfg(target_os = "linux")]
 fn prefer_integrated_gpu() {
     const NVIDIA: &str = "0x10de";
     if [

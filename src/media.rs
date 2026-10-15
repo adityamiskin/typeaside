@@ -1,12 +1,15 @@
 use crate::cues::{self, Cue};
+#[cfg(target_os = "linux")]
+use std::process::{Command, Stdio};
 use std::{
-    process::{Command, Stdio},
     sync::{Mutex, mpsc},
     thread::{self, JoinHandle},
 };
 
+#[cfg(target_os = "linux")]
 struct Volume(String);
 
+#[cfg(target_os = "linux")]
 impl Volume {
     fn duck() -> Option<Self> {
         let output = Command::new("timeout")
@@ -32,6 +35,7 @@ impl Volume {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn set_volume(value: &str) {
     let _ = Command::new("timeout")
         .args(["0.5s", "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", value])
@@ -40,9 +44,20 @@ fn set_volume(value: &str) {
         .status();
 }
 
+#[cfg(target_os = "linux")]
 impl Drop for Volume {
     fn drop(&mut self) {
         set_volume(&self.0);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+struct Volume;
+
+#[cfg(not(target_os = "linux"))]
+impl Volume {
+    fn duck() -> Option<Self> {
+        None
     }
 }
 
@@ -66,9 +81,9 @@ impl ListeningEffects {
                     cues::wait(Cue::Start);
                 }
                 if matches!(receiver.try_recv(), Err(mpsc::TryRecvError::Empty)) {
-                    let volume = if duck { Volume::duck() } else { None };
+                    // Restores the volume when it goes out of scope, before the stop cue.
+                    let _volume = if duck { Volume::duck() } else { None };
                     let _ = receiver.recv();
-                    drop(volume);
                 }
                 if sounds {
                     cues::wait(Cue::Stop);
