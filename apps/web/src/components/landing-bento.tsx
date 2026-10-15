@@ -2,14 +2,14 @@ import { useEffect, useRef, type CSSProperties } from "react";
 import { Waveform } from "./site";
 
 const dictionary = [
-  "Priya",
+  "Siobhán",
+  "Nguyen",
+  "Saoirse",
   "Kubernetes",
-  "Zapsight",
-  "Dodo",
-  "WorkOS",
-  "Sanjana",
-  "GPUI",
-  "Convex",
+  "PostgreSQL",
+  "Joaquín",
+  "Tchaikovsky",
+  "Worcestershire",
 ] as const;
 const commands = [
   "make it friendlier",

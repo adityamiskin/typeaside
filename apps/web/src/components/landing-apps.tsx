@@ -1,18 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { appIcons, type AppIconName } from "../lib/app-icons";
+import { apps, type AppName } from "../lib/apps";
 
-export function AppTile({ name }: { name: AppIconName }) {
-  const { title, path } = appIcons[name];
+export function AppTile({ name }: { name: AppName }) {
   return (
-    <span className="app-tile" title={title} role="img" aria-label={title}>
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d={path} />
-      </svg>
+    <span className="app-tile" title={apps[name]}>
+      <img src={`/img/apps/${name}.svg`} alt={apps[name]} width={28} height={28} />
     </span>
   );
 }
 
-const marqueeApps = Object.keys(appIcons) as AppIconName[];
+const marqueeApps = Object.keys(apps) as AppName[];
 
 export function AppMarquee() {
   const marquee = useRef<HTMLDivElement>(null);
@@ -48,13 +45,13 @@ export function AppMarquee() {
 
 const words = ["Gmail", "Slack", "Notion", "Cursor", "Linear", "Docs", "ChatGPT"] as const;
 const useCases = [
-  { apps: ["notion", "obsidian", "googledocs"], text: "Get ideas down before they slip away." },
+  { apps: ["notion", "obsidian", "drive"], text: "Get ideas down before they slip away." },
   {
-    apps: ["cursor", "github", "linear"],
+    apps: ["cursor", "claude", "linear"],
     text: "Prompt AI and write tickets at the speed you think.",
   },
   {
-    apps: ["gmail", "whatsapp", "discord"],
+    apps: ["gmail", "slack", "whatsapp"],
     text: "Answer email and chat without touching the keyboard.",
   },
 ] as const;

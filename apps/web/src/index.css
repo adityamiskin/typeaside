@@ -643,7 +643,7 @@ footer {
 }
 .wordmark {
   font-weight: 600;
-  font-size: clamp(120px, 24vw, 340px);
+  font-size: min(28vw, 340px);
   letter-spacing: -0.07em;
   line-height: 0.78;
   margin: 48px 0 0 -0.04em;
@@ -986,7 +986,7 @@ small {
 .marquee-track {
   display: flex;
   width: max-content;
-  animation: marquee 60s linear infinite;
+  animation: marquee 40s linear infinite;
   animation-play-state: paused;
 }
 .app-marquee.in-view .marquee-track {
@@ -1012,23 +1012,25 @@ small {
     inset 0 0 0 1px var(--line),
     0 6px 16px -10px rgb(30 50 90 / 0.25);
 }
-.app-tile svg {
-  width: 26px;
-  height: 26px;
-  fill: #16171a;
-  opacity: 0.85;
+.app-tile img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 @keyframes marquee {
   to {
     translate: -50% 0;
   }
 }
+.bento-head {
+  margin-top: 160px;
+}
 .bento-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   grid-template-rows: repeat(2, 340px);
   gap: 16px;
-  margin-top: 96px;
+  margin-top: 64px;
 }
 .bento-tile {
   min-width: 0;
@@ -1176,7 +1178,7 @@ small {
   height: 40px;
   border-radius: 12px;
 }
-.use-case .app-tile svg {
+.use-case .app-tile img {
   width: 20px;
   height: 20px;
 }

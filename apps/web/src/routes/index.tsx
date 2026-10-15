@@ -52,6 +52,10 @@ function Landing() {
             rest.
           </p>
           <LandingFeatures />
+          <h2 className="bento-head">Made for how you work.</h2>
+          <p className="lead">
+            It learns your words, speaks your language and keeps your history on your computer.
+          </p>
           <LandingBento />
         </div>
       </section>
