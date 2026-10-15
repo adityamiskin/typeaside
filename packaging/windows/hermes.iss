@@ -14,6 +14,9 @@ Compression=lzma2
 SolidCompression=yes
 UninstallDisplayIcon={app}\hermes.exe
 WizardStyle=modern
+CloseApplications=yes
+CloseApplicationsFilter=hermes.exe
+RestartApplications=no
 
 [Files]
 Source: "..\..\target\release\hermes.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -21,3 +24,6 @@ Source: "..\..\target\release\hermes.exe"; DestDir: "{app}"; Flags: ignoreversio
 [Icons]
 Name: "{group}\Hermes"; Filename: "{app}\hermes.exe"
 Name: "{group}\Uninstall Hermes"; Filename: "{uninstallexe}"
+
+[Run]
+Filename: "{app}\hermes.exe"; Flags: nowait postinstall skipifnotsilent

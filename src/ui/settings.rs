@@ -728,8 +728,42 @@ impl MainWindow {
                                     .text_size(px(12.))
                                     .line_height(px(17.4))
                                     .text_color(p.muted)
-                                    .child(env!("CARGO_PKG_VERSION")),
+                                    .child(match &self.state.read(cx).update {
+                                        Some(release) => format!(
+                                            "{} · {} available",
+                                            env!("CARGO_PKG_VERSION"),
+                                            release.version
+                                        ),
+                                        None => env!("CARGO_PKG_VERSION").into(),
+                                    }),
                             )
+                            .children(self.state.read(cx).update.as_ref().map(|_| {
+                                let status = self.state.read(cx).update_status;
+                                button(
+                                    match status {
+                                        hermes::update::Status::Available => "Update",
+                                        hermes::update::Status::Installing => "Updating",
+                                        hermes::update::Status::Failed => "Update failed",
+                                    },
+                                    true,
+                                    p,
+                                )
+                                .id("version-update")
+                                .when(status == hermes::update::Status::Installing, |button| {
+                                    button.text_color(p.muted)
+                                })
+                                .when(status == hermes::update::Status::Failed, |button| {
+                                    button.text_color(p.red)
+                                })
+                                .when(
+                                    status != hermes::update::Status::Installing,
+                                    |button| {
+                                        button.on_click(cx.listener(|this, _, _, cx| {
+                                            super::install_update(&this.state, cx)
+                                        }))
+                                    },
+                                )
+                            }))
                             .child(
                                 button("Open config folder", false, p)
                                     .id("config-folder")
