@@ -1,15 +1,18 @@
+mod assets;
 mod demo;
 mod dictionary;
 mod home;
 mod motion;
 mod overlay;
 mod settings;
+mod snippets;
+mod style;
 mod theme;
 mod tray;
 mod window;
 
 use gpui::{App, AppContext, QuitMode, WindowHandle};
-use hermes::engine::{Dictation, Engine, Event, Phase};
+use hermes::engine::{Command, Dictation, Engine, Event, Phase};
 use hermes::{config::AppConfig, credentials, paths::AppPaths};
 
 pub struct AppState {
@@ -18,215 +21,306 @@ pub struct AppState {
     engine: Option<Engine>,
     is_demo: bool,
     key_hint: String,
+    editing_key_hint: String,
+    devices: Vec<String>,
     history: Vec<Dictation>,
     phase: Phase,
     save_error: Option<String>,
     trace_started: Option<std::time::Instant>,
     initial_page: window::Page,
+    expanded: Option<std::time::SystemTime>,
+    search: String,
+    mic_testing: bool,
+    mic_generation: u64,
+    level: f32,
+    onboarding_step: usize,
+    onboarding_transcript: Option<String>,
 }
 
 impl AppState {
-    fn persist(&mut self, key: &str) {
-        let result = (|| -> anyhow::Result<()> {
-            if !self.is_demo {
-                if !key.is_empty() {
-                    let url = reqwest::Url::parse(&self.config.stt.base_url)?;
-                    let host = url
-                        .host_str()
-                        .ok_or_else(|| anyhow::anyhow!("endpoint has no host"))?;
-                    credentials::save_credential(&self.paths, host, key)?;
-                }
-                self.config.save(&self.paths)?;
-                if let Some(engine) = &self.engine {
-                    engine.send(hermes::engine::Command::Reload(Box::new(
-                        self.config.clone(),
-                    )));
-                }
-            }
-            if !key.is_empty() {
-                self.key_hint = "••••••••".into();
-            } else if !self.is_demo {
-                self.key_hint = key_hint(&self.paths, &self.config.stt.base_url);
-            }
-            Ok(())
-        })();
-        self.save_error = result.err().map(|error| format!("Could not save: {error}"));
+    fn persist(&mut self) {
+        if self.is_demo {
+            return;
+        }
+        self.save_error = self
+            .config
+            .save(&self.paths)
+            .err()
+            .map(|e| format!("Could not save: {e}"));
+        if self.save_error.is_none()
+            && let Some(engine) = &self.engine
+        {
+            engine.send(Command::Reload(Box::new(self.config.clone())));
+        }
+    }
+    fn command(&self, command: Command) {
+        if let Some(engine) = &self.engine {
+            engine.send(command);
+        }
     }
 }
 
-pub fn run(is_demo: bool, started: std::time::Instant) -> anyhow::Result<()> {
+pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::Result<()> {
     let paths = AppPaths::discover()?;
-    let mut config = if is_demo {
-        AppConfig::default()
-    } else {
-        AppConfig::load(&paths)?
-    };
-    let mut startup_error = None;
-    let (engine, events) = if is_demo {
-        config.dictionary = vec![
-            "Aditya".into(),
-            "GPUI".into(),
-            "niri".into(),
-            "Zapsight".into(),
-        ];
-        (None, demo::spawn())
-    } else {
-        match Engine::spawn(config.clone()) {
-            Ok((engine, events)) => (Some(engine), events),
-            Err(error) => {
-                startup_error = Some(format!("Engine startup failed: {error}"));
-                let (_, events) = async_channel::unbounded();
-                (None, events)
-            }
-        }
-    };
-    let key_hint = if is_demo {
-        "••••••••".into()
-    } else {
-        key_hint(&paths, &config.stt.base_url)
-    };
-    let initial_page = if is_demo {
-        match std::env::var("HERMES_DEMO_PAGE").as_deref() {
-            Ok("dictionary") => window::Page::Dictionary,
-            Ok("settings") => window::Page::Settings,
-            _ => window::Page::Home,
-        }
-    } else {
-        window::Page::Home
-    };
-    let mut history = if is_demo {
-        demo::history()
-    } else {
-        hermes::engine::load_history(&paths)
-    };
-    history.sort_by_key(|item| std::cmp::Reverse(item.at));
     gpui_platform::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(assets::Assets)
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
-            theme::init(cx);
-            let state = cx.new(|_| AppState {
-                config,
-                paths,
-                engine,
-                is_demo,
-                key_hint,
-                history,
-                phase: Phase::Idle,
-                save_error: startup_error,
-                trace_started: (std::env::var("HERMES_TRACE").as_deref() == Ok("1"))
-                    .then_some(started),
-                initial_page,
+            trace("application ready", started);
+            let load_paths = paths.clone();
+            let load = cx.background_executor().spawn(async move {
+                let mut config = if is_demo {
+                    demo::config()
+                } else {
+                    AppConfig::load(&load_paths)?
+                };
+                if is_demo {
+                    match std::env::var("HERMES_THEME").as_deref() {
+                        Ok("light") => config.theme = hermes::config::Theme::Light,
+                        Ok("dark") => config.theme = hermes::config::Theme::Dark,
+                        _ => {}
+                    }
+                }
+                let mut history = if is_demo {
+                    demo::history()
+                } else {
+                    hermes::engine::load_history(&load_paths)
+                };
+                history.sort_by_key(|item| std::cmp::Reverse(item.at));
+                Ok::<_, anyhow::Error>((config, history))
             });
-            let mut main_window = match window::open(state.clone(), cx) {
-                Ok(window) => Some(window),
-                Err(error) => {
-                    eprintln!("hermes: cannot open main window: {error:#}");
-                    cx.quit();
-                    return;
-                }
-            };
-            match tray::spawn() {
-                Ok((handle, actions)) => {
-                    let state = state.clone();
-                    cx.spawn(async move |cx| {
-                        let _handle = handle;
-                        while let Ok(action) = actions.recv().await {
-                            cx.update(|cx| match action {
-                                tray::Action::Quit => cx.quit(),
-                                tray::Action::Open => {
-                                    let activated = main_window.is_some_and(|window| {
-                                        window
-                                            .update(cx, |_, window, _| window.activate_window())
-                                            .is_ok()
-                                    });
-                                    if !activated {
-                                        match window::open(state.clone(), cx) {
-                                            Ok(window) => main_window = Some(window),
-                                            Err(error) => eprintln!(
-                                                "hermes: cannot open main window: {error:#}"
-                                            ),
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                    })
-                    .detach();
-                }
-                Err(error) => eprintln!("hermes: tray unavailable: {error:#}"),
-            }
             cx.spawn(async move |cx| {
-                let mut surface: Option<WindowHandle<overlay::Overlay>> = None;
-                while let Ok(event) = events.recv().await {
-                    cx.update(|cx| match event {
-                        Event::Level(level) => {
-                            if let Some(surface) = surface {
-                                let _ = surface.update(cx, |view, _, cx| view.level(level, cx));
-                            }
-                        }
-                        Event::Done(dictation) => {
-                            state.update(cx, |state, cx| {
-                                state.history.insert(0, dictation);
-                                cx.notify();
-                            });
-                            let updated = surface.is_some_and(|surface| {
-                                surface
-                                    .update(cx, |view, window, cx| view.success(window, cx))
-                                    .is_ok()
-                            });
-                            if !updated {
-                                match overlay::open(cx) {
-                                    Ok(opened) => {
-                                        let _ = opened.update(cx, |view, window, cx| {
-                                            view.success(window, cx)
-                                        });
-                                        surface = Some(opened);
-                                    }
-                                    Err(error) => {
-                                        eprintln!("hermes: cannot open overlay: {error:#}")
-                                    }
-                                }
-                            }
-                        }
-                        Event::Phase(phase) => {
-                            state.update(cx, |state, cx| {
-                                state.phase = phase.clone();
-                                cx.notify();
-                            });
-                            let updated = surface.is_some_and(|surface| {
-                                surface
-                                    .update(cx, |view, window, cx| {
-                                        view.phase(phase.clone(), window, cx)
-                                    })
-                                    .is_ok()
-                            });
-                            if !updated && phase != Phase::Idle {
-                                match overlay::open(cx) {
-                                    Ok(opened) => {
-                                        let _ = opened.update(cx, |view, window, cx| {
-                                            view.phase(phase, window, cx)
-                                        });
-                                        surface = Some(opened);
-                                    }
-                                    Err(error) => {
-                                        eprintln!("hermes: cannot open overlay: {error:#}")
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
+                let loaded = load.await;
+                cx.update(move |cx| match loaded {
+                    Ok((config, history)) => {
+                        trace("config and history ready", started);
+                        start_ui(config, paths, history, is_demo, hidden, started, cx)
+                    }
+                    Err(error) => {
+                        eprintln!("hermes: cannot load configuration: {error:#}");
+                        cx.quit();
+                    }
+                });
             })
             .detach();
         });
     Ok(())
 }
+fn start_ui(
+    config: AppConfig,
+    paths: AppPaths,
+    history: Vec<Dictation>,
+    is_demo: bool,
+    hidden: bool,
+    started: std::time::Instant,
+    cx: &mut App,
+) {
+    let initial_page = if is_demo {
+        window::Page::from_demo()
+    } else {
+        window::Page::Home
+    };
+    trace("theme init begin", started);
+    theme::init(config.theme, cx);
+    trace("theme init end", started);
+    let state = cx.new(|_| AppState {
+        config,
+        paths,
+        engine: None,
+        is_demo,
+        key_hint: if is_demo {
+            "Saved in keyring"
+        } else {
+            "Checking keyring…"
+        }
+        .into(),
+        editing_key_hint: if is_demo {
+            "Saved in keyring"
+        } else {
+            "Checking keyring…"
+        }
+        .into(),
+        devices: vec!["System default".into()],
+        history,
+        phase: Phase::Idle,
+        save_error: None,
+        trace_started: (std::env::var("HERMES_TRACE").as_deref() == Ok("1")).then_some(started),
+        initial_page,
+        expanded: None,
+        search: String::new(),
+        mic_testing: false,
+        mic_generation: 0,
+        level: if is_demo { 0.7 } else { 0. },
+        onboarding_step: if initial_page == window::Page::Onboarding {
+            std::env::var("HERMES_DEMO_STEP")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|step| (1..=3).contains(step))
+                .unwrap_or(2)
+                - 1
+        } else {
+            0
+        },
+        onboarding_transcript: None,
+    });
+    trace("main window open begin", started);
+    let mut main_window = if hidden {
+        None
+    } else {
+        match window::open(state.clone(), cx) {
+            Ok(window) => Some(window),
+            Err(error) => {
+                eprintln!("hermes: cannot open main window: {error:#}");
+                cx.quit();
+                return;
+            }
+        }
+    };
+    trace("main window open end", started);
+    let tray_task = cx.background_executor().spawn(async { tray::spawn() });
+    let tray_state = state.clone();
+    cx.spawn(async move |cx| match tray_task.await {
+        Ok((handle, actions)) => {
+            let _handle = handle;
+            while let Ok(action) = actions.recv().await {
+                cx.update(|cx| match action {
+                    tray::Action::Quit => cx.quit(),
+                    tray::Action::Open => {
+                        let activated = main_window.is_some_and(|handle| {
+                            handle.update(cx, |_, w, _| w.activate_window()).is_ok()
+                        });
+                        if !activated {
+                            match window::open(tray_state.clone(), cx) {
+                                Ok(window) => main_window = Some(window),
+                                Err(e) => {
+                                    eprintln!("hermes: cannot open main window: {e:#}")
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        Err(e) => eprintln!("hermes: tray unavailable: {e:#}"),
+    })
+    .detach();
+    if !is_demo {
+        let config = state.read(cx).config.clone();
+        let details = cx.background_executor().spawn(async move {
+            let stt = key_hint(&config.stt.base_url);
+            let editing = key_hint(&config.cleanup.endpoint.base_url);
+            let mut devices = vec!["System default".to_owned()];
+            if let Ok(inputs) = hermes::audio::list_input_devices() {
+                devices.extend(inputs.into_iter().map(|input| input.name));
+            }
+            devices.dedup();
+            (stt, editing, devices)
+        });
+        let details_state = state.clone();
+        cx.spawn(async move |cx| {
+            let (stt, editing, devices) = details.await;
+            details_state.update(cx, |s, cx| {
+                s.key_hint = stt;
+                s.editing_key_hint = editing;
+                s.devices = devices;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    let startup_config = state.read(cx).config.clone();
+    let startup = cx.background_executor().spawn(async move {
+        if is_demo {
+            return Ok((None, demo::spawn()));
+        }
+        let (engine, events) = Engine::spawn(startup_config)?;
+        Ok::<_, anyhow::Error>((Some(engine), events))
+    });
+    cx.spawn(async move |cx| {
+        let events = match startup.await {
+            Ok((engine, events)) => {
+                state.update(cx, |s, cx| {
+                    s.engine = engine;
+                    s.command(Command::Reload(Box::new(s.config.clone())));
+                    if s.mic_testing {
+                        s.command(Command::MicTest(true));
+                    }
+                    cx.notify();
+                });
+                events
+            }
+            Err(e) => {
+                state.update(cx, |s, cx| {
+                    s.save_error = Some(format!("Engine startup failed: {e}"));
+                    cx.notify();
+                });
+                return;
+            }
+        };
+        let mut surface: Option<WindowHandle<overlay::Overlay>> = None;
+        while let Ok(event) = events.recv().await {
+            cx.update(|cx| match event {
+                Event::Level(level) => {
+                    state.update(cx, |s, cx| {
+                        if s.mic_testing {
+                            s.level = level;
+                            cx.notify();
+                        }
+                    });
+                    if let Some(surface) = surface {
+                        let _ = surface.update(cx, |v, _, cx| v.level(level, cx));
+                    }
+                }
+                Event::Done(dictation) => {
+                    state.update(cx, |s, cx| {
+                        if !s.config.onboarded && s.onboarding_step == 2 {
+                            s.onboarding_transcript = Some(dictation.cleaned.clone());
+                        }
+                        s.history.insert(0, dictation);
+                        cx.notify();
+                    });
+                    let updated =
+                        surface.is_some_and(|h| h.update(cx, |v, w, cx| v.success(w, cx)).is_ok());
+                    if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
+                        let _ = h.update(cx, |v, w, cx| v.success(w, cx));
+                        surface = Some(h);
+                    }
+                }
+                Event::Phase(phase) => {
+                    state.update(cx, |s, cx| {
+                        s.phase = phase.clone();
+                        cx.notify();
+                    });
+                    let updated = surface.is_some_and(|h| {
+                        h.update(cx, |v, w, cx| v.phase(phase.clone(), w, cx))
+                            .is_ok()
+                    });
+                    if !updated
+                        && phase != Phase::Idle
+                        && let Ok(h) = overlay::open(state.clone(), cx)
+                    {
+                        let _ = h.update(cx, |v, w, cx| v.phase(phase, w, cx));
+                        surface = Some(h);
+                    }
+                }
+            });
+        }
+    })
+    .detach();
+}
 
-fn key_hint(paths: &AppPaths, endpoint: &str) -> String {
-    reqwest::Url::parse(endpoint)
+fn key_hint(endpoint: &str) -> String {
+    credentials::endpoint_host(endpoint)
         .ok()
-        .and_then(|url| url.host_str().map(str::to_owned))
-        .and_then(|host| credentials::get_credential(paths, &host).ok().flatten())
-        .map_or_else(|| "Enter API key".into(), |_| "••••••••".into())
+        .and_then(|host| credentials::get_credential(&host).ok().flatten())
+        .map_or_else(|| "Enter API key".into(), |_| "Saved in keyring".into())
+}
+
+fn trace(stage: &str, started: std::time::Instant) {
+    if std::env::var("HERMES_TRACE").as_deref() == Ok("1") {
+        eprintln!(
+            "hermes startup {stage}: {:.3} ms",
+            started.elapsed().as_secs_f64() * 1000.
+        );
+    }
 }
