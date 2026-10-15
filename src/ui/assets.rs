@@ -23,9 +23,17 @@ gpui_kit::assets::icon_assets!(
 pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> anyhow::Result<Option<Cow<'static, [u8]>>> {
-        match NavIcons.load(path)? {
-            Some(icon) => Ok(Some(icon)),
-            None => gpui_kit::assets::Assets.load(path),
+        match path {
+            "onboarding/bloom.png" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../../assets/onboarding/bloom.png"
+            )))),
+            "onboarding/sprig.png" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../../assets/onboarding/sprig.png"
+            )))),
+            _ => match NavIcons.load(path)? {
+                Some(icon) => Ok(Some(icon)),
+                None => gpui_kit::assets::Assets.load(path),
+            },
         }
     }
 

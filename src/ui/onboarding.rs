@@ -4,7 +4,7 @@ use super::{
     theme::*,
     window::{MainWindow, Page, Shortcut},
 };
-use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, prelude::*, px};
+use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, img, prelude::*, px};
 use gpui_kit::component::{Sizable, input::Input, select::Select};
 use hermes::{
     config::{RecordingMode, Source},
@@ -12,7 +12,7 @@ use hermes::{
 };
 #[cfg(target_os = "macos")]
 use std::time::Duration;
-use std::time::Instant;
+use std::{sync::atomic::Ordering, time::Instant};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -147,7 +147,7 @@ fn bars(level: f32, height: f32, count: usize, p: Palette) -> gpui::Div {
                 .w(px(4.))
                 .h(px((height * SHAPE[i] * level.clamp(0., 1.)).max(4.)))
                 .rounded(px(2.))
-                .bg(p.accent)
+                .bg(p.blue)
         }))
 }
 impl MainWindow {
@@ -371,7 +371,7 @@ impl MainWindow {
                             div()
                                 .size(px(64. * (0.92 + 0.08 * reveal(0.))))
                                 .rounded(px(16.))
-                                .bg(p.accent)
+                                .bg(p.blue)
                                 .opacity(reveal(0.)),
                         ),
                 )
@@ -420,24 +420,138 @@ impl MainWindow {
                 let own = s.onboarding_own_key;
                 let waiting = s.signing_in.is_some();
                 let email = s.account.as_ref().map(|a| a.email.clone());
-                col.child(title("How should Hermes listen?",p)).child(sub("You can change this anytime in Settings.",p))
-                .child(div().flex().gap(px(16.)).mt(px(32.)).children([false,true].into_iter().map(|key| {
-                    let selected = key == own;
-                    div().id(if key {"own-key"} else {"hermes-account"}).w(px(212.)).h(px(132.)).p(px(18.)).rounded(px(14.)).border_1().border_color(if selected {p.accent} else {p.border}).when(selected,|d| d.bg(p.accent.opacity(0.06))).flex().flex_col().text_left().cursor_pointer()
-                    .child(icon(if key {"icons/key-round.svg"} else {"icons/sparkles.svg"},18.,p.accent))
-                    .child(text(if key {"Your own key"} else {"Hermes account"},14.,p.fg).font_weight(FontWeight::SEMIBOLD).mt(px(12.)))
-                    .child(text(if key {"Groq or any OpenAI-compatible endpoint."} else {"No setup. Sign in with your browser."},12.,p.muted).line_height(px(18.)).mt(px(4.)))
-                    .child(div().flex_1())
-                    .child(div().flex().items_center().gap(px(4.)).text_size(px(12.)).text_color(if key {p.muted} else if email.is_some() {p.green} else {p.accent})
-                        .when(!key && email.is_some(),|d| d.child(icon("icons/check.svg",14.,p.green)))
-                        .child(if key {"Unlimited, billed by provider".into()} else if waiting {"Waiting for browser".into()} else {email.clone().unwrap_or_else(|| "Free · 2,000 words a week".into())})
-                        .when(!key && waiting,|d| d.child(text("Cancel",12.,p.muted).id("cancel-onboarding-signin").on_click(cx.listener(|this,_,_,cx| {cx.stop_propagation(); this.state.update(cx,|s,cx| {if let Some(cancel)=s.signing_in.take() {cancel.store(true,std::sync::atomic::Ordering::SeqCst);} cx.notify();});})))) )
-                    .on_click(cx.listener(move |this,_,_,cx| {
-                        this.state.update(cx,|s,cx| {s.onboarding_own_key=key; s.config.transcription=if key {Source::OwnKey} else {Source::Hosted}; if key && let Some(cancel)=s.signing_in.take() {cancel.store(true,std::sync::atomic::Ordering::SeqCst);} cx.notify();});
-                        if !key && this.state.read(cx).account.is_none() {this.sign_in(cx);}
-                    }))
-                })))
-                .when(own, |d| d.child(div().w_full().mt(px(16.)).child(Input::new(&self.settings.key).min_h(px(34.)).max_h(px(34.)).w_full().rounded(px(8.)).text_size(px(13.)).bg(p.bg))))
+                col.child(title("How should Hermes listen?", p))
+                    .child(sub("You can change this anytime in Settings.", p))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(16.))
+                            .mt(px(32.))
+                            .children([false, true].map(|key| {
+                                let selected = key == own;
+                                let status = if key {
+                                    "Unlimited, billed by provider".into()
+                                } else if waiting {
+                                    "Waiting for browser".into()
+                                } else {
+                                    email
+                                        .clone()
+                                        .unwrap_or_else(|| "Free · 2,000 words a week".into())
+                                };
+                                div()
+                                    .id(if key { "own-key" } else { "hermes-account" })
+                                    .w(px(212.))
+                                    .h(px(132.))
+                                    .p(px(18.))
+                                    .rounded(px(14.))
+                                    .border_1()
+                                    .border_color(if selected { p.blue } else { p.border })
+                                    .when(selected, |d| d.bg(p.tint))
+                                    .flex()
+                                    .flex_col()
+                                    .text_left()
+                                    .cursor_pointer()
+                                    .child(icon(
+                                        if key {
+                                            "icons/key-round.svg"
+                                        } else {
+                                            "icons/sparkles.svg"
+                                        },
+                                        18.,
+                                        if key { p.lilac } else { p.blue },
+                                    ))
+                                    .child(
+                                        text(
+                                            if key {
+                                                "Your own key"
+                                            } else {
+                                                "Hermes account"
+                                            },
+                                            14.,
+                                            p.fg,
+                                        )
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .mt(px(12.)),
+                                    )
+                                    .child(
+                                        text(
+                                            if key {
+                                                "Groq or any OpenAI-compatible endpoint."
+                                            } else {
+                                                "No setup. Sign in with your browser."
+                                            },
+                                            12.,
+                                            p.muted,
+                                        )
+                                        .line_height(px(18.))
+                                        .mt(px(4.)),
+                                    )
+                                    .child(div().flex_1())
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(4.))
+                                            .text_size(px(12.))
+                                            .text_color(if !key && email.is_some() {
+                                                p.green
+                                            } else {
+                                                p.muted
+                                            })
+                                            .when(!key && email.is_some(), |d| {
+                                                d.child(icon("icons/check.svg", 14., p.green))
+                                            })
+                                            .child(status)
+                                            .when(!key && waiting, |d| {
+                                                d.child(
+                                                    text("Cancel", 12., p.muted)
+                                                        .id("cancel-onboarding-signin")
+                                                        .on_click(cx.listener(|this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            this.state.update(cx, |s, cx| {
+                                                                if let Some(cancel) =
+                                                                    s.signing_in.take()
+                                                                {
+                                                                    cancel.store(
+                                                                        true,
+                                                                        Ordering::SeqCst,
+                                                                    );
+                                                                }
+                                                                cx.notify();
+                                                            });
+                                                        })),
+                                                )
+                                            }),
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.state.update(cx, |s, cx| {
+                                            s.onboarding_own_key = key;
+                                            s.config.transcription =
+                                                if key { Source::OwnKey } else { Source::Hosted };
+                                            if key && let Some(cancel) = s.signing_in.take() {
+                                                cancel.store(true, Ordering::SeqCst);
+                                            }
+                                            cx.notify();
+                                        });
+                                        if !key && this.state.read(cx).account.is_none() {
+                                            this.sign_in(cx);
+                                        }
+                                    }))
+                            })),
+                    )
+                    .when(own, |d| {
+                        d.child(
+                            div().w_full().mt(px(16.)).child(
+                                Input::new(&self.settings.key)
+                                    .min_h(px(34.))
+                                    .max_h(px(34.))
+                                    .w_full()
+                                    .rounded(px(8.))
+                                    .text_size(px(13.))
+                                    .bg(p.bg),
+                            ),
+                        )
+                    })
             }
             Step::Permissions => {
                 let statuses = self.permission_status(cx);
@@ -483,11 +597,11 @@ impl MainWindow {
                                             div()
                                                 .size(px(32.))
                                                 .rounded_full()
-                                                .bg(p.row)
+                                                .bg(p.tint)
                                                 .flex()
                                                 .items_center()
                                                 .justify_center()
-                                                .child(icon(path, 18., p.accent)),
+                                                .child(icon(path, 18., p.blue)),
                                         )
                                         .child(
                                             div()
@@ -576,40 +690,30 @@ impl MainWindow {
                         .px(px(22.))
                         .rounded(px(12.))
                         .border_1()
-                        .border_b(px(if listening { 1. } else { 3. }))
                         .border_color(if listening {
-                            p.accent.opacity(0.5)
+                            p.blue.opacity(0.5)
                         } else {
                             p.kbd
                         })
-                        .bg(if listening {
-                            p.accent.opacity(0.14)
-                        } else {
-                            p.selected
-                        })
+                        .bg(if listening { p.tint } else { p.selected })
+                        .shadow(vec![gpui::BoxShadow {
+                            color: gpui::Hsla {
+                                l: p.kbd.l * 0.8,
+                                ..p.kbd
+                            },
+                            offset: gpui::point(px(0.), px(if listening { 1. } else { 3. })),
+                            blur_radius: px(0.),
+                            spread_radius: px(0.),
+                            inset: false,
+                        }])
                         .relative()
                         .top(px(if listening { 2. } else { 0. }))
                         .flex()
                         .items_center()
                         .text_size(px(18.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if listening { p.accent } else { p.fg })
-                        .child(key_label(&s.config.hotkey))
-                        .when(!listening, |key| {
-                            key.child(
-                                div()
-                                    .absolute()
-                                    .bottom(px(-3.))
-                                    .left_0()
-                                    .right_0()
-                                    .h(px(3.))
-                                    .rounded_b(px(12.))
-                                    .bg(gpui::Hsla {
-                                        l: p.kbd.l * 0.7,
-                                        ..p.kbd
-                                    }),
-                            )
-                        }),
+                        .text_color(if listening { p.blue } else { p.fg })
+                        .child(key_label(&s.config.hotkey)),
                 )
                 .child(
                     text(
@@ -661,7 +765,7 @@ impl MainWindow {
                         .rounded(px(12.))
                         .bg(p.row)
                         .border_1()
-                        .border_color(p.accent.opacity(if listening { 0.6 } else { 0. }))
+                        .border_color(p.blue.opacity(if listening { 0.6 } else { 0. }))
                         .py(px(16.))
                         .px(px(18.))
                         .text_left()
@@ -688,7 +792,7 @@ impl MainWindow {
                         })
                         .when(has_result, |d| {
                             d.child(
-                                text("Try again", 12., p.accent)
+                                text("Try again", 12., p.blue)
                                     .id("practice-again")
                                     .cursor_pointer()
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -716,7 +820,7 @@ impl MainWindow {
                             div()
                                 .size(px(56. * scale))
                                 .rounded_full()
-                                .bg(p.accent)
+                                .bg(p.blue)
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -796,6 +900,12 @@ impl MainWindow {
                 )
             }
         };
+        let bloom = reveal(0.2)
+            * if p.mode == gpui_kit::component::ThemeMode::Dark {
+                0.5
+            } else {
+                0.95
+            };
         let ready = self.onboarding_ready(cx);
         let full = matches!(step, Step::Welcome | Step::Done);
         let index = self
@@ -809,9 +919,26 @@ impl MainWindow {
             .relative()
             .bg(gpui::linear_gradient(
                 180.,
-                gpui::linear_color_stop(p.accent.opacity(0.07), 0.),
-                gpui::linear_color_stop(p.accent.opacity(0.), 0.55),
+                gpui::linear_color_stop(p.tint, 0.),
+                gpui::linear_color_stop(p.tint.opacity(0.), 0.6),
             ))
+            .child(
+                img("onboarding/bloom.png")
+                    .absolute()
+                    .right(px(-130.))
+                    .bottom(px(if full { 0. } else { 72. }))
+                    .size(px(360.))
+                    .opacity(bloom),
+            )
+            .child(
+                img("onboarding/sprig.png")
+                    .absolute()
+                    .left(px(-24.))
+                    .bottom(px(if full { 0. } else { 72. }))
+                    .w(px(180.))
+                    .h(px(210.))
+                    .opacity(bloom),
+            )
             .child(
                 div()
                     .absolute()
@@ -863,7 +990,7 @@ impl MainWindow {
                                             .h(px(6.))
                                             .rounded(px(3.))
                                             .bg(if i == index {
-                                                p.accent
+                                                p.blue
                                             } else if i < index {
                                                 p.faint
                                             } else {
