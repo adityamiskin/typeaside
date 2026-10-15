@@ -45,6 +45,7 @@ enum Toggle {
     Duck,
     Submit,
     Login,
+    ShareUsage,
 }
 
 pub struct SettingsInputs {
@@ -373,6 +374,13 @@ impl MainWindow {
                             Toggle::Sounds => s.config.sounds = !on,
                             Toggle::Duck => s.config.duck_media = !on,
                             Toggle::Submit => s.config.auto_submit = !on,
+                            Toggle::ShareUsage => {
+                                if let Err(error) = s.config.set_share_usage(!on) {
+                                    s.save_error = Some(error.to_string());
+                                    cx.notify();
+                                    return;
+                                }
+                            }
                             Toggle::Login => {
                                 if !s.is_demo
                                     && let Err(e) = hermes::autostart::set_enabled(!on)
@@ -716,6 +724,11 @@ impl MainWindow {
                         self.toggle("login", c.launch_at_login, Toggle::Login, cx),
                         p,
                     ))
+                    .child(form_row(
+                        "Share anonymous usage stats",
+                        self.toggle("share-usage", c.share_usage, Toggle::ShareUsage, cx),
+                        p,
+                    ))
                     .child(section("About"))
                     .child(form_row(
                         "Version",
@@ -1051,7 +1064,7 @@ pub fn shortcut_combo(k: &gpui::Keystroke) -> String {
     parts.join("+")
 }
 
-fn grouped(value: u64) -> String {
+pub(super) fn grouped(value: u64) -> String {
     let digits = value.to_string();
     digits
         .chars()

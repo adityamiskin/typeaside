@@ -41,7 +41,7 @@ pub(crate) fn checked(
     if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
         let body: serde_json::Value = response.json()?;
         if body["error"]["type"] == "limit" {
-            anyhow::bail!("Weekly free limit reached. Upgrade to Pro or use your own key.");
+            anyhow::bail!("Weekly free limit reached. Upgrade in Hermes.");
         }
         anyhow::bail!("Hosted request failed (402)");
     }

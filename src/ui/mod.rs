@@ -268,6 +268,28 @@ fn start_ui(
         })
         .detach();
     }
+    if !is_demo {
+        let telemetry_state = state.clone();
+        cx.spawn(async move |cx| {
+            let mut delay = std::time::Duration::from_secs(30);
+            loop {
+                cx.background_executor().timer(delay).await;
+                let (config, paths) = cx.update(|cx| {
+                    let s = telemetry_state.read(cx);
+                    (s.config.clone(), s.paths.clone())
+                });
+                if config.share_usage {
+                    cx.background_executor()
+                        .spawn(async move {
+                            hermes::telemetry::send(&config, &hermes::engine::load_history(&paths));
+                        })
+                        .await;
+                }
+                delay = std::time::Duration::from_secs(6 * 60 * 60);
+            }
+        })
+        .detach();
+    }
     let startup_config = state.read(cx).config.clone();
     let startup = cx.background_executor().spawn(async move {
         if is_demo {
@@ -336,7 +358,7 @@ fn start_ui(
                     }
                 }
                 Event::Phase(phase) => {
-                    if matches!(&phase, Phase::Error(_))
+                    if matches!(&phase, Phase::Error(error) if error.contains("Weekly free limit reached"))
                         && state.read(cx).config.transcription == hermes::config::Source::Hosted
                     {
                         refresh_account(&state, cx);
