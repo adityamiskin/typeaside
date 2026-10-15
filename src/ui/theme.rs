@@ -48,55 +48,53 @@ impl Global for Palette {}
 
 impl Palette {
     pub fn dark() -> Self {
-        let fg: Hsla = rgb(0xf2ece1).into();
-        let accent: Hsla = rgb(0xd6b47c).into();
+        let fg: Hsla = rgb(0xf2f2f1).into();
         Self {
             mode: ThemeMode::Dark,
             frame: rgb(0).alpha(0.4).into(),
-            bg: rgb(0x13110e).into(),
-            side: rgb(0x181511).into(),
+            bg: rgb(0x131416).into(),
+            side: rgb(0x18191b).into(),
             fg,
-            muted: fg.opacity(0.56),
-            faint: fg.opacity(0.34),
-            divider: rgb(0x26221d).into(),
-            row: rgb(0x1d1a16).into(),
-            border: rgb(0x363027).into(),
-            hover: rgb(0x181512).into(),
-            selected: rgb(0x221e19).into(),
-            kbd: rgb(0x3d362c).into(),
-            accent,
-            on_accent: rgb(0x1b150b).into(),
+            muted: fg.opacity(0.58),
+            faint: fg.opacity(0.36),
+            divider: rgb(0x242528).into(),
+            row: rgb(0x1c1d20).into(),
+            border: rgb(0x2f3034).into(),
+            hover: rgb(0x1b1c1f).into(),
+            selected: rgb(0x26272b).into(),
+            kbd: rgb(0x3b3d42).into(),
+            accent: fg,
+            on_accent: rgb(0x16171a).into(),
             green: rgb(0x8fc095).into(),
             red: rgb(0xe27a66).into(),
-            pill: rgb(0x171512).into(),
-            pill_border: accent.opacity(0.24),
+            pill: rgb(0x18191b).into(),
+            pill_border: fg.opacity(0.14),
             shadow: rgb(0).alpha(0.55).into(),
         }
     }
     pub fn light() -> Self {
-        let fg: Hsla = rgb(0x1d1a16).into();
-        let accent: Hsla = rgb(0x9c7535).into();
+        let fg: Hsla = rgb(0x16171a).into();
         Self {
             mode: ThemeMode::Light,
             frame: rgb(0).alpha(0.4).into(),
-            bg: rgb(0xf8f4ec).into(),
-            side: rgb(0xf1ebe0).into(),
+            bg: rgb(0xf9f9f8).into(),
+            side: rgb(0xf3f3f1).into(),
             fg,
-            muted: fg.opacity(0.58),
-            faint: fg.opacity(0.36),
-            divider: rgb(0xe4dccd).into(),
-            row: rgb(0xebe4d7).into(),
-            border: rgb(0xd6ccbb).into(),
-            hover: rgb(0xf1ebdf).into(),
-            selected: rgb(0xe7decd).into(),
-            kbd: rgb(0xcfc4b1).into(),
-            accent,
-            on_accent: rgb(0xfffaf0).into(),
+            muted: rgb(0x6b6e76).into(),
+            faint: rgb(0xa3a6ad).into(),
+            divider: rgb(0xe9e9e7).into(),
+            row: rgb(0xf1f1ef).into(),
+            border: rgb(0xe2e2df).into(),
+            hover: rgb(0xefefed).into(),
+            selected: rgb(0xffffff).into(),
+            kbd: rgb(0xd4d5d8).into(),
+            accent: fg,
+            on_accent: rgb(0xffffff).into(),
             green: rgb(0x3d7d55).into(),
             red: rgb(0xb4473a).into(),
-            pill: rgb(0xfbf8f2).into(),
-            pill_border: accent.opacity(0.30),
-            shadow: rgb(0x3c2d14).alpha(0.18).into(),
+            pill: rgb(0xffffff).into(),
+            pill_border: fg.opacity(0.10),
+            shadow: rgb(0x16171a).alpha(0.14).into(),
         }
     }
 }
