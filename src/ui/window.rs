@@ -243,6 +243,89 @@ impl Render for MainWindow {
             }
         };
         let hotkey = key_label(&state.config.hotkey);
+        let usage = state
+            .account
+            .as_ref()
+            .filter(|account| {
+                account.plan == hermes::account::Plan::Free
+                    && state.config.transcription == hermes::config::Source::Hosted
+            })
+            .map(|account| {
+                let cap = account.usage.cap.unwrap_or(2000);
+                let limit = account.at_limit();
+                let label = if limit {
+                    let weekday = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
+                        .map(|date| date.with_timezone(&chrono::Local).format("%a").to_string())
+                        .unwrap_or_default();
+                    format!("Limit reached · resets {weekday}")
+                } else {
+                    format!(
+                        "{} / {} words",
+                        super::settings::grouped(account.usage.words),
+                        super::settings::grouped(cap)
+                    )
+                };
+                let fraction = if cap == 0 {
+                    1.
+                } else {
+                    (account.usage.words as f32 / cap as f32).min(1.)
+                };
+                div()
+                    .px(px(10.))
+                    .pb(px(8.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(8.))
+                            .text_size(px(12.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_ellipsis()
+                                    .text_color(if limit { p.red } else { p.muted })
+                                    .child(label),
+                            )
+                            .child(
+                                div()
+                                    .id("sidebar-upgrade")
+                                    .flex_shrink_0()
+                                    .text_color(p.accent)
+                                    .cursor_pointer()
+                                    .child("Upgrade")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if this.state.read(cx).is_demo {
+                                            return;
+                                        }
+                                        cx.background_executor()
+                                            .spawn(async {
+                                                let _ = hermes::account::open(format!(
+                                                    "{}/account",
+                                                    hermes::account::web_url()
+                                                ));
+                                            })
+                                            .detach();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(6.))
+                            .h(px(2.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(p.divider)
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(gpui::relative(fraction))
+                                    .rounded_full()
+                                    .bg(if limit { p.red } else { p.accent }),
+                            ),
+                    )
+            });
         let side = div()
             .w(px(SIDEBAR))
             .flex_shrink_0()
@@ -304,6 +387,43 @@ impl Render for MainWindow {
                 }),
             )
             .child(div().flex_1())
+            .child(
+                div()
+                    .id("feedback")
+                    .h(px(30.))
+                    .flex_shrink_0()
+                    .px(px(10.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .text_color(p.muted)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.hover))
+                    .child(
+                        gpui::svg()
+                            .path("icons/message-square.svg")
+                            .size(px(15.))
+                            .text_color(p.muted),
+                    )
+                    .child("Feedback")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if this.state.read(cx).is_demo {
+                            return;
+                        }
+                        cx.background_executor()
+                            .spawn(async {
+                                let _ = hermes::account::open(format!(
+                                    "{}/feedback?version={}&os={}",
+                                    hermes::account::web_url(),
+                                    env!("CARGO_PKG_VERSION"),
+                                    std::env::consts::OS
+                                ));
+                            })
+                            .detach();
+                    })),
+            )
+            .when_some(usage, |side, usage| side.child(usage))
             .child(
                 div()
                     .flex()

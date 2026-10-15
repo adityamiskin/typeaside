@@ -164,6 +164,8 @@ pub struct AppConfig {
     pub launch_at_login: bool,
     pub theme: Theme,
     pub onboarded: bool,
+    pub share_usage: bool,
+    pub install_id: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -189,11 +191,34 @@ impl Default for AppConfig {
             launch_at_login: false,
             theme: Theme::System,
             onboarded: false,
+            share_usage: false,
+            install_id: None,
         }
     }
 }
 
 impl AppConfig {
+    pub fn set_share_usage(&mut self, enabled: bool) -> Result<()> {
+        if enabled && self.install_id.is_none() {
+            let mut bytes = [0; 16];
+            getrandom::fill(&mut bytes)
+                .map_err(|_| anyhow::anyhow!("Could not generate install ID"))?;
+            bytes[6] = (bytes[6] & 0x0f) | 0x40;
+            bytes[8] = (bytes[8] & 0x3f) | 0x80;
+            let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+            self.install_id = Some(format!(
+                "{}-{}-{}-{}-{}",
+                &hex[..8],
+                &hex[8..12],
+                &hex[12..16],
+                &hex[16..20],
+                &hex[20..]
+            ));
+        }
+        self.share_usage = enabled;
+        Ok(())
+    }
+
     pub fn effective(&self) -> Self {
         let mut config = self.clone();
         if self.transcription == Source::Hosted {

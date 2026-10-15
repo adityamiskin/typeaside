@@ -16,3 +16,4 @@ mod http;
 mod media;
 pub mod pipeline;
 mod snippets;
+pub mod telemetry;
