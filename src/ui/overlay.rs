@@ -311,7 +311,7 @@ impl Render for Overlay {
                         .w(px(12.))
                         .text_size(px(12.))
                         .line_height(px(12.))
-                        .text_color(p.accent)
+                        .text_color(p.lilac)
                         .child("✦"),
                 );
             }
@@ -363,7 +363,7 @@ impl Render for Overlay {
                                 fill(
                                     rect,
                                     if processing {
-                                        p.accent.opacity(alpha)
+                                        p.blue.opacity(alpha)
                                     } else {
                                         p.fg.opacity(alpha)
                                     },

@@ -37,6 +37,9 @@ pub struct Palette {
     pub selected: Hsla,
     pub kbd: Hsla,
     pub accent: Hsla,
+    pub tint: Hsla,
+    pub blue: Hsla,
+    pub lilac: Hsla,
     pub on_accent: Hsla,
     pub green: Hsla,
     pub red: Hsla,
@@ -64,6 +67,9 @@ impl Palette {
             selected: rgb(0x26272b).into(),
             kbd: rgb(0x3b3d42).into(),
             accent: fg,
+            tint: rgb(0x1c2533).into(),
+            blue: rgb(0x8ab8e8).into(),
+            lilac: rgb(0xc6a4d6).into(),
             on_accent: rgb(0x16171a).into(),
             green: rgb(0x8fc095).into(),
             red: rgb(0xe27a66).into(),
@@ -89,12 +95,15 @@ impl Palette {
             selected: rgb(0xffffff).into(),
             kbd: rgb(0xd4d5d8).into(),
             accent: fg,
+            tint: rgb(0xe6effa).into(),
+            blue: rgb(0x4a84c4).into(),
+            lilac: rgb(0x9a6fb3).into(),
             on_accent: rgb(0xffffff).into(),
             green: rgb(0x3d7d55).into(),
             red: rgb(0xb4473a).into(),
             pill: rgb(0xffffff).into(),
             pill_border: fg.opacity(0.10),
-            shadow: rgb(0x16171a).alpha(0.14).into(),
+            shadow: rgb(0x1e325a).alpha(0.2).into(),
         }
     }
 }
@@ -130,7 +139,7 @@ pub fn apply(preference: Preference, appearance: WindowAppearance, cx: &mut App)
         t.colors.foreground = p.fg;
         t.colors.input = p.border;
         t.colors.border = p.border;
-        t.colors.ring = p.border;
+        t.colors.ring = p.blue;
         t.colors.muted_foreground = p.faint;
         t.colors.popover = p.bg;
         t.colors.popover_foreground = p.fg;
@@ -143,7 +152,7 @@ pub fn apply(preference: Preference, appearance: WindowAppearance, cx: &mut App)
         t.colors.caret = p.fg;
         t.colors.muted = p.row;
         t.colors.list = p.bg;
-        t.colors.list_active = p.selected;
+        t.colors.list_active = p.tint;
         t.colors.list_active_border = p.border;
         t.colors.list_hover = p.hover;
         t.colors.link = p.fg;

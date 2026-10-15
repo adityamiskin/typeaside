@@ -1,7 +1,18 @@
 use gpui::{AssetSource, SharedString};
 use std::borrow::Cow;
 
-gpui_kit::assets::icon_assets!(NavIcons, [House, BookA, TextQuote, Palette, Settings, CircleArrowDown, MessageSquare]);
+gpui_kit::assets::icon_assets!(
+    NavIcons,
+    [
+        House,
+        BookA,
+        TextQuote,
+        Palette,
+        Settings,
+        CircleArrowDown,
+        MessageSquare
+    ]
+);
 
 pub struct Assets;
 impl AssetSource for Assets {
