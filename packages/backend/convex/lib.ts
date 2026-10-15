@@ -2,7 +2,11 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 
 export const FREE_WEEKLY_WORDS = 2000;
-export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
+export const WEEK_MS = 7 * DAY_MS;
+export function dayStart(now = Date.now()) {
+  return Math.floor(now / DAY_MS) * DAY_MS;
+}
 export function weekStart(now = Date.now()) {
   const date = new Date(now);
   date.setUTCHours(0, 0, 0, 0);
@@ -14,16 +18,24 @@ export async function requireIdentity(ctx: QueryCtx | MutationCtx) {
   if (!identity) throw new Error("Sign in required");
   return identity;
 }
-export async function ensureUser(ctx: MutationCtx) {
+export async function ensureUser(ctx: MutationCtx, profile?: { email: string; name: string }) {
   const identity = await requireIdentity(ctx);
   const existing = await ctx.db
     .query("users")
     .withIndex("by_subject", (q) => q.eq("subject", identity.subject))
     .unique();
-  const fields = { subject: identity.subject, email: identity.email, name: identity.name };
+  const fields = {
+    subject: identity.subject,
+    email: profile?.email ?? identity.email,
+    name: profile?.name ?? identity.name,
+  };
   if (existing) {
-    await ctx.db.patch(existing._id, fields);
-    return { ...existing, ...fields };
+    const updates = {
+      email: fields.email ?? existing.email,
+      name: existing.name?.trim() ? existing.name : fields.name,
+    };
+    await ctx.db.patch(existing._id, updates);
+    return { ...existing, ...updates };
   }
   const id = await ctx.db.insert("users", fields);
   return { _id: id, ...fields, dodoCustomerId: undefined };
@@ -43,9 +55,14 @@ export async function accountState(ctx: QueryCtx, userId: Id<"users">) {
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect(),
     ctx.db
-      .query("usage")
-      .withIndex("by_user_week", (q) => q.eq("userId", userId).eq("weekStart", start))
-      .unique(),
+      .query("daily")
+      .withIndex("by_user_day", (q) =>
+        q
+          .eq("userId", userId)
+          .gte("day", start)
+          .lt("day", start + WEEK_MS),
+      )
+      .collect(),
   ]);
   const active = subscriptions
     .filter((s) => s.status === "active")
@@ -54,7 +71,7 @@ export async function accountState(ctx: QueryCtx, userId: Id<"users">) {
     plan: active ? ("pro" as const) : ("free" as const),
     currentPeriodEnd: active?.currentPeriodEnd ?? null,
     usage: {
-      words: usage?.words ?? 0,
+      words: usage.reduce((total, day) => total + day.words, 0),
       cap: active ? null : FREE_WEEKLY_WORDS,
       resetsAt: start + WEEK_MS,
     },

@@ -12,8 +12,8 @@ export const Route = createFileRoute("/privacy")({
       <h2>Hosted dictation</h2>
       <p>
         When you use Free or Pro, Hermes forwards requests to Groq. We keep your account email,
-        subscription status, device token hashes and weekly word totals to provide the service. We
-        do not save the audio or the content of your dictations.
+        subscription status, device token hashes and daily word totals and an all-time word count to
+        provide the service. We do not save the audio or the content of your dictations.
       </p>
       <h2>Your own key</h2>
       <p>
@@ -30,7 +30,9 @@ export const Route = createFileRoute("/privacy")({
       <h2>Your control</h2>
       <p>
         You can revoke a connected computer from your account and delete local history in the app.
-        To delete your account and its data, email adityamiskin@gmail.com.
+        You can permanently delete your account from the account page. This cancels active
+        subscriptions and removes your profile, usage and connected computers, including your WorkOS
+        sign-in account. Payment records are kept as required by law.
       </p>
       <h2>Contact</h2>
       <p>

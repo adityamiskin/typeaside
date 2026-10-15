@@ -813,6 +813,40 @@ footer {
   height: 2px;
   background: var(--accent);
 }
+.account-form {
+  margin-top: 16px;
+  max-width: 400px;
+}
+.account-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.usage-history {
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  height: 96px;
+  margin-block: 28px 16px;
+  border-bottom: 1px solid var(--divider);
+}
+.usage-day {
+  flex: 1;
+  min-height: 2px;
+  background: var(--accent);
+}
+.invoice-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--divider);
+  font-size: 14px;
+}
+.invoice-row .text-button {
+  margin: 0 0 0 auto;
+}
 .account-signout {
   border-top: 1px solid var(--divider);
   padding-top: 32px;

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery, internalMutation } from "./_generated/server";
-import { accountState, weekStart } from "./lib";
+import { accountState, dayStart } from "./lib";
 
 export const lookup = internalQuery({
   args: { hash: v.string() },
@@ -27,12 +27,15 @@ export const record = internalMutation({
     if (!token) return;
     await ctx.db.patch(tokenId, { lastUsedAt: Date.now() });
     if (words === 0) return;
-    const start = weekStart(startedAt);
+    const start = dayStart(startedAt);
+    const user = await ctx.db.get(token.userId);
+    if (!user) return;
     const usage = await ctx.db
-      .query("usage")
-      .withIndex("by_user_week", (q) => q.eq("userId", token.userId).eq("weekStart", start))
+      .query("daily")
+      .withIndex("by_user_day", (q) => q.eq("userId", token.userId).eq("day", start))
       .unique();
+    await ctx.db.patch(user._id, { totalWords: (user.totalWords ?? 0) + words });
     if (usage) await ctx.db.patch(usage._id, { words: usage.words + words });
-    else await ctx.db.insert("usage", { userId: token.userId, weekStart: start, words });
+    else await ctx.db.insert("daily", { userId: token.userId, day: start, words });
   },
 });

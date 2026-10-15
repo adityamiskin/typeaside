@@ -9,6 +9,9 @@ import {
   Unauthenticated,
 } from "convex/react";
 import { api } from "@hermes/backend/convex/_generated/api";
+import type { FunctionReturnType } from "convex/server";
+import { Field, FieldGroup, FieldLabel } from "@hermes/ui/components/field";
+import { Input } from "@hermes/ui/components/input";
 import { Button } from "@hermes/ui/components/button";
 import { SignIn } from "../components/site";
 import { BillingToggle, CheckoutButton, type Interval } from "../components/billing";
@@ -57,7 +60,7 @@ function AccountContent() {
   const [busy, setBusy] = useState(false);
   const account = useQuery(api.viewer.current);
   const devices = useQuery(api.desktop.list);
-  const sync = useMutation(api.viewer.sync);
+  const sync = useAction(api.viewer.sync);
   const revoke = useMutation(api.desktop.revoke);
   const portal = useAction(api.billing.portal);
   const createCheckout = useAction(api.billing.checkout);
@@ -76,12 +79,22 @@ function AccountContent() {
   return (
     <main className="container page account">
       <h1>Your account.</h1>
-      {account && <p className="lead">{account.email}</p>}
+
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
+      <section className="account-row">
+        <h2>Profile</h2>
+        <div>
+          {account ? (
+            <Profile name={account.name} email={account.email} />
+          ) : (
+            <p>Loading profile…</p>
+          )}
+        </div>
+      </section>
       <section className="account-row">
         <h2>Plan</h2>
         <div>
@@ -128,7 +141,7 @@ function AccountContent() {
         </div>
       </section>
       <section className="account-row">
-        <h2>Usage this week</h2>
+        <h2>Usage</h2>
         <div>
           {account ? (
             account.usage.cap === null ? (
@@ -167,7 +180,12 @@ function AccountContent() {
           ) : (
             <p>Loading usage…</p>
           )}
+          <UsageHistory />
         </div>
+      </section>
+      <section className="account-row">
+        <h2>Invoices</h2>
+        <Invoices />
       </section>
       <section className="account-row">
         <h2>Devices</h2>
@@ -196,9 +214,266 @@ function AccountContent() {
           ))}
         </div>
       </section>
+      <section className="account-row">
+        <h2>Delete account</h2>
+        <DeleteAccount email={account?.email ?? null} />
+      </section>
       <div className="account-signout">
         <a href={auth.signOutHref}>Sign out</a>
       </div>
     </main>
+  );
+}
+
+function Profile({ name, email }: { name: string; email: string | null }) {
+  const rename = useMutation(api.viewer.rename);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const value = draft ?? name;
+  return (
+    <>
+      <p>{email}</p>
+      <form
+        className="account-form"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setSaving(true);
+          setSaved(false);
+          setError(null);
+          try {
+            await rename({ name: value.trim() });
+            setDraft(null);
+            setSaved(true);
+          } catch {
+            setError("Your name could not be saved. Please try again.");
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="profile-name">Name</FieldLabel>
+            <Input
+              id="profile-name"
+              autoComplete="name"
+              maxLength={80}
+              value={value}
+              disabled={saving}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setSaved(false);
+              }}
+            />
+          </Field>
+        </FieldGroup>
+        <Button
+          type="submit"
+          disabled={saving || !value.trim() || value.trim() === name || value.trim().length > 80}
+        >
+          {saving ? "Saving…" : "Save"}
+        </Button>
+        {saved && (
+          <p className="small" role="status">
+            Saved
+          </p>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+      </form>
+    </>
+  );
+}
+function UsageHistory() {
+  const history = useQuery(api.viewer.history);
+  if (!history) return <p>Loading history…</p>;
+  const max = Math.max(1, ...history.days.map((day) => day.words));
+  const minutes = history.totalWords / 40 - history.totalWords / 150;
+  const saved =
+    minutes >= 60 ? `${(minutes / 60).toFixed(1)} hours` : `${minutes.toFixed(1)} minutes`;
+  return (
+    <>
+      <div
+        className="usage-history"
+        role="img"
+        aria-label={`Daily usage over the last 30 days, ${history.recentWords.toLocaleString()} words. Today is on the right. Dates are UTC.`}
+      >
+        {history.days.map(({ day, words }) => (
+          <div
+            key={day}
+            className="usage-day"
+            style={{ height: `${(words / max) * 100}%` }}
+            title={`${new Date(day).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}: ${words.toLocaleString()} words`}
+          />
+        ))}
+      </div>
+      <p>
+        {history.recentWords.toLocaleString()} words in the last 30 days,{" "}
+        {history.totalWords.toLocaleString()} all time, about {saved} saved.
+      </p>
+      <p className="small">Compared with typing at 40 words per minute.</p>
+    </>
+  );
+}
+function Invoices() {
+  const list = useAction(api.billing.invoices);
+  const download = useAction(api.billing.invoice);
+  const [invoices, setInvoices] = useState<FunctionReturnType<typeof api.billing.invoices>>();
+  const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void list({})
+      .then((result) => {
+        if (active) setInvoices(result);
+      })
+      .catch(() => {
+        if (active) setError("Invoices could not load. Please refresh.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [list]);
+  return (
+    <div>
+      {invoices === undefined && !error && <p>Loading invoices…</p>}
+      {invoices?.length === 0 && <p>No invoices yet.</p>}
+      {invoices?.map((invoice) => {
+        const date = new Date(invoice.date).toISOString().slice(0, 10);
+        const currency = new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: invoice.currency,
+        });
+        const amount =
+          invoice.amount / 10 ** (currency.resolvedOptions().maximumFractionDigits ?? 2);
+        return (
+          <div className="invoice-row" key={invoice.paymentId}>
+            <time dateTime={invoice.date}>
+              {new Date(invoice.date).toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+                timeZone: "UTC",
+              })}
+            </time>
+            <span>{currency.format(amount)}</span>
+            <span>{invoice.status.replaceAll("_", " ")}</span>
+            <button
+              type="button"
+              className="text-button"
+              disabled={downloading !== null}
+              onClick={async () => {
+                setDownloading(invoice.paymentId);
+                setError(null);
+                try {
+                  const bytes = await download({ paymentId: invoice.paymentId });
+                  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `hermes-invoice-${date}.pdf`;
+                  document.body.append(link);
+                  link.click();
+                  link.remove();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                } catch {
+                  setError("Invoice could not download. Please try again.");
+                } finally {
+                  setDownloading(null);
+                }
+              }}
+            >
+              {downloading === invoice.paymentId ? "Downloading…" : "Download"}
+            </button>
+          </div>
+        );
+      })}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+function DeleteAccount({ email }: { email: string | null }) {
+  const remove = useAction(api.viewer.remove);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div>
+      <p>
+        Permanently delete your account, usage and connected computers. Any active subscription is
+        cancelled. Payment records are kept as required by law.
+      </p>
+      {confirming ? (
+        <form
+          className="account-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!email || confirmation !== email) return;
+            setDeleting(true);
+            setError(null);
+            try {
+              await remove({ email: confirmation });
+              window.location.assign(auth.signOutHref);
+            } catch {
+              setError("Account could not be deleted. Please try again.");
+              setDeleting(false);
+            }
+          }}
+        >
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="delete-email">Type your email to confirm</FieldLabel>
+              <Input
+                id="delete-email"
+                type="email"
+                autoComplete="off"
+                value={confirmation}
+                disabled={deleting}
+                onChange={(event) => setConfirmation(event.target.value)}
+              />
+            </Field>
+          </FieldGroup>
+          <div className="account-actions">
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={deleting || !email || confirmation !== email}
+            >
+              {deleting ? "Deleting…" : "Delete permanently"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting}
+              onClick={() => {
+                setConfirming(false);
+                setConfirmation("");
+                setError(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <Button variant="outline" disabled={!email} onClick={() => setConfirming(true)}>
+          Delete account
+        </Button>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

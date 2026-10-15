@@ -13,6 +13,7 @@ export default defineSchema({
     subject: v.string(),
     email: v.optional(v.string()),
     name: v.optional(v.string()),
+    totalWords: v.optional(v.number()),
     dodoCustomerId: v.optional(v.string()),
   }).index("by_subject", ["subject"]),
   subscriptions: defineTable({
@@ -33,8 +34,8 @@ export default defineSchema({
   })
     .index("by_hash", ["hash"])
     .index("by_user", ["userId"]),
-  usage: defineTable({ userId: v.id("users"), weekStart: v.number(), words: v.number() }).index(
-    "by_user_week",
-    ["userId", "weekStart"],
+  daily: defineTable({ userId: v.id("users"), day: v.number(), words: v.number() }).index(
+    "by_user_day",
+    ["userId", "day"],
   ),
 });
