@@ -59,7 +59,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y weston xvfb imagemagick mesa-vulkan-drivers libasound2t64 libwayland-client0 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libxcb-xkb1 libxcb-xfixes0 libxcb-randr0 libx11-xcb1
-          chmod +x smoke-bin/hermes
+          chmod +x smoke-bin/debug/hermes
           export XDG_RUNTIME_DIR="$(mktemp -d)"
           chmod 700 "$XDG_RUNTIME_DIR"
           export WAYLAND_DISPLAY=wayland-hermes
@@ -72,7 +72,7 @@ jobs:
               [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
               sleep 0.1
             done
-            python scripts/smoke-demo.py smoke-bin/hermes
+            python scripts/smoke-demo.py smoke-bin/debug/hermes
           '
       - name: macOS demo
         if: runner.os == 'macOS'
@@ -81,7 +81,7 @@ jobs:
           python scripts/smoke-demo.py smoke-bin/release/Hermes.app/Contents/MacOS/hermes
       - name: Windows demo
         if: runner.os == 'Windows'
-        run: python scripts/smoke-demo.py smoke-bin/hermes.exe
+        run: python scripts/smoke-demo.py smoke-bin/debug/hermes.exe
       - uses: actions/upload-artifact@v4
         if: always()
         with:
