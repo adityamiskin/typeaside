@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 const heard = "um so let's meet tomorrow at uh three, no actually four".split(" ");
-const bars = Array.from({ length: 13 }, (_, index) => index);
+const bars = [0.2, 0.3, 0.45, 0.6, 0.75, 0.9, 1, 0.9, 0.75, 0.6, 0.45, 0.3, 0.2];
 export function Demo() {
   const ref = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState(20);
@@ -35,12 +35,15 @@ export function Demo() {
   return (
     <div ref={ref} className="hero-demo" aria-label="Hermes turns spoken words into clean text">
       <div className="overlay-pill" aria-hidden="true">
-        {bars.map((index) => (
+        {bars.map((height, index) => (
           <span
             key={index}
             style={{
               height:
-                finished || step < 0 ? 4 : 4 + ((index * 7 + step * 11 + index * step * 3) % 19),
+                finished || step < 0
+                  ? height * 30
+                  : 4 + ((index * 7 + step * 11 + index * step * 3) % 19),
+              opacity: finished || step < 0 ? 0.55 : 1,
             }}
           />
         ))}

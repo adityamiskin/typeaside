@@ -89,19 +89,22 @@ function Landing() {
   return (
     <main className="container">
       <section className="hero">
-        <h1>
-          Speak, and it's <em>written</em>.
-        </h1>
-        <p className="lead">
-          Hermes turns your voice into clean, punctuated text in any app. Hold a key, talk, let go.
-        </p>
-        <div className="hero-actions">
-          <DownloadButton />
-          <a href="#pricing" className={buttonVariants({ variant: "outline" })}>
-            See pricing
-          </a>
+        <div className="hero-copy">
+          <h1>
+            Speak, and it's <em>written</em>.
+          </h1>
+          <p className="lead">
+            Hermes turns your voice into clean, punctuated text in any app. Hold a key, talk, let
+            go.
+          </p>
+          <div className="hero-actions">
+            <DownloadButton />
+            <a href="#pricing" className={buttonVariants({ variant: "outline" })}>
+              See pricing
+            </a>
+          </div>
+          <p className="small hero-note">macOS, Windows and Linux. Free to start.</p>
         </div>
-        <p className="small hero-note">macOS, Windows and Linux. Free to start.</p>
         <Demo />
       </section>
       <Reveal id="features">
