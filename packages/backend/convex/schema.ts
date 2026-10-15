@@ -8,7 +8,37 @@ export const subscriptionStatus = v.union(
   v.literal("expired"),
 );
 
+export const operatingSystem = v.union(
+  v.literal("linux"),
+  v.literal("macos"),
+  v.literal("windows"),
+);
+export const feedbackKind = v.union(v.literal("bug"), v.literal("idea"), v.literal("other"));
+export const pingFields = {
+  installId: v.string(),
+  day: v.number(),
+  version: v.string(),
+  os: operatingSystem,
+  source: v.union(v.literal("hosted"), v.literal("own")),
+  dictations: v.number(),
+  words: v.number(),
+  commands: v.number(),
+  latencyMs: v.number(),
+};
+
 export default defineSchema({
+  pings: defineTable(pingFields)
+    .index("by_install_day", ["installId", "day"])
+    .index("by_day", ["day"]),
+  feedback: defineTable({
+    kind: feedbackKind,
+    message: v.string(),
+    email: v.optional(v.string()),
+    userId: v.optional(v.id("users")),
+    version: v.optional(v.string()),
+    os: v.optional(operatingSystem),
+    createdAt: v.number(),
+  }).index("by_created_at", ["createdAt"]),
   users: defineTable({
     subject: v.string(),
     email: v.optional(v.string()),
@@ -34,8 +64,7 @@ export default defineSchema({
   })
     .index("by_hash", ["hash"])
     .index("by_user", ["userId"]),
-  daily: defineTable({ userId: v.id("users"), day: v.number(), words: v.number() }).index(
-    "by_user_day",
-    ["userId", "day"],
-  ),
+  daily: defineTable({ userId: v.id("users"), day: v.number(), words: v.number() })
+    .index("by_user_day", ["userId", "day"])
+    .index("by_day", ["day"]),
 });

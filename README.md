@@ -68,6 +68,10 @@ Use the Convex **HTTP actions** URL (local `http://127.0.0.1:3211`, hosted `.con
 - `POST /openai/v1/audio/transcriptions`: OpenAI multipart `file`, optional `language`, `prompt`. Forces Groq `whisper-large-v3-turbo` with JSON output. Returns the provider body unchanged and counts returned transcript words.
 - `POST /openai/v1/chat/completions`: JSON `messages`, optional `temperature`, `max_tokens`, `reasoning_effort`. Forces Groq `qwen/qwen3.8-27b`. Non-streaming only, with a 64 KB request limit and at most 2,048 output tokens (also the default). No additional word counting.
 - `GET /v1/me`: email, Free/Pro plan, words, cap and UTC reset timestamp.
+- `POST /v1/ping`: unauthenticated, opt-in anonymous daily usage counts (8 KB, 1–7 UTC days), upserted per install/day and rate limited to 30 requests/hour per install.
+- Convex mutation `feedback.send` (used by `/feedback`): bugs, ideas and other notes, with optional reply email and app version/OS; rate limited to 30/hour per signed-in user or globally for anonymous notes.
+
+Founder queries: `bunx convex run stats:summary '{"days":30}'` returns UTC daily install counts, dictations, words, new/active hosted users and hosted words, plus the current Pro count. `bunx convex run feedback:list '{"limit":50}'` reads the newest notes. Run these from `packages/backend` against the intended deployment.
 
 For an OpenAI-compatible desktop client, set base URL to `<CONVEX_SITE_URL>/openai/v1` and use a desktop token as the bearer key. No Rust integration is changed here. BYOK continues to call providers directly without an account.
 

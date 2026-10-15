@@ -15,6 +15,12 @@ export const Route = createFileRoute("/privacy")({
         subscription status, device token hashes and daily word totals and an all-time word count to
         provide the service. We do not save the audio or the content of your dictations.
       </p>
+      <h2>Anonymous usage stats</h2>
+      <p>
+        Anonymous usage stats are opt-in and contain counts only, with no text or audio. Fields:
+        random install ID, UTC day, app version, operating system, hosted or own-key source,
+        dictation count, word count, command count and total latency in milliseconds.
+      </p>
       <h2>Your own key</h2>
       <p>
         BYOK requests go directly from your computer to your chosen Groq or OpenAI provider. Those
