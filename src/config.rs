@@ -188,7 +188,7 @@ impl Default for AppConfig {
             snippets: Vec::new(),
             sounds: true,
             duck_media: true,
-            launch_at_login: false,
+            launch_at_login: true,
             theme: Theme::System,
             onboarded: false,
             share_usage: false,

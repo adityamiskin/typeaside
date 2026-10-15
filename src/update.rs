@@ -173,6 +173,13 @@ pub fn install(release: &Release) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o755))?;
         fs::rename(&installer, &destination)?;
+        if std::env::var_os("HERMES_SERVICE").is_some() {
+            // The service's cgroup dies with this process, taking a relaunch script with it.
+            // systemd restarts the new binary instead; the marker reopens its window.
+            fs::write(restart_marker(), b"")?;
+            drop(directory);
+            std::process::exit(75);
+        }
         relaunch(&destination, None)?;
         drop(directory);
         std::process::exit(0);
@@ -183,6 +190,19 @@ pub fn install(release: &Release) -> Result<()> {
         drop(directory);
         std::process::exit(0);
     }
+}
+
+#[cfg(target_os = "linux")]
+fn restart_marker() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map_or_else(std::env::temp_dir, PathBuf::from)
+        .join("hermes-updated")
+}
+
+/// True once after systemd restarts hermes into an update the user asked for.
+#[cfg(target_os = "linux")]
+pub fn restarted_for_update() -> bool {
+    fs::remove_file(restart_marker()).is_ok()
 }
 
 #[cfg(unix)]

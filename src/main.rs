@@ -5,7 +5,10 @@ fn main() {
     #[cfg(target_os = "linux")]
     prefer_integrated_gpu();
     let demo = std::env::args().any(|arg| arg == "--demo");
-    if let Err(error) = ui::run(demo, std::env::args().any(|arg| arg == "--hidden"), started) {
+    let hidden = std::env::args().any(|arg| arg == "--hidden");
+    #[cfg(target_os = "linux")]
+    let hidden = hidden && !hermes::update::restarted_for_update();
+    if let Err(error) = ui::run(demo, hidden, started) {
         eprintln!("hermes: {error:#}");
         std::process::exit(1);
     }
