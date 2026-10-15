@@ -6,6 +6,11 @@ use std::time::{Duration, Instant, SystemTime};
 
 pub fn config() -> AppConfig {
     AppConfig {
+        transcription: if account().is_some() {
+            hermes::config::Source::Hosted
+        } else {
+            hermes::config::Source::OwnKey
+        },
         onboarded: std::env::var("HERMES_DEMO_PAGE").as_deref() != Ok("onboarding"),
         dictionary: [
             "Hermes",
@@ -137,4 +142,25 @@ pub fn spawn() -> async_channel::Receiver<Event> {
         }
     });
     rx
+}
+
+pub fn account() -> Option<hermes::account::Account> {
+    use hermes::account::{Account, Plan, Usage};
+    let value = std::env::var("HERMES_DEMO_ACCOUNT").ok()?;
+    if !["free", "pro", "limit"].contains(&value.as_str()) {
+        return None;
+    }
+    Some(Account {
+        email: "aditya@example.com".into(),
+        plan: if value == "pro" {
+            Plan::Pro
+        } else {
+            Plan::Free
+        },
+        usage: Usage {
+            words: if value == "limit" { 2000 } else { 1240 },
+            cap: if value == "pro" { None } else { Some(2000) },
+            resets_at: (chrono::Local::now() + chrono::Duration::days(3)).timestamp_millis(),
+        },
+    })
 }
