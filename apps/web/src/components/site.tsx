@@ -94,6 +94,7 @@ export function Footer() {
           { label: "Download", href: "/download" },
           { label: "Pricing", href: "/#pricing" },
           { label: "Account", href: "/account" },
+          { label: "Feedback", href: "/feedback" },
           { label: "Privacy", href: "/privacy" },
           { label: "Terms", href: "/terms" },
         ].map((link) => (

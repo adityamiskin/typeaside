@@ -3,8 +3,50 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction, type ActionCtx } from "./_generated/server";
 import { hashToken } from "./lib";
+import { pingInput } from "./pings";
 
 const http = httpRouter();
+http.route({
+  path: "/v1/ping",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const maxBytes = 8 * 1024;
+    if (Number(request.headers.get("Content-Length")) > maxBytes)
+      return error(413, "request", "Ping exceeds 8 KB");
+    let input: unknown;
+    try {
+      const reader = request.body?.getReader();
+      if (!reader) return error(400, "request", "Expected JSON");
+      const bytes = new Uint8Array(maxBytes);
+      let size = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > maxBytes) {
+          await reader.cancel();
+          return error(413, "request", "Ping exceeds 8 KB");
+        }
+        bytes.set(value, size - value.byteLength);
+      }
+      input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, size)));
+    } catch {
+      return error(400, "request", "Expected JSON");
+    }
+    const parsed = pingInput.safeParse(input);
+    if (!parsed.success) return error(400, "request", "Invalid ping");
+    const status = await ctx.runMutation(internal.pings.record, parsed.data);
+    if (!status.ok)
+      return Response.json(
+        { error: { type: "rate_limit", message: "Too many pings" } },
+        {
+          status: 429,
+          headers: { "Retry-After": String(Math.ceil(status.retryAfter / 1000)) },
+        },
+      );
+    return new Response(null, { status: 204 });
+  }),
+});
 const MAX_CHAT_BODY_BYTES = 64 * 1024;
 const MAX_CHAT_TOKENS = 2048;
 function error(status: number, type: string, message: string, extra = {}) {

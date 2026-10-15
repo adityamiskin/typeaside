@@ -1258,3 +1258,13 @@ small {
     transform: none;
   }
 }
+
+.feedback-form {
+  max-width: 560px;
+}
+.feedback-form textarea {
+  min-height: 168px;
+}
+.feedback-form .error {
+  margin-top: 16px;
+}
