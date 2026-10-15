@@ -2,6 +2,7 @@ mod assets;
 mod demo;
 mod dictionary;
 mod home;
+mod instance;
 mod motion;
 mod overlay;
 mod settings;
@@ -62,6 +63,22 @@ impl AppState {
 
 pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::Result<()> {
     let paths = AppPaths::discover()?;
+    let socket = if is_demo {
+        "hermes-demo.sock"
+    } else {
+        "hermes.sock"
+    };
+    let listener = match instance::claim(socket, !hidden) {
+        instance::Claim::Handed => return Ok(()),
+        instance::Claim::Primary(listener) => listener,
+    };
+    let actions = async_channel::unbounded();
+    if let Some(listener) = listener {
+        instance::serve(listener, actions.0.clone());
+    }
+    if !hidden {
+        let _ = actions.0.try_send(tray::Action::Open);
+    }
     gpui_platform::application()
         .with_assets(assets::Assets)
         .with_quit_mode(QuitMode::Explicit)
@@ -94,7 +111,7 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                 cx.update(move |cx| match loaded {
                     Ok((config, history)) => {
                         trace("config and history ready", started);
-                        start_ui(config, paths, history, is_demo, hidden, started, cx)
+                        start_ui(config, paths, history, is_demo, actions, started, cx)
                     }
                     Err(error) => {
                         eprintln!("hermes: cannot load configuration: {error:#}");
@@ -106,12 +123,17 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
         });
     Ok(())
 }
+type Actions = (
+    async_channel::Sender<tray::Action>,
+    async_channel::Receiver<tray::Action>,
+);
+
 fn start_ui(
     config: AppConfig,
     paths: AppPaths,
     history: Vec<Dictation>,
     is_demo: bool,
-    hidden: bool,
+    actions: Actions,
     started: std::time::Instant,
     cx: &mut App,
 ) {
@@ -163,45 +185,32 @@ fn start_ui(
         },
         onboarding_transcript: None,
     });
-    trace("main window open begin", started);
-    let mut main_window = if hidden {
-        None
-    } else {
-        match window::open(state.clone(), cx) {
-            Ok(window) => Some(window),
-            Err(error) => {
-                eprintln!("hermes: cannot open main window: {error:#}");
-                cx.quit();
-                return;
-            }
-        }
-    };
-    trace("main window open end", started);
-    let tray_task = cx.background_executor().spawn(async { tray::spawn() });
+    let mut main_window: Option<gpui::AnyWindowHandle> = None;
+    let (sender, actions) = actions;
+    let tray = cx
+        .background_executor()
+        .spawn(async move { tray::spawn(sender) });
     let tray_state = state.clone();
-    cx.spawn(async move |cx| match tray_task.await {
-        Ok((handle, actions)) => {
-            let _handle = handle;
-            while let Ok(action) = actions.recv().await {
-                cx.update(|cx| match action {
-                    tray::Action::Quit => cx.quit(),
-                    tray::Action::Open => {
-                        let activated = main_window.is_some_and(|handle| {
-                            handle.update(cx, |_, w, _| w.activate_window()).is_ok()
-                        });
-                        if !activated {
-                            match window::open(tray_state.clone(), cx) {
-                                Ok(window) => main_window = Some(window),
-                                Err(e) => {
-                                    eprintln!("hermes: cannot open main window: {e:#}")
-                                }
-                            }
+    cx.spawn(async move |cx| {
+        let _tray = tray
+            .await
+            .inspect_err(|e| eprintln!("hermes: tray unavailable: {e:#}"));
+        while let Ok(action) = actions.recv().await {
+            cx.update(|cx| match action {
+                tray::Action::Quit => cx.quit(),
+                tray::Action::Open => {
+                    let activated = main_window.is_some_and(|handle| {
+                        handle.update(cx, |_, w, _| w.activate_window()).is_ok()
+                    });
+                    if !activated {
+                        match window::open(tray_state.clone(), cx) {
+                            Ok(window) => main_window = Some(window),
+                            Err(e) => eprintln!("hermes: cannot open main window: {e:#}"),
                         }
                     }
-                });
-            }
+                }
+            });
         }
-        Err(e) => eprintln!("hermes: tray unavailable: {e:#}"),
     })
     .detach();
     if !is_demo {

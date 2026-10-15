@@ -64,8 +64,7 @@ pub struct TrayHandle {
     _handle: Handle<HermesTray>,
 }
 
-pub fn spawn() -> anyhow::Result<(TrayHandle, async_channel::Receiver<Action>)> {
-    let (sender, receiver) = async_channel::unbounded();
+pub fn spawn(sender: async_channel::Sender<Action>) -> anyhow::Result<TrayHandle> {
     let handle = HermesTray { sender }.spawn()?;
-    Ok((TrayHandle { _handle: handle }, receiver))
+    Ok(TrayHandle { _handle: handle })
 }
