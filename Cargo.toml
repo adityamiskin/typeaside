@@ -28,6 +28,7 @@ nix = { version = "0.30", features = ["poll"] }
 
 [patch.crates-io]
 keyring = { path = "vendor/keyring" }
+gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
 
 [profile.release]
 lto = "fat"
