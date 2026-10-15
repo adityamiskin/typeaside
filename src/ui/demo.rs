@@ -12,6 +12,11 @@ pub fn config() -> AppConfig {
             hermes::config::Source::OwnKey
         },
         onboarded: std::env::var("HERMES_DEMO_PAGE").as_deref() != Ok("onboarding"),
+        theme: match std::env::var("HERMES_DEMO_THEME").as_deref() {
+            Ok("light") => hermes::config::Theme::Light,
+            Ok("dark") => hermes::config::Theme::Dark,
+            _ => hermes::config::Theme::System,
+        },
         dictionary: [
             "Hermes",
             "niri",

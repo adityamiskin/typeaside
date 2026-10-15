@@ -76,7 +76,7 @@ impl MainWindow {
                                     .border_b_1()
                                     .border_color(p.row)
                                     .bg(if category == self.style_category {
-                                        p.hover
+                                        p.tint
                                     } else {
                                         p.bg
                                     })

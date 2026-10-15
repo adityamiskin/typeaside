@@ -238,9 +238,9 @@ impl Render for MainWindow {
         } else {
             match &state.phase {
                 Phase::Idle => (p.green, "Ready".into()),
-                Phase::Listening(_) => (p.accent, "Listening".into()),
-                Phase::Transcribing => (p.accent, "Transcribing".into()),
-                Phase::Cleaning => (p.accent, "Cleaning".into()),
+                Phase::Listening(_) => (p.blue, "Listening".into()),
+                Phase::Transcribing => (p.blue, "Transcribing".into()),
+                Phase::Cleaning => (p.blue, "Cleaning".into()),
                 Phase::Error(e) => (p.red, e.clone()),
             }
         };
@@ -294,7 +294,7 @@ impl Render for MainWindow {
                                 div()
                                     .id("sidebar-upgrade")
                                     .flex_shrink_0()
-                                    .text_color(p.accent)
+                                    .text_color(p.blue)
                                     .cursor_pointer()
                                     .child("Upgrade")
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -324,7 +324,7 @@ impl Render for MainWindow {
                                     .h_full()
                                     .w(gpui::relative(fraction))
                                     .rounded_full()
-                                    .bg(if limit { p.red } else { p.accent }),
+                                    .bg(if limit { p.red } else { p.blue }),
                             ),
                     )
             });
@@ -350,7 +350,7 @@ impl Render for MainWindow {
                     .text_size(px(14.))
                     .line_height(px(20.3))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(div().size(px(16.)).rounded(px(4.)).bg(p.accent))
+                    .child(div().size(px(16.)).rounded(px(4.)).bg(p.blue))
                     .child("Hermes"),
             )
             .children(
@@ -374,7 +374,7 @@ impl Render for MainWindow {
                         .items_center()
                         .gap(px(10.))
                         .cursor_pointer()
-                        .bg(if selected { p.selected } else { p.side })
+                        .bg(if selected { p.tint } else { p.side })
                         .text_color(if selected { p.fg } else { p.muted })
                         .hover(|s| s.bg(p.hover))
                         .child(
@@ -382,7 +382,7 @@ impl Render for MainWindow {
                                 .path(icon)
                                 .size(px(15.))
                                 .flex_shrink_0()
-                                .text_color(if selected { p.accent } else { p.muted }),
+                                .text_color(if selected { p.blue } else { p.muted }),
                         )
                         .child(title)
                         .on_click(cx.listener(move |this, _, w, cx| this.set_page(page, w, cx)))
@@ -422,7 +422,7 @@ impl Render for MainWindow {
                             .path("icons/circle-arrow-down.svg")
                             .size(px(15.))
                             .flex_shrink_0()
-                            .text_color(p.accent),
+                            .text_color(p.blue),
                     )
                     .child(label)
             }))
