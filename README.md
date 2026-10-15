@@ -86,4 +86,14 @@ PATH=$HOME/.cargo/bin:$PATH cargo check
 
 `bun run check` runs Vite+ format, lint and type checks. Rust/vendor files are excluded from the web formatter. `bun run build` builds locally and does not deploy. Deployment uses `bun run deploy` through Wrangler. Workers Builds runs `bun run build` then `bun run deploy` from `apps/web`, on pushes to `main` only. Preview builds and preview URLs are disabled. The deployed site uses Convex dev, WorkOS staging and Dodo test mode.
 
-Real WorkOS credentials are needed to verify OAuth, signed-in account UI and browser-to-desktop token handoff. Dodo test credentials, product IDs and a reachable signed webhook endpoint are needed to verify checkout, portal and subscription lifecycle. Groq credentials are needed to verify actual transcription, cleanup and provider responses. Legal pages are visibly marked as drafts pending legal review. Download assets must be attached to GitHub Releases under the configured names.
+Real WorkOS credentials are needed to verify OAuth, signed-in account UI and browser-to-desktop token handoff. Dodo test credentials, product IDs and a reachable signed webhook endpoint are needed to verify checkout, portal and subscription lifecycle. Groq credentials are needed to verify actual transcription, cleanup and provider responses. Legal pages are visibly marked as drafts pending legal review. Installers are served from the `hermes-releases` R2 bucket through `/releases/<file>`.
+
+## Desktop releases
+
+Bump the version in `Cargo.toml` (and update `Cargo.lock` with `cargo check`), commit, then tag `vX.Y.Z` and push that tag. The Release workflow rejects tags that do not match the Cargo version. It builds a universal macOS 13+ DMG, a per-user Windows 10/11 installer, and Linux x86_64 Wayland packages on Ubuntu 22.04.
+
+Configure repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The token needs **Workers R2 Storage: Edit** on that account. Releases upload `Hermes.dmg`, `Hermes-setup.exe`, `Hermes.AppImage`, and `hermes.deb` to `hermes-releases`, plus copies under `v<version>/`. No GitHub Release is created.
+
+For a dry run, dispatch **Release** with `upload` left false. All installers are saved as Actions artifacts; R2 is untouched. Setting `upload` true explicitly publishes the selected ref's installers to R2. CI runs only on pull requests and pushes to `main`.
+
+macOS bundles use ad-hoc signing by default. `scripts/bundle-macos.sh` accepts `HERMES_SIGNING_IDENTITY` when a signing identity is installed; notarization is not configured. Windows installers are unsigned. Linux requires a Wayland session and access to the system Secret Service; `.deb` declares its runtime libraries, while the AppImage bundles application libraries and uses the host graphics drivers.
