@@ -1,16 +1,57 @@
-use hermes::engine::{Dictation, Event, Phase};
+use hermes::{
+    config::{AppConfig, Snippet},
+    engine::{Dictation, Event, Mode, Phase},
+};
 use std::time::{Duration, Instant, SystemTime};
 
+pub fn config() -> AppConfig {
+    AppConfig {
+        onboarded: std::env::var("HERMES_DEMO_PAGE").as_deref() != Ok("onboarding"),
+        dictionary: [
+            "Hermes",
+            "niri",
+            "GPUI",
+            "Priya Raman",
+            "Zapsight",
+            "Tauri",
+            "Convex",
+            "Groq",
+            "CachyOS",
+            "Kubernetes",
+            "PSS",
+            "evdev",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+        snippets: [
+            ("my calendar link", "https://cal.com/aditya/30min"),
+            (
+                "intro blurb",
+                "I'm Aditya, I build Hermes, a voice dictation app for Linux.",
+            ),
+            ("home address", "221B Baker Street, London"),
+        ]
+        .into_iter()
+        .map(|(trigger, text)| Snippet {
+            trigger: trigger.into(),
+            text: text.into(),
+        })
+        .collect(),
+        ..Default::default()
+    }
+}
 pub fn history() -> Vec<Dictation> {
+    use chrono::{Local, TimeZone};
+    let today = Local::now().date_naive();
     [
-        ("Let's move the sync to Thursday at 3 and keep the agenda short: launch checklist, pricing page, and the onboarding email.", "com.slack.Slack", 0),
-        ("Can you check whether the overlay steals focus on niri when the main window is closed?", "com.mitchellh.ghostty", 180),
-        ("Thanks for the quick turnaround. I'll review the PR tonight and leave comments by morning.", "gmail", 660),
-        ("Groceries: oat milk, eggs, spinach, and the good coffee beans from the place on 5th.", "notes", 86400),
-        ("Refactor the transcribe module so the HTTP client is created once and reused across dictations.", "t3-code", 87300),
-    ].into_iter().map(|(text, app, ago)| Dictation {
-        at: SystemTime::now() - Duration::from_secs(ago), raw: text.into(), cleaned: text.into(),
-        app_id: Some(app.into()), audio_ms: 3800, latency_ms: 640, mode: Default::default(),
+        ("Let's push the release to Thursday so QA has a full day with the new build. I'll update the ticket.", "let's push the release to thursday so qa has a full day with the new build i'll update the ticket", "slack", 0, 14, 32, 412),
+        ("Can you send me the deck before the 3 pm call?", "um can you send me the uh deck before the 2 actually 3 pm call", "slack", 0, 14, 5, 388),
+        ("Hi Priya, thanks for the quick turnaround. The numbers look right to me, so feel free to send it to the client.", "hi priya thanks for the quick turnaround the numbers look right to me so feel free to send it to the client", "thunderbird", 0, 11, 48, 440),
+        ("fix the off by one in the pagination cursor and add a test for the empty page", "fix the off by one in the pagination cursor and add a test for the empty page", "Alacritty", 1, 22, 10, 412),
+    ].into_iter().map(|(cleaned,raw,app,ago,h,m,latency_ms)| {
+        let date = today - chrono::Duration::days(ago);
+        let at = Local.from_local_datetime(&date.and_hms_opt(h,m,0).unwrap()).earliest().unwrap().into();
+        Dictation {at, raw:raw.into(), cleaned:cleaned.into(), app_id:Some(app.into()), audio_ms:4200, latency_ms, mode:Mode::Dictate}
     }).collect()
 }
 
@@ -32,11 +73,31 @@ pub fn spawn() -> async_channel::Receiver<Event> {
             tx.send_blocking(event).is_ok()
         };
         std::thread::sleep(Duration::from_secs(2));
+        if let Ok(visual) = std::env::var("HERMES_DEMO_OVERLAY") {
+            let event = match visual.as_str() {
+                "command" => Event::Phase(Phase::Listening(Mode::Command)),
+                "processing" => Event::Phase(Phase::Transcribing),
+                "success" => Event::Done(history().remove(0)),
+                "error" => Event::Phase(Phase::Error("No speech detected".into())),
+                _ => Event::Phase(Phase::Listening(Mode::Dictate)),
+            };
+            if !send(event) {
+                return;
+            }
+            loop {
+                if !send(Event::Level(0.7)) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(33));
+            }
+        }
         let mut cycle = 0;
         loop {
-            if !send(Event::Phase(Phase::Listening(
-                hermes::engine::Mode::Dictate,
-            ))) {
+            if !send(Event::Phase(Phase::Listening(if cycle % 2 == 0 {
+                Mode::Dictate
+            } else {
+                Mode::Command
+            }))) {
                 break;
             }
             for tick in 0..91 {
@@ -62,7 +123,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(400));
-                let mut dictation = history().remove(cycle % 5);
+                let mut dictation = history().remove(cycle % 4);
                 dictation.at = SystemTime::now();
                 if !send(Event::Done(dictation)) {
                     break;

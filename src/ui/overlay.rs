@@ -1,8 +1,8 @@
-use super::{motion::Spring, theme::*};
+use super::{AppState, motion::Spring, theme::*};
 use gpui::{
-    App, Bounds, BoxShadow, Context, PathBuilder, Render, TextRun, Window,
+    App, AppContext, Bounds, BoxShadow, Context, Entity, PathBuilder, Render, TextRun, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div,
-    fill, font, layer_shell::*, point, prelude::*, px, rgb, rgba, size,
+    fill, font, layer_shell::*, point, prelude::*, px, size,
 };
 use hermes::engine::Phase;
 use std::time::{Duration, Instant};
@@ -18,6 +18,9 @@ enum Visual {
 }
 
 pub struct Overlay {
+    state: Entity<AppState>,
+    command: bool,
+    traced: Option<&'static str>,
     phase: Visual,
     phase_at: Instant,
     entered: Instant,
@@ -33,9 +36,12 @@ pub struct Overlay {
 }
 
 impl Overlay {
-    fn new() -> Self {
+    fn new(state: Entity<AppState>) -> Self {
         let now = Instant::now();
         Self {
+            state,
+            command: false,
+            traced: None,
             phase: Visual::Listening,
             phase_at: now,
             entered: now,
@@ -64,7 +70,11 @@ impl Overlay {
 
     pub fn phase(&mut self, phase: Phase, window: &mut Window, cx: &mut Context<Self>) {
         let next = match phase {
-            Phase::Listening(_) => Visual::Listening,
+            Phase::Listening(mode) => {
+                self.command = mode == hermes::engine::Mode::Command;
+                cx.notify();
+                Visual::Listening
+            }
             Phase::Transcribing | Phase::Cleaning => Visual::Processing,
             Phase::Error(message) => Visual::Error(message),
             Phase::Idle if self.phase == Visual::Listening => Visual::Cancel,
@@ -91,7 +101,7 @@ impl Overlay {
                 &[TextRun {
                     len: message.len(),
                     font: font("Inter"),
-                    color: rgb(WHITE).into(),
+                    color: palette(cx).fg,
                     background_color: None,
                     underline: None,
                     strikethrough: None,
@@ -147,7 +157,11 @@ impl Overlay {
         match self.phase {
             Visual::Listening => {
                 self.width.target = if entered > OPEN_DELAY {
-                    LISTEN_WIDTH
+                    if self.command {
+                        COMMAND_WIDTH
+                    } else {
+                        LISTEN_WIDTH
+                    }
                 } else {
                     PILL_HEIGHT
                 }
@@ -200,8 +214,34 @@ impl Overlay {
 }
 
 impl Render for Overlay {
-    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
+        let command = self.command && self.phase == Visual::Listening;
         let (opacity, elapsed, _) = self.advance(window);
+        let kind = match &self.phase {
+            Visual::Listening if command => "command",
+            Visual::Listening => "listening",
+            Visual::Processing => "processing",
+            Visual::Success => "success",
+            Visual::Error(_) => "error",
+            Visual::Cancel => "cancel",
+            Visual::Exit => "exit",
+        };
+        let trace =
+            if self.traced != Some(kind) && std::env::var("HERMES_TRACE").as_deref() == Ok("1") {
+                self.traced = Some(kind);
+                Some(
+                    canvas(
+                        |_, _, _| (),
+                        move |_, _, _, _| eprintln!("hermes overlay frame: {kind}"),
+                    )
+                    .absolute()
+                    .size(px(1.)),
+                )
+            } else {
+                None
+            };
+
         let scale = self.scale.value;
         let width = self.width.value * scale;
         let height = PILL_HEIGHT * scale;
@@ -219,13 +259,13 @@ impl Render for Overlay {
             .w(px(width))
             .h(px(height))
             .rounded(px(height / 2.))
-            .bg(rgb(BLACK))
+            .bg(p.pill)
             .border_1()
-            .border_color(rgba(0xffffff24))
+            .border_color(p.pill_border)
             .shadow(vec![BoxShadow {
-                color: rgba(0x00000073).into(),
-                offset: point(px(0.), px(8.)),
-                blur_radius: px(24.),
+                color: p.shadow,
+                offset: point(px(0.), px(10.)),
+                blur_radius: px(28.),
                 spread_radius: px(0.),
                 inset: false,
             }])
@@ -247,20 +287,32 @@ impl Render for Overlay {
                             .size(px(6. * self.dot.value.max(0.)))
                             .flex_shrink_0()
                             .rounded_full()
-                            .bg(rgb(RED)),
+                            .bg(p.red),
                     )
                     .child(
                         div()
                             .relative()
                             .left(px(6. * (1. - text_progress)))
                             .opacity(text_progress)
-                            .text_color(rgba(0xffffffd9))
+                            .text_color(p.fg)
                             .text_size(px(13.))
                             .text_ellipsis()
                             .child(message.clone()),
                     ),
             );
         } else {
+            if command {
+                pill = pill.child(
+                    div()
+                        .absolute()
+                        .left(px(width / 2. - 40.5))
+                        .w(px(12.))
+                        .text_size(px(12.))
+                        .line_height(px(12.))
+                        .text_color(p.accent)
+                        .child("✦"),
+                );
+            }
             let phase = self.phase.clone();
             let bars = self.bars;
             let positions = self.positions;
@@ -298,11 +350,23 @@ impl Render for Overlay {
                             let h = bars[i].value.max(0.) * scale;
                             let x = positions[i].value;
                             let rect = Bounds::new(
-                                point(center.x + px(x * scale - 1.5), center.y + px(y - h / 2.)),
+                                point(
+                                    center.x
+                                        + px((x + if command { 9. } else { 0. }) * scale - 1.5),
+                                    center.y + px(y - h / 2.),
+                                ),
                                 size(px(3. * scale), px(h)),
                             );
                             window.paint_quad(
-                                fill(rect, rgb(WHITE).alpha(alpha)).corner_radii(px(1.5)),
+                                fill(
+                                    rect,
+                                    if processing {
+                                        p.accent.opacity(alpha)
+                                    } else {
+                                        p.fg.opacity(alpha)
+                                    },
+                                )
+                                .corner_radii(px(1.5)),
                             );
                         }
                         if phase == Visual::Success {
@@ -328,7 +392,7 @@ impl Render for Overlay {
                                 );
                             }
                             if let Ok(path) = path.build() {
-                                window.paint_path(path, rgb(WHITE));
+                                window.paint_path(path, p.fg);
                             }
                         }
                     },
@@ -336,11 +400,15 @@ impl Render for Overlay {
                 .size_full(),
             );
         }
-        div().size_full().font_family("Inter").child(pill)
+        div()
+            .size_full()
+            .font_family("Inter")
+            .children(trace)
+            .child(pill)
     }
 }
 
-pub fn open(cx: &mut App) -> anyhow::Result<WindowHandle<Overlay>> {
+pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandle<Overlay>> {
     cx.open_window(
         WindowOptions {
             titlebar: None,
@@ -362,6 +430,17 @@ pub fn open(cx: &mut App) -> anyhow::Result<WindowHandle<Overlay>> {
             }),
             ..Default::default()
         },
-        |_, cx| cx.new(|_| Overlay::new()),
+        |window, cx| {
+            cx.new(|cx| {
+                super::theme::apply(state.read(cx).config.theme, window.appearance(), cx);
+                cx.observe_window_appearance(window, |this: &mut Overlay, window, cx| {
+                    super::theme::apply(this.state.read(cx).config.theme, window.appearance(), cx);
+                    cx.notify();
+                })
+                .detach();
+                cx.observe(&state, |_, _, cx| cx.notify()).detach();
+                Overlay::new(state)
+            })
+        },
     )
 }

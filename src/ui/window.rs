@@ -1,140 +1,213 @@
-use super::{AppState, settings::SettingsInputs, theme::*};
+use super::{
+    AppState,
+    settings::SettingsInputs,
+    theme::{self, *},
+};
 use gpui::{
-    App, AppContext, Bounds, Context, Entity, FontWeight, IntoElement, Render, Styled, Window,
-    WindowBounds, WindowOptions, div, prelude::*, px, rgb, rgba, size,
+    App, AppContext, Bounds, Context, Entity, FocusHandle, FontWeight, IntoElement, Render, Styled,
+    Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
 };
-use gpui_kit::component::{
-    input::{InputEvent, InputState},
-    select::SelectEvent,
+use gpui_kit::component::input::{InputEvent, InputState};
+use hermes::{
+    config::AppCategory,
+    engine::{Command, Phase},
 };
-use hermes::engine::Phase;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
     Home,
     Dictionary,
+    Snippets,
+    Style,
     Settings,
+    Onboarding,
+}
+impl Page {
+    pub fn from_demo() -> Self {
+        match std::env::var("HERMES_DEMO_PAGE").as_deref() {
+            Ok("dictionary") => Self::Dictionary,
+            Ok("snippets") => Self::Snippets,
+            Ok("style") => Self::Style,
+            Ok("settings") => Self::Settings,
+            Ok("onboarding") => Self::Onboarding,
+            _ => Self::Home,
+        }
+    }
+}
+#[derive(Clone, Copy, PartialEq)]
+pub enum Shortcut {
+    Dictate,
+    Command,
+    Paste,
+    Cancel,
 }
 
 pub struct MainWindow {
     pub state: Entity<AppState>,
     pub settings: SettingsInputs,
     pub word_input: Entity<InputState>,
-    pub copied: bool,
-    pub copy_generation: u64,
+    pub search_input: Entity<InputState>,
+    pub snippet_editor: Option<super::snippets::SnippetEditor>,
+    pub style_category: AppCategory,
+    pub hovered_history: Option<usize>,
+    pub hovered_word: Option<usize>,
+    pub capture: Option<Shortcut>,
+    pub capture_modifiers: gpui::Modifiers,
+    pub settings_scroll: gpui::ScrollHandle,
+    pub focus: FocusHandle,
     page: Page,
-    dirty: bool,
     trace_started: Option<std::time::Instant>,
 }
-
 impl MainWindow {
     fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        let config = state.read(cx).config.clone();
-        let settings = SettingsInputs::new(&config, &state.read(cx).key_hint.clone(), window, cx);
-        for input in settings.text_inputs() {
-            cx.subscribe_in(input, window, |this, _, event, window, cx| match event {
-                InputEvent::Change => {
-                    this.dirty = true;
-                    this.save_settings(window, cx);
-                }
-                InputEvent::Blur | InputEvent::PressEnter { .. } => this.save_settings(window, cx),
-                InputEvent::Focus => {}
-            })
-            .detach();
-        }
-        cx.subscribe_in(
-            &settings.key,
-            window,
-            |this, _, event, window, cx| match event {
-                InputEvent::Change => this.dirty = true,
-                InputEvent::Blur | InputEvent::PressEnter { .. } => this.save_settings(window, cx),
-                InputEvent::Focus => {}
-            },
-        )
-        .detach();
-        cx.subscribe(&settings.device, |this, _, event, cx| {
-            let SelectEvent::Confirm(value) = event;
-            if let Some(value) = value {
-                this.state.update(cx, |state, cx| {
-                    state.config.input_device = (value != "System default").then(|| value.clone());
-                    state.persist("");
-                    cx.notify();
-                });
-            }
+        theme::apply(state.read(cx).config.theme, window.appearance(), cx);
+        cx.observe_window_appearance(window, |this, window, cx| {
+            theme::apply(this.state.read(cx).config.theme, window.appearance(), cx);
+            cx.notify();
         })
         .detach();
+        let config = state.read(cx).config.clone();
+        let devices = state.read(cx).devices.clone();
+        let settings = SettingsInputs::new(&config, &devices, window, cx);
         let word_input = cx.new(|cx| InputState::new(window, cx).placeholder("Add a word or name"));
+        let search = state.read(cx).search.clone();
+        let search_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Search history")
+                .default_value(search)
+        });
         cx.subscribe_in(&word_input, window, |this, _, event, window, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 this.add_word(window, cx);
             }
         })
         .detach();
-        let entity = cx.entity().downgrade();
-        window.on_window_should_close(cx, move |window, cx| {
-            let _ = entity.update(cx, |this, cx| this.save_settings(window, cx));
+        cx.subscribe(&search_input, |this, input, event, cx| {
+            if matches!(event, InputEvent::Change) {
+                let search = input.read(cx).value().to_string();
+                this.state.update(cx, |s, cx| {
+                    s.search = search;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+        cx.observe_in(&state, window, |this, _, window, cx| {
+            this.settings.refresh(&this.state, window, cx);
+            theme::apply(this.state.read(cx).config.theme, window.appearance(), cx);
+            cx.notify();
+        })
+        .detach();
+        let weak = state.downgrade();
+        window.on_window_should_close(cx, move |_, cx| {
+            let _ = weak.update(cx, |s, cx| {
+                s.mic_testing = false;
+                s.mic_generation += 1;
+                s.command(Command::MicTest(false));
+                cx.notify();
+            });
             true
         });
         let page = state.read(cx).initial_page;
         let trace_started = state.read(cx).trace_started;
-        Self {
+        let mut this = Self {
             state,
             settings,
             word_input,
-            copied: false,
-            copy_generation: 0,
+            search_input,
+            snippet_editor: None,
+            style_category: AppCategory::Work,
+            hovered_history: None,
+            hovered_word: None,
+            capture: None,
+            capture_modifiers: gpui::Modifiers::default(),
+            settings_scroll: gpui::ScrollHandle::new(),
+            focus: cx.focus_handle(),
             page,
-            dirty: false,
             trace_started,
+        };
+        this.bind_settings(window, cx);
+        if this.state.read(cx).is_demo {
+            if page == Page::Home {
+                let at = this.state.read(cx).history.get(1).map(|d| d.at);
+                this.state.update(cx, |s, _| s.expanded = at);
+                this.hovered_history = Some(0);
+            }
+            if page == Page::Onboarding && this.state.read(cx).onboarding_step == 0 {
+                this.state.update(cx, |s, cx| {
+                    s.key_hint = "gsk_…".into();
+                    cx.notify();
+                });
+            }
+            if page == Page::Dictionary {
+                this.hovered_word = Some(3);
+            }
+            if page == Page::Settings {
+                if std::env::var("HERMES_DEMO_SETTINGS_SCROLL").as_deref() == Ok("bottom") {
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(150))
+                            .await;
+                        let _ = this.update(cx, |this, cx| {
+                            this.settings_scroll.scroll_to_bottom();
+                            cx.notify();
+                        });
+                    })
+                    .detach();
+                }
+                this.capture = Some(Shortcut::Cancel);
+                this.start_mic(cx);
+            }
+            if page == Page::Snippets {
+                this.edit_snippet(Some(1), window, cx);
+            }
+            if page == Page::Onboarding && this.state.read(cx).onboarding_step == 1 {
+                this.start_mic(cx);
+            }
         }
+        this
     }
-
-    fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.dirty {
-            return;
-        }
-        self.dirty = false;
-        let inputs = &self.settings;
-        let key = inputs.key.read(cx).value().to_string();
-        let hotkey = inputs.hotkey.read(cx).value().trim().to_owned();
-        let endpoint = inputs.endpoint.read(cx).value().trim().to_owned();
-        let model = inputs.model.read(cx).value().trim().to_owned();
-        let language = inputs.language.read(cx).value().trim().to_owned();
-        let cleanup_endpoint = inputs.cleanup_endpoint.read(cx).value().trim().to_owned();
-        let cleanup_model = inputs.cleanup_model.read(cx).value().trim().to_owned();
-        self.state.update(cx, |state, cx| {
-            let config = &mut state.config;
-            config.hotkey = hotkey;
-            config.stt.base_url = endpoint;
-            config.stt.model = model;
-            config.language = (!language.is_empty()).then_some(language);
-            config.cleanup.endpoint.base_url = cleanup_endpoint;
-            config.cleanup.endpoint.model = cleanup_model;
-            state.persist(&key);
-            cx.notify();
-        });
-        if !key.is_empty() && self.state.read(cx).save_error.is_none() {
-            self.settings.key.update(cx, |input, cx| {
-                input.set_value("", window, cx);
-            });
-        }
-        let hint = self.state.read(cx).key_hint.clone();
-        self.settings
-            .key
-            .update(cx, |input, cx| input.set_placeholder(hint, window, cx));
-        self.dirty = self.state.read(cx).save_error.is_some();
-    }
-
-    pub fn set_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
-        self.save_settings(window, cx);
+    pub fn set_page(&mut self, page: Page, _: &mut Window, cx: &mut Context<Self>) {
         self.page = page;
+        self.state.update(cx, |s, _| s.initial_page = page);
+        self.capture = None;
         cx.notify();
+    }
+    pub fn start_mic(&mut self, cx: &mut Context<Self>) {
+        let generation = self.state.update(cx, |s, cx| {
+            s.mic_testing = true;
+            s.mic_generation += 1;
+            s.command(Command::MicTest(true));
+            cx.notify();
+            s.mic_generation
+        });
+        let state = self.state.clone();
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(5))
+                .await;
+            state.update(cx, |s, cx| {
+                if s.mic_generation == generation {
+                    s.mic_testing = false;
+                    s.command(Command::MicTest(false));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+}
+impl Drop for MainWindow {
+    fn drop(&mut self) {
+        if std::env::var("HERMES_TRACE").as_deref() == Ok("1") {
+            eprintln!("hermes main window released");
+        }
     }
 }
 
 impl Render for MainWindow {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
         let trace = self.trace_started.take().map(|started| {
             gpui::canvas(
                 |_, _, _| (),
@@ -149,61 +222,77 @@ impl Render for MainWindow {
             .size(px(1.))
         });
         let state = self.state.read(cx);
+        let onboarding = !state.config.onboarded;
         let (color, status) = if let Some(error) = &state.save_error {
-            (RED, error.clone())
+            (p.red, error.clone())
         } else {
             match &state.phase {
-                Phase::Idle => (GREEN, "Ready".into()),
-                Phase::Listening(_) => (WHITE, "Listening".into()),
-                Phase::Transcribing => (WHITE, "Transcribing".into()),
-                Phase::Cleaning => (WHITE, "Cleaning".into()),
-                Phase::Error(error) => (RED, error.clone()),
+                Phase::Idle => (p.green, "Ready".into()),
+                Phase::Listening(_) => (p.accent, "Listening".into()),
+                Phase::Transcribing => (p.accent, "Transcribing".into()),
+                Phase::Cleaning => (p.accent, "Cleaning".into()),
+                Phase::Error(e) => (p.red, e.clone()),
             }
         };
+        let hotkey = key_label(&state.config.hotkey);
         let side = div()
             .w(px(SIDEBAR))
             .flex_shrink_0()
             .h_full()
+            .bg(p.side)
             .border_r_1()
-            .border_color(rgb(DIVIDER))
+            .border_color(p.divider)
             .px(px(10.))
-            .py(px(18.))
+            .py(px(14.))
             .flex()
             .flex_col()
-            .gap(px(2.))
             .child(
                 div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
                     .px(px(10.))
-                    .pb(px(18.))
+                    .pt(px(2.))
+                    .pb(px(16.))
                     .text_size(px(14.))
+                    .line_height(px(20.3))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("hermes"),
+                    .child(div().size(px(16.)).rounded(px(4.)).bg(p.accent))
+                    .child("Hermes"),
             )
             .children(
                 [
-                    (Page::Home, "Home"),
-                    (Page::Dictionary, "Dictionary"),
-                    (Page::Settings, "Settings"),
+                    (Page::Home, "Home", "icons/house.svg"),
+                    (Page::Dictionary, "Dictionary", "icons/book-a.svg"),
+                    (Page::Snippets, "Snippets", "icons/text-quote.svg"),
+                    (Page::Style, "Style", "icons/palette.svg"),
+                    (Page::Settings, "Settings", "icons/settings.svg"),
                 ]
                 .into_iter()
-                .map(|(page, title)| {
+                .map(|(page, title, icon)| {
+                    let selected = self.page == page;
                     div()
                         .id(title)
+                        .min_h(px(30.))
+                        .max_h(px(30.))
                         .px(px(10.))
-                        .py(px(6.))
-                        .rounded(px(RADIUS))
+                        .rounded(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
                         .cursor_pointer()
-                        .bg(rgb(if self.page == page { ROW } else { BLACK }))
-                        .text_color(if self.page == page {
-                            rgb(WHITE)
-                        } else {
-                            rgba(MUTED)
-                        })
-                        .hover(|style| style.bg(rgb(ROW)).text_color(rgb(WHITE)))
-                        .child(title)
-                        .on_click(
-                            cx.listener(move |this, _, window, cx| this.set_page(page, window, cx)),
+                        .bg(if selected { p.selected } else { p.side })
+                        .text_color(if selected { p.fg } else { p.muted })
+                        .hover(|s| s.bg(p.hover))
+                        .child(
+                            gpui::svg()
+                                .path(icon)
+                                .size(px(15.))
+                                .flex_shrink_0()
+                                .text_color(if selected { p.accent } else { p.muted }),
                         )
+                        .child(title)
+                        .on_click(cx.listener(move |this, _, w, cx| this.set_page(page, w, cx)))
                 }),
             )
             .child(div().flex_1())
@@ -211,44 +300,73 @@ impl Render for MainWindow {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    .gap(px(7.))
                     .px(px(10.))
+                    .py(px(8.))
                     .text_size(px(12.))
-                    .text_color(rgba(MUTED))
-                    .child(
-                        div()
-                            .size(px(6.))
-                            .flex_shrink_0()
-                            .rounded_full()
-                            .bg(rgb(color)),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_ellipsis()
-                            .text_color(if color == RED { rgb(RED) } else { rgba(MUTED) })
-                            .child(status),
-                    ),
+                    .line_height(px(17.4))
+                    .text_color(p.muted)
+                    .child(div().size(px(6.)).flex_shrink_0().rounded_full().bg(color))
+                    .child(div().min_w_0().text_ellipsis().child(format!("{status} ·")))
+                    .child(kbd(hotkey, p)),
             );
-        let content = match self.page {
-            Page::Home => self.home(cx).into_any_element(),
-            Page::Dictionary => self.dictionary(cx).into_any_element(),
-            Page::Settings => self.settings(cx).into_any_element(),
+        let content = if onboarding {
+            self.onboarding(cx).into_any_element()
+        } else {
+            match self.page {
+                Page::Home => self.home(cx).into_any_element(),
+                Page::Dictionary => self.dictionary(cx).into_any_element(),
+                Page::Snippets => self.snippets(cx).into_any_element(),
+                Page::Style => self.style(cx).into_any_element(),
+                Page::Settings | Page::Onboarding => self.settings(cx).into_any_element(),
+            }
         };
-        div()
+        let root = div()
+            .id("main")
+            .track_focus(&self.focus)
             .size_full()
-            .bg(rgb(BLACK))
-            .text_color(rgb(WHITE))
+            .bg(p.bg)
+            .border_1()
+            .border_color(p.frame)
+            .rounded(px(10.))
+            .overflow_hidden()
+            .text_color(p.fg)
             .font_family("Inter")
             .text_size(px(13.))
-            .line_height(px(19.))
+            .line_height(px(18.85))
             .flex()
             .children(trace)
-            .child(side)
-            .child(div().flex_1().min_w_0().h_full().child(content))
+            .when(!onboarding, |root| root.child(side))
+            .child(div().flex_1().min_w_0().h_full().child(content));
+        let _ = window;
+        root.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+            if let Some(target) = this.capture.take() {
+                this.save_shortcut(target, super::settings::evdev_combo(&event.keystroke), cx);
+                cx.stop_propagation();
+            }
+        }))
+        .on_modifiers_changed(cx.listener(
+            |this, event: &gpui::ModifiersChangedEvent, _, cx| {
+                if this.capture.is_some() {
+                    if event.modifiers.modified() {
+                        this.capture_modifiers = event.modifiers;
+                    } else if let Some(target) = this.capture.take() {
+                        let key = if this.capture_modifiers.control {
+                            "RIGHTCTRL"
+                        } else if this.capture_modifiers.alt {
+                            "RIGHTALT"
+                        } else if this.capture_modifiers.shift {
+                            "LEFTSHIFT"
+                        } else {
+                            "LEFTMETA"
+                        };
+                        this.save_shortcut(target, key.into(), cx);
+                    }
+                }
+            },
+        ))
     }
 }
-
 pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<gpui::AnyWindowHandle> {
     let bounds = Bounds::centered(None, size(px(960.), px(640.)), cx);
     let (handle, _) = gpui_kit::open_window(
@@ -256,7 +374,7 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<gpui::AnyWi
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(760.), px(480.))),
             titlebar: Some(gpui::TitlebarOptions {
-                title: Some("hermes".into()),
+                title: Some("Hermes".into()),
                 appears_transparent: true,
                 ..Default::default()
             }),

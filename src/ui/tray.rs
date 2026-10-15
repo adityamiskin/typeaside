@@ -14,7 +14,7 @@ impl Tray for HermesTray {
         "hermes".into()
     }
     fn title(&self) -> String {
-        "hermes".into()
+        "Hermes".into()
     }
     fn icon_name(&self) -> String {
         "hermes".into()
@@ -24,7 +24,8 @@ impl Tray for HermesTray {
         for (index, height) in [4, 11, 18, 11, 4].into_iter().enumerate() {
             for x in (7 + index * 4)..(9 + index * 4) {
                 for y in (16 - height / 2)..(16 + height / 2) {
-                    pixels[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4].fill(255);
+                    pixels[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4]
+                        .copy_from_slice(&[255, 214, 180, 124]);
                 }
             }
         }
@@ -40,7 +41,7 @@ impl Tray for HermesTray {
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         vec![
             StandardItem {
-                label: "Open hermes".into(),
+                label: "Open Hermes".into(),
                 activate: Box::new(|this: &mut Self| {
                     let _ = this.sender.try_send(Action::Open);
                 }),

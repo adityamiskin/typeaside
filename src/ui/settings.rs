@@ -1,120 +1,450 @@
-use super::{theme::*, window::MainWindow};
-use gpui::{
-    AppContext, Context, Entity, IntoElement, Styled, Window, div, prelude::*, px, rgb, rgba,
+use super::{
+    AppState,
+    theme::*,
+    window::{MainWindow, Page, Shortcut},
 };
+use gpui::{AppContext, Context, Entity, IntoElement, Styled, Window, div, prelude::*, px};
 use gpui_kit::component::{
     IndexPath, Sizable,
-    input::{Input, InputState},
-    select::{Select, SelectState},
+    input::{Input, InputEvent, InputState},
+    select::{Select, SelectEvent, SelectState},
 };
-use hermes::config::{AppConfig, RecordingMode};
+use hermes::config::{AppConfig, RecordingMode, Theme};
+
+const LANGUAGES: [(&str, &str); 12] = [
+    ("English", "en"),
+    ("Hindi", "hi"),
+    ("Spanish", "es"),
+    ("French", "fr"),
+    ("German", "de"),
+    ("Portuguese", "pt"),
+    ("Italian", "it"),
+    ("Japanese", "ja"),
+    ("Korean", "ko"),
+    ("Chinese", "zh"),
+    ("Arabic", "ar"),
+    ("Russian", "ru"),
+];
+#[derive(Clone, Copy)]
+enum TextField {
+    Endpoint,
+    Model,
+    EditingEndpoint,
+    EditingModel,
+}
+#[derive(Clone, Copy)]
+enum Selection {
+    Device,
+    Spoken,
+    Translation,
+}
+#[derive(Clone, Copy)]
+enum Toggle {
+    Editing,
+    Sounds,
+    Duck,
+    Submit,
+    Login,
+}
 
 pub struct SettingsInputs {
-    pub hotkey: Entity<InputState>,
     pub endpoint: Entity<InputState>,
     pub model: Entity<InputState>,
     pub key: Entity<InputState>,
-    pub language: Entity<InputState>,
     pub cleanup_endpoint: Entity<InputState>,
     pub cleanup_model: Entity<InputState>,
+    pub cleanup_key: Entity<InputState>,
     pub device: Entity<SelectState<Vec<String>>>,
+    pub spoken: Entity<SelectState<Vec<String>>>,
+    pub translation: Entity<SelectState<Vec<String>>>,
+    devices: Vec<String>,
+    stt_hint: String,
+    editing_hint: String,
 }
-
 impl SettingsInputs {
     pub fn new(
-        config: &AppConfig,
-        key_hint: &str,
-        window: &mut Window,
+        c: &AppConfig,
+        devices: &[String],
+        w: &mut Window,
         cx: &mut Context<MainWindow>,
     ) -> Self {
-        let mut input = |value: &str, placeholder: &str, masked| {
+        let mut text = |value: &str, masked| {
             cx.new(|cx| {
-                InputState::new(window, cx)
+                InputState::new(w, cx)
                     .default_value(value.to_owned())
-                    .placeholder(placeholder.to_owned())
                     .masked(masked)
             })
         };
-        let hotkey = input(&config.hotkey, "RIGHTCTRL", false);
-        let endpoint = input(
-            &config.stt.base_url,
-            "https://api.groq.com/openai/v1",
-            false,
+        let endpoint = text(&c.stt.base_url, false);
+        let model = text(&c.stt.model, false);
+        let key = text("", true);
+        let cleanup_endpoint = text(&c.cleanup.endpoint.base_url, false);
+        let cleanup_model = text(&c.cleanup.endpoint.model, false);
+        let cleanup_key = text("", true);
+        let mut select = |values: Vec<String>, selected: Option<&str>| {
+            let index = selected
+                .and_then(|s| values.iter().position(|v| v == s))
+                .unwrap_or(0);
+            cx.new(|cx| SelectState::new(values, Some(IndexPath::default().row(index)), w, cx))
+        };
+        let device = select(devices.to_vec(), c.input_device.as_deref());
+        let spoken_name = c.language.as_deref().and_then(|code| {
+            LANGUAGES
+                .iter()
+                .find(|(_, c)| *c == code)
+                .map(|(name, _)| *name)
+        });
+        let spoken = select(
+            std::iter::once("Detect automatically")
+                .chain(LANGUAGES.iter().map(|(n, _)| *n))
+                .map(str::to_owned)
+                .collect(),
+            spoken_name,
         );
-        let model = input(&config.stt.model, "whisper-large-v3-turbo", false);
-        let key = input("", key_hint, true);
-        let language = input(
-            config.language.as_deref().unwrap_or_default(),
-            "Auto detect",
-            false,
+        let translation = select(
+            std::iter::once("Off")
+                .chain(LANGUAGES.iter().map(|(n, _)| *n))
+                .map(str::to_owned)
+                .collect(),
+            c.translate_to.as_deref(),
         );
-        let cleanup_endpoint = input(
-            &config.cleanup.endpoint.base_url,
-            "https://api.groq.com/openai/v1",
-            false,
-        );
-        let cleanup_model = input(&config.cleanup.endpoint.model, "openai/gpt-oss-20b", false);
-        let mut devices = vec!["System default".to_owned()];
-        match hermes::audio::list_input_devices() {
-            Ok(inputs) => devices.extend(inputs.into_iter().map(|input| input.name)),
-            Err(error) => eprintln!("hermes: cannot enumerate microphones: {error}"),
-        }
-        devices.dedup();
-        let index = devices
-            .iter()
-            .position(|device| {
-                device.as_str() == config.input_device.as_deref().unwrap_or("System default")
-            })
-            .unwrap_or(0);
-        let device = cx
-            .new(|cx| SelectState::new(devices, Some(IndexPath::default().row(index)), window, cx));
         Self {
-            hotkey,
             endpoint,
             model,
             key,
-            language,
             cleanup_endpoint,
             cleanup_model,
+            cleanup_key,
             device,
+            spoken,
+            translation,
+            devices: devices.to_vec(),
+            stt_hint: String::new(),
+            editing_hint: String::new(),
         }
     }
-
-    pub fn text_inputs(&self) -> [&Entity<InputState>; 6] {
-        [
-            &self.hotkey,
-            &self.endpoint,
-            &self.model,
-            &self.language,
-            &self.cleanup_endpoint,
-            &self.cleanup_model,
-        ]
+    pub fn refresh(
+        &mut self,
+        state: &Entity<AppState>,
+        w: &mut Window,
+        cx: &mut Context<MainWindow>,
+    ) {
+        let s = state.read(cx);
+        let stt = s.key_hint.clone();
+        let editing = s.editing_key_hint.clone();
+        if self.devices != s.devices {
+            self.devices = s.devices.clone();
+            let devices = self.devices.clone();
+            let selected = s.config.input_device.clone();
+            self.device.update(cx, |v, cx| {
+                v.set_items(devices, w, cx);
+                v.set_selected_value(&selected.unwrap_or_else(|| "System default".into()), w, cx);
+            });
+        }
+        if self.stt_hint != stt {
+            self.stt_hint = stt.clone();
+            self.key.update(cx, |v, cx| v.set_placeholder(stt, w, cx));
+        }
+        if self.editing_hint != editing {
+            self.editing_hint = editing.clone();
+            self.cleanup_key
+                .update(cx, |v, cx| v.set_placeholder(editing, w, cx));
+        }
     }
 }
-
-pub fn input(state: &Entity<InputState>, width: f32) -> impl IntoElement {
+pub fn input(state: &Entity<InputState>, p: Palette) -> impl IntoElement {
     Input::new(state)
-        .min_h(px(CONTROL))
-        .max_h(px(CONTROL))
-        .w(px(width))
-        .max_w_full()
-        .rounded(px(RADIUS))
-        .text_size(px(12.))
-        .font_family(MONO)
-        .bg(rgb(BLACK))
+        .min_h(px(30.))
+        .max_h(px(30.))
+        .w_full()
+        .rounded(px(6.))
+        .text_size(px(13.))
+        .bg(p.bg)
 }
-
+fn select(state: &Entity<SelectState<Vec<String>>>, p: Palette) -> impl IntoElement {
+    Select::new(state)
+        .small()
+        .min_h(px(30.))
+        .max_h(px(30.))
+        .w(px(280.))
+        .bg(p.bg)
+        .text_size(px(13.))
+}
 impl MainWindow {
+    pub fn bind_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for (entity, field) in [
+            (&self.settings.endpoint, TextField::Endpoint),
+            (&self.settings.model, TextField::Model),
+            (&self.settings.cleanup_endpoint, TextField::EditingEndpoint),
+            (&self.settings.cleanup_model, TextField::EditingModel),
+        ] {
+            cx.subscribe(entity, move |this, input, event, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let value = input.read(cx).value().to_string();
+                    this.state.update(cx, |s, cx| {
+                        match field {
+                            TextField::Endpoint => s.config.stt.base_url = value,
+                            TextField::Model => s.config.stt.model = value,
+                            TextField::EditingEndpoint => {
+                                s.config.cleanup.endpoint.base_url = value
+                            }
+                            TextField::EditingModel => s.config.cleanup.endpoint.model = value,
+                        }
+                        s.persist();
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }
+        for (entity, editing) in [
+            (&self.settings.key, false),
+            (&self.settings.cleanup_key, true),
+        ] {
+            cx.subscribe_in(entity, window, move |this, _, event, w, cx| {
+                if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                    this.save_key(editing, w, cx);
+                }
+            })
+            .detach();
+        }
+        for (entity, field) in [
+            (&self.settings.device, Selection::Device),
+            (&self.settings.spoken, Selection::Spoken),
+            (&self.settings.translation, Selection::Translation),
+        ] {
+            cx.subscribe(entity, move |this, _, event, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                let value = value.clone();
+                this.state.update(cx, |s, cx| {
+                    match field {
+                        Selection::Device => {
+                            s.config.input_device = (value != "System default").then_some(value)
+                        }
+                        Selection::Spoken => {
+                            s.config.language = LANGUAGES
+                                .iter()
+                                .find(|(n, _)| *n == value)
+                                .map(|(_, code)| (*code).into())
+                        }
+                        Selection::Translation => {
+                            s.config.translate_to = (value != "Off").then_some(value)
+                        }
+                    }
+                    s.persist();
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        self.settings.refresh(&self.state, window, cx);
+    }
+    fn save_key(&mut self, editing: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let entity = if editing {
+            self.settings.cleanup_key.clone()
+        } else {
+            self.settings.key.clone()
+        };
+        let key = entity.read(cx).value().to_string();
+        if key.is_empty() {
+            return;
+        }
+        let s = self.state.read(cx);
+        let demo = s.is_demo;
+        let endpoint = if editing {
+            s.config.cleanup.endpoint.base_url.clone()
+        } else {
+            s.config.stt.base_url.clone()
+        };
+        let task = cx.background_executor().spawn(async move {
+            let host = hermes::credentials::endpoint_host(&endpoint)?;
+            if !demo {
+                hermes::credentials::save_credential(&host, &key)?;
+            }
+            Ok::<_, anyhow::Error>(host)
+        });
+        entity.update(cx, |input, cx| input.set_value("", window, cx));
+        let state = self.state.clone();
+        cx.spawn(async move |_, cx| {
+            let result = task.await;
+            state.update(cx, |s, cx| {
+                if let Ok(host) = result {
+                    if hermes::credentials::endpoint_host(&s.config.stt.base_url)
+                        .ok()
+                        .as_ref()
+                        == Some(&host)
+                    {
+                        s.key_hint = "Saved in keyring".into();
+                    }
+                    if hermes::credentials::endpoint_host(&s.config.cleanup.endpoint.base_url)
+                        .ok()
+                        .as_ref()
+                        == Some(&host)
+                    {
+                        s.editing_key_hint = "Saved in keyring".into();
+                    }
+                    s.persist();
+                } else {
+                    s.save_error = Some("Could not save API key in keyring".into());
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    pub fn save_shortcut(&mut self, target: Shortcut, key: String, cx: &mut Context<Self>) {
+        self.state.update(cx, |s, cx| {
+            match target {
+                Shortcut::Dictate => s.config.hotkey = key,
+                Shortcut::Command => s.config.command_hotkey = Some(key),
+                Shortcut::Paste => s.config.paste_last_hotkey = Some(key),
+                Shortcut::Cancel => s.config.cancel_hotkey = Some(key),
+            }
+            s.persist();
+            cx.notify();
+        });
+        self.capture_modifiers = gpui::Modifiers::default();
+        cx.notify();
+    }
+    fn shortcut(
+        &self,
+        target: Shortcut,
+        value: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let p = palette(cx);
+        div()
+            .flex()
+            .items_center()
+            .id(match target {
+                Shortcut::Dictate => "dictate-key",
+                Shortcut::Command => "command-key",
+                Shortcut::Paste => "paste-key",
+                Shortcut::Cancel => "cancel-key",
+            })
+            .cursor_pointer()
+            .child(if self.capture == Some(target) {
+                div()
+                    .text_color(p.faint)
+                    .child("Press keys…")
+                    .into_any_element()
+            } else {
+                kbd(key_label(value.unwrap_or("Unbound")), p).into_any_element()
+            })
+            .on_click(cx.listener(move |this, _, w, cx| {
+                this.capture = Some(target);
+                this.capture_modifiers = gpui::Modifiers::default();
+                w.focus(&this.focus, cx);
+                cx.notify();
+            }))
+    }
+    fn toggle(
+        &self,
+        id: &'static str,
+        on: bool,
+        field: Toggle,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let p = palette(cx);
+        div().flex().justify_end().child(
+            div()
+                .id(id)
+                .w(px(30.))
+                .h(px(18.))
+                .rounded_full()
+                .relative()
+                .bg(if on { p.accent } else { p.border })
+                .cursor_pointer()
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(2.))
+                        .left(px(if on { 14. } else { 2. }))
+                        .size(px(14.))
+                        .rounded_full()
+                        .bg(if on { p.on_accent } else { p.bg }),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.state.update(cx, |s, cx| {
+                        match field {
+                            Toggle::Editing => s.config.cleanup.enabled = !on,
+                            Toggle::Sounds => s.config.sounds = !on,
+                            Toggle::Duck => s.config.duck_media = !on,
+                            Toggle::Submit => s.config.auto_submit = !on,
+                            Toggle::Login => {
+                                if !s.is_demo
+                                    && let Err(e) = hermes::autostart::set_enabled(!on)
+                                {
+                                    s.save_error =
+                                        Some(format!("Could not change login launch: {e}"));
+                                    cx.notify();
+                                    return;
+                                }
+                                s.config.launch_at_login = !on;
+                            }
+                        }
+                        s.persist();
+                        cx.notify();
+                    });
+                })),
+        )
+    }
     pub fn settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let prefs = &self.state.read(cx).config;
-        let mode_value = prefs.mode;
-        let cleanup = prefs.cleanup.enabled;
-        let auto_submit = prefs.auto_submit;
+        let p = palette(cx);
+        let s = self.state.read(cx);
+        let c = s.config.clone();
+        let testing = s.mic_testing;
+        let level = s.level;
+        let theme = div()
+            .flex()
+            .h(px(26.))
+            .border_1()
+            .border_color(p.border)
+            .rounded(px(6.))
+            .overflow_hidden()
+            .children(
+                [
+                    (Theme::System, "System"),
+                    (Theme::Light, "Light"),
+                    (Theme::Dark, "Dark"),
+                ]
+                .into_iter()
+                .map(|(value, label)| {
+                    let on = c.theme == value;
+                    div()
+                        .id(label)
+                        .flex()
+                        .items_center()
+                        .px(px(10.))
+                        .text_size(px(12.))
+                        .line_height(px(17.4))
+                        .font_weight(if on {
+                            gpui::FontWeight::MEDIUM
+                        } else {
+                            gpui::FontWeight::NORMAL
+                        })
+                        .bg(if on { p.accent } else { p.bg })
+                        .text_color(if on { p.on_accent } else { p.fg })
+                        .cursor_pointer()
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, w, cx| {
+                            this.state.update(cx, |s, cx| {
+                                s.config.theme = value;
+                                s.persist();
+                                cx.notify();
+                            });
+                            super::theme::apply(value, w.appearance(), cx);
+                        }))
+                }),
+            );
         let mode = div()
             .flex()
+            .h(px(26.))
             .border_1()
-            .border_color(rgb(BORDER))
-            .rounded(px(RADIUS))
+            .border_color(p.border)
+            .rounded(px(6.))
             .overflow_hidden()
             .children(
                 [
@@ -123,128 +453,386 @@ impl MainWindow {
                 ]
                 .into_iter()
                 .map(|(value, label)| {
+                    let on = c.mode == value;
                     div()
                         .id(label)
-                        .px(px(12.))
-                        .py(px(5.))
-                        .cursor_pointer()
-                        .bg(rgb(if value == mode_value { WHITE } else { BLACK }))
-                        .text_color(if value == mode_value {
-                            rgb(BLACK)
+                        .flex()
+                        .items_center()
+                        .px(px(10.))
+                        .text_size(px(12.))
+                        .line_height(px(17.4))
+                        .font_weight(if on {
+                            gpui::FontWeight::MEDIUM
                         } else {
-                            rgba(MUTED)
+                            gpui::FontWeight::NORMAL
                         })
+                        .bg(if on { p.accent } else { p.bg })
+                        .text_color(if on { p.on_accent } else { p.fg })
+                        .cursor_pointer()
                         .child(label)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.update(cx, |state, cx| {
-                                state.config.mode = value;
-                                state.persist("");
+                            this.state.update(cx, |s, cx| {
+                                s.config.mode = value;
+                                s.persist();
                                 cx.notify();
                             });
                         }))
                 }),
             );
         div()
+            .size_full()
             .flex()
             .flex_col()
-            .size_full()
-            .child(header("Settings"))
+            .child(header("Settings", p))
             .child(
                 div()
                     .id("settings-scroll")
+                    .track_scroll(&self.settings_scroll)
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
                     .px(px(INSET))
-                    .pt(px(8.))
                     .pb(px(24.))
-                    .child(section("Shortcut"))
+                    .child(section("Appearance"))
+                    .child(form_row("Theme", div().flex().child(theme), p))
+                    .child(section("Shortcuts"))
                     .child(form_row(
-                        "Dictation key",
-                        input(&self.settings.hotkey, 180.),
-                    ))
-                    .child(form_row("Mode", div().flex().child(mode)))
-                    .child(section("Microphone"))
-                    .child(form_row(
-                        "Input device",
-                        Select::new(&self.settings.device)
-                            .small()
-                            .bg(rgb(BLACK))
-                            .min_h(px(CONTROL))
-                            .max_h(px(CONTROL))
-                            .w_full()
-                            .max_w(px(420.)),
-                    ))
-                    .child(section("Speech to text"))
-                    .child(form_row("Endpoint", input(&self.settings.endpoint, 420.)))
-                    .child(form_row("Model", input(&self.settings.model, 260.)))
-                    .child(form_row(
-                        "API key",
+                        "Dictate",
                         div()
                             .flex()
                             .items_center()
-                            .flex_wrap()
-                            .gap(px(8.))
-                            .child(input(&self.settings.key, 260.))
-                            .when(self.state.read(cx).key_hint != "Enter API key", |row| {
-                                row.child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .text_color(rgba(MUTED))
-                                        .child("Stored in keyring"),
-                                )
-                            }),
+                            .justify_between()
+                            .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
+                            .child(mode),
+                        p,
                     ))
-                    .child(form_row("Language", input(&self.settings.language, 180.)))
-                    .child(section("Cleanup"))
                     .child(form_row(
-                        "Remove fillers and fix punctuation",
-                        switch("cleanup", cleanup).on_click(cx.listener(|this, _, _, cx| {
-                            this.state.update(cx, |state, cx| {
-                                state.config.cleanup.enabled = !state.config.cleanup.enabled;
-                                state.persist("");
-                                cx.notify();
-                            });
-                        })),
+                        "Command",
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(self.shortcut(
+                                Shortcut::Command,
+                                c.command_hotkey.as_deref(),
+                                cx,
+                            ))
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(17.4))
+                                    .text_color(p.muted)
+                                    .child("Edits selected text by voice"),
+                            ),
+                        p,
+                    ))
+                    .child(form_row(
+                        "Paste last",
+                        self.shortcut(Shortcut::Paste, c.paste_last_hotkey.as_deref(), cx),
+                        p,
+                    ))
+                    .child(form_row(
+                        "Cancel",
+                        self.shortcut(Shortcut::Cancel, c.cancel_hotkey.as_deref(), cx),
+                        p,
+                    ))
+                    .child(section("Microphone"))
+                    .child(form_row(
+                        "Input",
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(16.))
+                            .child(select(&self.settings.device, p))
+                            .child(div().flex_1())
+                            .when(testing, |row| row.child(meter(level, 7, 18., p)))
+                            .child(
+                                button("Test", false, p)
+                                    .id("test-mic")
+                                    .on_click(cx.listener(|this, _, _, cx| this.start_mic(cx))),
+                            ),
+                        p,
+                    ))
+                    .child(section("Language"))
+                    .child(form_row("Spoken", select(&self.settings.spoken, p), p))
+                    .child(form_row(
+                        "Translate to",
+                        select(&self.settings.translation, p),
+                        p,
+                    ))
+                    .child(section("Transcription"))
+                    .child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
+                    .child(form_row("Model", input(&self.settings.model, p), p))
+                    .child(form_row("API key", input(&self.settings.key, p), p))
+                    .child(section("Editing"))
+                    .child(form_row(
+                        "AI editing",
+                        self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx),
+                        p,
                     ))
                     .child(form_row(
                         "Endpoint",
-                        input(&self.settings.cleanup_endpoint, 420.),
+                        input(&self.settings.cleanup_endpoint, p),
+                        p,
                     ))
-                    .child(form_row("Model", input(&self.settings.cleanup_model, 260.)))
+                    .child(form_row("Model", input(&self.settings.cleanup_model, p), p))
+                    .child(form_row("API key", input(&self.settings.cleanup_key, p), p))
                     .child(section("Behavior"))
                     .child(form_row(
-                        "Press Enter after pasting",
-                        switch("auto-submit", auto_submit).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.state.update(cx, |state, cx| {
-                                    state.config.auto_submit = !state.config.auto_submit;
-                                    state.persist("");
-                                    cx.notify();
-                                });
-                            },
-                        )),
+                        "Sound cues",
+                        self.toggle("sounds", c.sounds, Toggle::Sounds, cx),
+                        p,
+                    ))
+                    .child(form_row(
+                        "Lower media volume",
+                        self.toggle("duck", c.duck_media, Toggle::Duck, cx),
+                        p,
+                    ))
+                    .child(form_row(
+                        "Press Enter after paste",
+                        self.toggle("submit", c.auto_submit, Toggle::Submit, cx),
+                        p,
+                    ))
+                    .child(form_row(
+                        "Launch at login",
+                        self.toggle("login", c.launch_at_login, Toggle::Login, cx),
+                        p,
+                    ))
+                    .child(section("About"))
+                    .child(form_row(
+                        "Version",
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(17.4))
+                                    .text_color(p.muted)
+                                    .child(env!("CARGO_PKG_VERSION")),
+                            )
+                            .child(
+                                button("Open config folder", false, p)
+                                    .id("config-folder")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let folder = this.state.read(cx).paths.config_dir.clone();
+                                        cx.background_executor()
+                                            .spawn(async move {
+                                                let _ = std::process::Command::new("xdg-open")
+                                                    .arg(folder)
+                                                    .status();
+                                            })
+                                            .detach();
+                                    })),
+                            ),
+                        p,
                     )),
             )
     }
-}
-
-fn switch(id: &'static str, enabled: bool) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .w(px(32.))
-        .h(px(18.))
-        .rounded(px(9.))
-        .relative()
-        .cursor_pointer()
-        .bg(rgb(if enabled { WHITE } else { BORDER }))
-        .child(
+    pub fn onboarding(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
+        let s = self.state.read(cx);
+        let step = s.onboarding_step;
+        let title = if step == 2 {
             div()
-                .absolute()
-                .top(px(2.))
-                .left(px(if enabled { 16. } else { 2. }))
-                .size(px(14.))
-                .rounded_full()
-                .bg(rgb(if enabled { BLACK } else { 0x777777 })),
-        )
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child("Hold")
+                .child(
+                    kbd(key_label(&s.config.hotkey), p)
+                        .text_size(px(16.))
+                        .line_height(px(19.)),
+                )
+                .child("and say hello")
+        } else {
+            div().child(if step == 0 {
+                "Add a Groq API key"
+            } else {
+                "Check your microphone"
+            })
+        };
+        let mut col = div()
+            .w(px(420.))
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .child(
+                div()
+                    .font_family(MONO)
+                    .text_size(px(12.))
+                    .line_height(px(14.))
+                    .text_color(p.muted)
+                    .child(format!("{} / 3", step + 1)),
+            )
+            .child(
+                div()
+                    .text_size(px(20.))
+                    .line_height(px(29.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(title),
+            );
+        col = match step {
+            0 => col.child(input(&self.settings.key, p)),
+            1 => col
+                .child(
+                    Select::new(&self.settings.device)
+                        .small()
+                        .w_full()
+                        .min_h(px(30.))
+                        .max_h(px(30.))
+                        .bg(p.bg),
+                )
+                .child(meter(s.level, 12, 28., p)),
+            _ => col.child(
+                div()
+                    .text_color(if s.onboarding_transcript.is_some() {
+                        p.fg
+                    } else {
+                        p.muted
+                    })
+                    .child(
+                        s.onboarding_transcript
+                            .clone()
+                            .unwrap_or_else(|| "Waiting for your voice".into()),
+                    ),
+            ),
+        };
+        col =
+            col.child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(10.))
+                    .mt(px(8.))
+                    .when(step == 1, |row| {
+                        row.child(button("Back", false, p).id("onboarding-back").on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.state.update(cx, |s, cx| {
+                                    s.onboarding_step = 0;
+                                    s.mic_testing = false;
+                                    s.mic_generation += 1;
+                                    s.command(hermes::engine::Command::MicTest(false));
+                                    cx.notify();
+                                });
+                            }),
+                        ))
+                    })
+                    .when(step == 2, |row| {
+                        row.child(
+                            button("Skip", false, p).id("onboarding-skip").on_click(
+                                cx.listener(|this, _, w, cx| this.finish_onboarding(w, cx)),
+                            ),
+                        )
+                    })
+                    .child(
+                        button(if step == 2 { "Done" } else { "Continue" }, true, p)
+                            .id("onboarding-next")
+                            .on_click(cx.listener(move |this, _, w, cx| {
+                                if step == 2 {
+                                    if this.state.read(cx).onboarding_transcript.is_some() {
+                                        this.finish_onboarding(w, cx);
+                                    }
+                                    return;
+                                }
+                                if step == 0 {
+                                    this.save_key(false, w, cx);
+                                }
+                                this.state.update(cx, |s, cx| {
+                                    s.onboarding_step += 1;
+                                    if step == 1 {
+                                        s.mic_testing = false;
+                                        s.mic_generation += 1;
+                                        s.command(hermes::engine::Command::MicTest(false));
+                                    }
+                                    cx.notify();
+                                });
+                                if step == 0 {
+                                    this.start_mic(cx);
+                                }
+                            })),
+                    ),
+            );
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(col)
+    }
+    fn finish_onboarding(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        self.state.update(cx, |s, cx| {
+            s.config.onboarded = true;
+            s.mic_testing = false;
+            s.mic_generation += 1;
+            s.command(hermes::engine::Command::MicTest(false));
+            s.persist();
+            cx.notify();
+        });
+        self.set_page(Page::Home, w, cx);
+    }
+}
+pub fn meter(level: f32, bars: usize, height: f32, p: Palette) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(2.))
+        .h(px(height))
+        .children((0..bars).map(|i| {
+            let envelope =
+                (1. - (i as f32 - (bars as f32 - 1.) * 0.45).abs() / (bars as f32 * 0.6)).max(0.1);
+            div()
+                .w(px(3.))
+                .h(px((height * level.clamp(0., 1.) * envelope).max(3.)))
+                .rounded(px(1.5))
+                .bg(p.accent)
+        }))
+}
+pub fn evdev_combo(k: &gpui::Keystroke) -> String {
+    let key = match k.key.as_str() {
+        "escape" => "ESCAPE",
+        "enter" => "ENTER",
+        "backspace" => "BACKSPACE",
+        "space" => "SPACE",
+        "tab" => "TAB",
+        "up" => "UP",
+        "down" => "DOWN",
+        "left" => "LEFT",
+        "right" => "RIGHT",
+        "pageup" => "PAGEUP",
+        "pagedown" => "PAGEDOWN",
+        "home" => "HOME",
+        "end" => "END",
+        "delete" => "DELETE",
+        "insert" => "INSERT",
+        "-" => "MINUS",
+        "=" => "EQUAL",
+        "," => "COMMA",
+        "." => "DOT",
+        "/" => "SLASH",
+        ";" => "SEMICOLON",
+        "[" => "LEFTBRACE",
+        "]" => "RIGHTBRACE",
+        "control_r" => "RIGHTCTRL",
+        "control_l" => "LEFTCTRL",
+        "alt_r" => "RIGHTALT",
+        "alt_l" => "LEFTALT",
+        other => other,
+    };
+    let mut parts = Vec::new();
+    if k.modifiers.control && !key.ends_with("CTRL") {
+        parts.push("LEFTCTRL".into());
+    }
+    if k.modifiers.alt && !key.ends_with("ALT") {
+        parts.push("LEFTALT".into());
+    }
+    if k.modifiers.shift && !key.ends_with("SHIFT") {
+        parts.push("LEFTSHIFT".into());
+    }
+    if k.modifiers.platform {
+        parts.push("LEFTMETA".into());
+    }
+    parts.push(key.to_uppercase());
+    parts.join("+")
 }
