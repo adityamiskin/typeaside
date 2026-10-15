@@ -5,7 +5,7 @@ use gpui_kit::component::{Theme, ThemeMode};
 use typeaside::config::Theme as Preference;
 
 pub const MONO: &str = "DejaVu Sans Mono";
-pub const SIDEBAR: f32 = 184.;
+pub const SIDEBAR: f32 = 240.;
 pub const INSET: f32 = 24.;
 pub const CONTROL: f32 = 30.;
 pub const RADIUS: f32 = 6.;
