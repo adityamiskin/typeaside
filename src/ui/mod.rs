@@ -21,6 +21,8 @@ use hermes::{config::AppConfig, credentials, paths::AppPaths};
 pub struct AppState {
     account: Option<hermes::account::Account>,
     account_revision: u64,
+    update: Option<hermes::update::Release>,
+    update_status: hermes::update::Status,
     signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     onboarding_own_key: bool,
     config: AppConfig,
@@ -160,6 +162,8 @@ fn start_ui(
     let state = cx.new(|_| AppState {
         account: if is_demo { demo::account() } else { None },
         account_revision: 0,
+        update: None,
+        update_status: hermes::update::Status::Available,
         signing_in: None,
         onboarding_own_key: false,
         config,
@@ -238,6 +242,7 @@ fn start_ui(
     })
     .detach();
     if !is_demo {
+        schedule_updates(&state, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
             let stt = key_hint(&config.stt.base_url);
@@ -387,6 +392,73 @@ fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
                 }
             });
         }
+    })
+    .detach();
+}
+
+fn schedule_updates(state: &gpui::Entity<AppState>, cx: &mut App) {
+    let state = state.downgrade();
+    cx.spawn(async move |cx| {
+        let mut delay = std::time::Duration::from_secs(10);
+        loop {
+            cx.background_executor().timer(delay).await;
+            let result = cx
+                .background_executor()
+                .spawn(async { hermes::update::check() })
+                .await;
+            let Some(state) = state.upgrade() else { break };
+            match result {
+                Ok(release) => state.update(cx, |s, cx| {
+                    if s.update_status != hermes::update::Status::Installing {
+                        s.update = release;
+                        s.update_status = hermes::update::Status::Available;
+                        cx.notify();
+                    }
+                }),
+                Err(error) => eprintln!("hermes: update check failed: {error:#}"),
+            }
+            delay = std::time::Duration::from_secs(6 * 60 * 60);
+        }
+    })
+    .detach();
+}
+
+fn install_update(state: &gpui::Entity<AppState>, cx: &mut App) {
+    let current = state.read(cx);
+    if current.is_demo || current.update_status == hermes::update::Status::Installing {
+        return;
+    }
+    if current.update_status == hermes::update::Status::Failed {
+        cx.background_executor()
+            .spawn(async {
+                let _ = hermes::account::open(format!("{}/download", hermes::account::web_url()));
+            })
+            .detach();
+        return;
+    }
+    let Some(release) = current.update.clone() else {
+        return;
+    };
+    state.update(cx, |s, cx| {
+        s.update_status = hermes::update::Status::Installing;
+        cx.notify();
+    });
+    let state = state.clone();
+    let task = cx
+        .background_executor()
+        .spawn(async move { hermes::update::install(&release) });
+    cx.spawn(async move |cx| {
+        let result = task.await;
+        state.update(cx, |s, cx| {
+            s.update_status = match result {
+                Ok(()) => hermes::update::Status::Available,
+                Err(error) => {
+                    eprintln!("hermes: update failed: {error:#}");
+                    hermes::update::Status::Failed
+                }
+            };
+            cx.notify();
+        });
     })
     .detach();
 }

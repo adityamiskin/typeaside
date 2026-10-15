@@ -304,6 +304,43 @@ impl Render for MainWindow {
                 }),
             )
             .child(div().flex_1())
+            .children(state.update.as_ref().map(|release| {
+                let (label, color) = match state.update_status {
+                    hermes::update::Status::Available => {
+                        (format!("Update to {}", release.version), p.fg)
+                    }
+                    hermes::update::Status::Installing => ("Updating".into(), p.muted),
+                    hermes::update::Status::Failed => ("Update failed".into(), p.red),
+                };
+                div()
+                    .id("install-update")
+                    .min_h(px(30.))
+                    .max_h(px(30.))
+                    .px(px(10.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .text_color(color)
+                    .when(
+                        state.update_status != hermes::update::Status::Installing,
+                        |row| {
+                            row.cursor_pointer()
+                                .hover(|s| s.bg(p.hover))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    super::install_update(&this.state, cx);
+                                }))
+                        },
+                    )
+                    .child(
+                        gpui::svg()
+                            .path("icons/circle-arrow-down.svg")
+                            .size(px(15.))
+                            .flex_shrink_0()
+                            .text_color(p.accent),
+                    )
+                    .child(label)
+            }))
             .child(
                 div()
                     .flex()
