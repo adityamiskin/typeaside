@@ -1,37 +1,49 @@
 use crate::cues::{self, Cue};
+#[cfg(target_os = "linux")]
+use std::process::{Command, Stdio};
 use std::{
-    process::{Command, Stdio},
     sync::{Mutex, mpsc},
     thread::{self, JoinHandle},
 };
 
+#[cfg(target_os = "linux")]
 struct Volume(String);
+#[cfg(not(target_os = "linux"))]
+struct Volume;
 
 impl Volume {
     fn duck() -> Option<Self> {
-        let output = Command::new("timeout")
-            .args(["0.5s", "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
+        #[cfg(not(target_os = "linux"))]
+        {
+            None
         }
-        let text = String::from_utf8(output.stdout).ok()?;
-        if text.contains("MUTED") {
-            return None;
+        #[cfg(target_os = "linux")]
+        {
+            let output = Command::new("timeout")
+                .args(["0.5s", "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+                .stderr(Stdio::null())
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let text = String::from_utf8(output.stdout).ok()?;
+            if text.contains("MUTED") {
+                return None;
+            }
+            let original = text.split_whitespace().nth(1)?.to_owned();
+            let volume = original.parse::<f64>().ok()?;
+            if !volume.is_finite() || volume < 0. {
+                return None;
+            }
+            let guard = Self(original);
+            set_volume(&(volume * 0.3).to_string());
+            Some(guard)
         }
-        let original = text.split_whitespace().nth(1)?.to_owned();
-        let volume = original.parse::<f64>().ok()?;
-        if !volume.is_finite() || volume < 0. {
-            return None;
-        }
-        let guard = Self(original);
-        set_volume(&(volume * 0.3).to_string());
-        Some(guard)
     }
 }
 
+#[cfg(target_os = "linux")]
 fn set_volume(value: &str) {
     let _ = Command::new("timeout")
         .args(["0.5s", "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", value])
@@ -42,6 +54,7 @@ fn set_volume(value: &str) {
 
 impl Drop for Volume {
     fn drop(&mut self) {
+        #[cfg(target_os = "linux")]
         set_volume(&self.0);
     }
 }

@@ -1,0 +1,86 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libfreetype6-dev libxcb1-dev libxcb-xkb-dev libxcb-xfixes0-dev libxcb-randr0-dev libx11-xcb-dev libssl-dev pkg-config clang cmake
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --locked --release
+      - name: Bundle macOS app
+        if: runner.os == 'macOS'
+        run: scripts/bundle-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hermes-${{ runner.os }}
+          path: |
+            target/release/hermes
+            target/release/hermes.exe
+            target/release/Hermes.app
+          if-no-files-found: error
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: hermes-${{ runner.os }}
+          path: smoke-bin
+      - name: Linux demo on Weston inside Xvfb
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y weston xvfb imagemagick mesa-vulkan-drivers libasound2t64 libwayland-client0 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libxcb-xkb1 libxcb-xfixes0 libxcb-randr0 libx11-xcb1
+          chmod +x smoke-bin/hermes
+          export XDG_RUNTIME_DIR="$(mktemp -d)"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WAYLAND_DISPLAY=wayland-hermes
+          xvfb-run -a -s '-screen 0 1280x900x24' bash -euc '
+            mkdir -p smoke-artifacts
+            weston --backend=x11-backend.so --renderer=pixman --socket="$WAYLAND_DISPLAY" --width=1280 --height=900 --idle-time=0 >smoke-artifacts/weston.log 2>&1 &
+            compositor=$!
+            trap "kill $compositor 2>/dev/null || true" EXIT
+            for i in $(seq 1 100); do
+              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
+              sleep 0.1
+            done
+            python scripts/smoke-demo.py smoke-bin/hermes
+          '
+      - name: macOS demo
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x smoke-bin/Hermes.app/Contents/MacOS/hermes
+          python scripts/smoke-demo.py smoke-bin/Hermes.app/Contents/MacOS/hermes
+      - name: Windows demo
+        if: runner.os == 'Windows'
+        run: python scripts/smoke-demo.py smoke-bin/hermes.exe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demo-smoke-${{ runner.os }}
+          path: smoke-artifacts/

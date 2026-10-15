@@ -1,8 +1,10 @@
 use super::{AppState, motion::Spring, theme::*};
+#[cfg(target_os = "linux")]
+use gpui::layer_shell::*;
 use gpui::{
     App, AppContext, Bounds, BoxShadow, Context, Entity, PathBuilder, Render, TextRun, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div,
-    fill, font, layer_shell::*, point, prelude::*, px, size,
+    fill, font, point, prelude::*, px, size,
 };
 use hermes::engine::Phase;
 use std::time::{Duration, Instant};
@@ -409,16 +411,43 @@ impl Render for Overlay {
 }
 
 pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandle<Overlay>> {
+    #[cfg(not(target_os = "linux"))]
+    let display = cx.primary_display();
+    #[cfg(not(target_os = "linux"))]
+    let origin = display.as_ref().map_or(point(px(0.), px(0.)), |display| {
+        let bounds = display.bounds();
+        point(
+            bounds.origin.x + (bounds.size.width - px(SURFACE_WIDTH)) / 2.,
+            bounds.origin.y + bounds.size.height - px(SURFACE_HEIGHT),
+        )
+    });
     cx.open_window(
         WindowOptions {
             titlebar: None,
             focus: false,
             app_id: Some("hermes-overlay".into()),
             window_background: WindowBackgroundAppearance::Transparent,
+            #[cfg(target_os = "linux")]
             window_bounds: Some(WindowBounds::Windowed(Bounds::new(
                 point(px(0.), px(0.)),
                 size(px(SURFACE_WIDTH), px(SURFACE_HEIGHT)),
             ))),
+            #[cfg(not(target_os = "linux"))]
+            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                origin,
+                size(px(SURFACE_WIDTH), px(SURFACE_HEIGHT)),
+            ))),
+            #[cfg(not(target_os = "linux"))]
+            display_id: display.map(|display| display.id()),
+            #[cfg(not(target_os = "linux"))]
+            kind: WindowKind::PopUp,
+            #[cfg(not(target_os = "linux"))]
+            is_movable: false,
+            #[cfg(not(target_os = "linux"))]
+            is_resizable: false,
+            #[cfg(not(target_os = "linux"))]
+            is_minimizable: false,
+            #[cfg(target_os = "linux")]
             kind: WindowKind::LayerShell(LayerShellOptions {
                 namespace: "hermes-overlay".into(),
                 layer: Layer::Overlay,

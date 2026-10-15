@@ -222,6 +222,8 @@ impl Render for MainWindow {
             .size(px(1.))
         });
         let state = self.state.read(cx);
+        #[cfg(target_os = "macos")]
+        let permission_notice = state.permission_notice.clone();
         let onboarding = !state.config.onboarded;
         let (color, status) = if let Some(error) = &state.save_error {
             (p.red, error.clone())
@@ -321,6 +323,19 @@ impl Render for MainWindow {
                 Page::Settings | Page::Onboarding => self.settings(cx).into_any_element(),
             }
         };
+        #[cfg(target_os = "macos")]
+        let content = div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .children(permission_notice.as_ref().map(|notice| {
+                div()
+                    .px(px(16.))
+                    .py(px(8.))
+                    .text_color(p.red)
+                    .child(notice.clone())
+            }))
+            .child(div().flex_1().min_h_0().child(content));
         let root = div()
             .id("main")
             .track_focus(&self.focus)
@@ -341,7 +356,11 @@ impl Render for MainWindow {
         let _ = window;
         root.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
             if let Some(target) = this.capture.take() {
-                this.save_shortcut(target, super::settings::evdev_combo(&event.keystroke), cx);
+                this.save_shortcut(
+                    target,
+                    super::settings::shortcut_combo(&event.keystroke),
+                    cx,
+                );
                 cx.stop_propagation();
             }
         }))
@@ -349,8 +368,19 @@ impl Render for MainWindow {
             |this, event: &gpui::ModifiersChangedEvent, _, cx| {
                 if this.capture.is_some() {
                     if event.modifiers.modified() {
-                        this.capture_modifiers = event.modifiers;
+                        #[cfg(target_os = "linux")]
+                        {
+                            this.capture_modifiers = event.modifiers;
+                        }
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            this.capture_modifiers.control |= event.modifiers.control;
+                            this.capture_modifiers.alt |= event.modifiers.alt;
+                            this.capture_modifiers.shift |= event.modifiers.shift;
+                            this.capture_modifiers.platform |= event.modifiers.platform;
+                        }
                     } else if let Some(target) = this.capture.take() {
+                        #[cfg(target_os = "linux")]
                         let key = if this.capture_modifiers.control {
                             "RIGHTCTRL"
                         } else if this.capture_modifiers.alt {
@@ -360,7 +390,23 @@ impl Render for MainWindow {
                         } else {
                             "LEFTMETA"
                         };
+                        #[cfg(target_os = "linux")]
                         this.save_shortcut(target, key.into(), cx);
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            let modifiers = this.capture_modifiers;
+                            let combo = [
+                                (modifiers.control, "CTRL"),
+                                (modifiers.alt, "ALT"),
+                                (modifiers.shift, "SHIFT"),
+                                (modifiers.platform, "META"),
+                            ]
+                            .into_iter()
+                            .filter_map(|(held, name)| held.then_some(name))
+                            .collect::<Vec<_>>()
+                            .join("+");
+                            this.save_shortcut(target, combo, cx);
+                        }
                     }
                 }
             },

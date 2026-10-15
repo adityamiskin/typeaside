@@ -619,9 +619,17 @@ impl MainWindow {
                                         let folder = this.state.read(cx).paths.config_dir.clone();
                                         cx.background_executor()
                                             .spawn(async move {
-                                                let _ = std::process::Command::new("xdg-open")
-                                                    .arg(folder)
-                                                    .status();
+                                                let _ = std::process::Command::new(
+                                                    if cfg!(target_os = "macos") {
+                                                        "open"
+                                                    } else if cfg!(target_os = "windows") {
+                                                        "explorer.exe"
+                                                    } else {
+                                                        "xdg-open"
+                                                    },
+                                                )
+                                                .arg(folder)
+                                                .status();
                                             })
                                             .detach();
                                     })),
@@ -789,7 +797,7 @@ pub fn meter(level: f32, bars: usize, height: f32, p: Palette) -> impl IntoEleme
                 .bg(p.accent)
         }))
 }
-pub fn evdev_combo(k: &gpui::Keystroke) -> String {
+pub fn shortcut_combo(k: &gpui::Keystroke) -> String {
     let key = match k.key.as_str() {
         "escape" => "ESCAPE",
         "enter" => "ENTER",
@@ -814,6 +822,9 @@ pub fn evdev_combo(k: &gpui::Keystroke) -> String {
         ";" => "SEMICOLON",
         "[" => "LEFTBRACE",
         "]" => "RIGHTBRACE",
+        "'" if !cfg!(target_os = "linux") => "APOSTROPHE",
+        "\\" if !cfg!(target_os = "linux") => "BACKSLASH",
+        "`" if !cfg!(target_os = "linux") => "GRAVE",
         "control_r" => "RIGHTCTRL",
         "control_l" => "LEFTCTRL",
         "alt_r" => "RIGHTALT",
@@ -821,18 +832,38 @@ pub fn evdev_combo(k: &gpui::Keystroke) -> String {
         other => other,
     };
     let mut parts = Vec::new();
-    if k.modifiers.control && !key.ends_with("CTRL") {
-        parts.push("LEFTCTRL".into());
+    #[cfg(not(target_os = "linux"))]
+    {
+        if k.modifiers.control && !key.ends_with("CTRL") {
+            parts.push("CTRL".into());
+        }
+        if k.modifiers.alt && !key.ends_with("ALT") {
+            parts.push("ALT".into());
+        }
+        if k.modifiers.shift && !key.ends_with("SHIFT") {
+            parts.push("SHIFT".into());
+        }
+        if k.modifiers.platform && !key.ends_with("META") {
+            parts.push("META".into());
+        }
+        parts.push(key.to_uppercase());
+        parts.join("+")
     }
-    if k.modifiers.alt && !key.ends_with("ALT") {
-        parts.push("LEFTALT".into());
+    #[cfg(target_os = "linux")]
+    {
+        if k.modifiers.control && !key.ends_with("CTRL") {
+            parts.push("LEFTCTRL".into());
+        }
+        if k.modifiers.alt && !key.ends_with("ALT") {
+            parts.push("LEFTALT".into());
+        }
+        if k.modifiers.shift && !key.ends_with("SHIFT") {
+            parts.push("LEFTSHIFT".into());
+        }
+        if k.modifiers.platform {
+            parts.push("LEFTMETA".into());
+        }
+        parts.push(key.to_uppercase());
+        parts.join("+")
     }
-    if k.modifiers.shift && !key.ends_with("SHIFT") {
-        parts.push("LEFTSHIFT".into());
-    }
-    if k.modifiers.platform {
-        parts.push("LEFTMETA".into());
-    }
-    parts.push(key.to_uppercase());
-    parts.join("+")
 }

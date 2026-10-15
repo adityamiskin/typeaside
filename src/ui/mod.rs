@@ -5,6 +5,8 @@ mod home;
 mod instance;
 mod motion;
 mod overlay;
+#[cfg(target_os = "macos")]
+mod permissions;
 mod settings;
 mod snippets;
 mod style;
@@ -27,6 +29,8 @@ pub struct AppState {
     history: Vec<Dictation>,
     phase: Phase,
     save_error: Option<String>,
+    #[cfg(target_os = "macos")]
+    permission_notice: Option<String>,
     trace_started: Option<std::time::Instant>,
     initial_page: window::Page,
     expanded: Option<std::time::SystemTime>,
@@ -84,6 +88,10 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             trace("application ready", started);
+            #[cfg(target_os = "macos")]
+            if !is_demo {
+                permissions::request();
+            }
             let load_paths = paths.clone();
             let load = cx.background_executor().spawn(async move {
                 let mut config = if is_demo {
@@ -166,6 +174,8 @@ fn start_ui(
         history,
         phase: Phase::Idle,
         save_error: None,
+        #[cfg(target_os = "macos")]
+        permission_notice: if is_demo { None } else { permissions::notice() },
         trace_started: (std::env::var("HERMES_TRACE").as_deref() == Ok("1")).then_some(started),
         initial_page,
         expanded: None,
@@ -187,14 +197,20 @@ fn start_ui(
     });
     let mut main_window: Option<gpui::AnyWindowHandle> = None;
     let (sender, actions) = actions;
+    #[cfg(target_os = "linux")]
     let tray = cx
         .background_executor()
         .spawn(async move { tray::spawn(sender) });
+    #[cfg(not(target_os = "linux"))]
+    let tray = tray::spawn(sender);
     let tray_state = state.clone();
     cx.spawn(async move |cx| {
+        #[cfg(target_os = "linux")]
         let _tray = tray
             .await
             .inspect_err(|e| eprintln!("hermes: tray unavailable: {e:#}"));
+        #[cfg(not(target_os = "linux"))]
+        let _tray = tray.inspect_err(|e| eprintln!("hermes: tray unavailable: {e:#}"));
         while let Ok(action) = actions.recv().await {
             cx.update(|cx| match action {
                 tray::Action::Quit => cx.quit(),
