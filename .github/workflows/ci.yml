@@ -12,6 +12,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # gpui debug builds compile Windows shaders at runtime from the cargo registry, which the smoke runner lacks.
+      CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: ${{ matrix.os == 'windows-latest' && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
