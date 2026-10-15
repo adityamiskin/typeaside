@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const release = "https://github.com/adityamiskin/hermes/releases/latest/download/";
+const release = "/releases/";
 export const downloads = {
   macOS: {
     requirement: "macOS 13+. Apple silicon and Intel.",
@@ -18,6 +18,11 @@ export const downloads = {
     ],
   },
 };
+export const releaseFiles = new Set(
+  Object.values(downloads).flatMap(({ files }) =>
+    files.map(({ href }) => href.slice(release.length)),
+  ),
+);
 export function detectOS(agent: string) {
   if (/Macintosh|Mac OS X/.test(agent) && !/iPhone|iPad/.test(agent)) return "macOS";
   if (/Windows/.test(agent)) return "Windows";
