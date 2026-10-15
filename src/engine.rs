@@ -316,10 +316,20 @@ fn run(
                 busy = None;
                 let audio = pending_audio.take();
                 let result = result.and_then(|dictation| {
-                    append_history(&paths, &dictation)?;
+                    if !dictation.cleaned.is_empty() {
+                        append_history(&paths, &dictation)?;
+                    }
                     Ok(dictation)
                 });
                 match result {
+                    Ok(dictation) if dictation.cleaned.is_empty() => {
+                        if retrying {
+                            if let Err(error) = discard_failed(&paths) {
+                                report_error(&events, error);
+                            }
+                            let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                        }
+                    }
                     Ok(dictation) => {
                         last = Some(dictation.cleaned.clone());
                         let _ = events.try_send(Event::Done(dictation.clone()));

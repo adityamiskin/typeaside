@@ -34,7 +34,6 @@ pub fn run(
         }
         snippets::expand(&cleanup::cleanup(config, &raw, app_id), &config.snippets)
     };
-    anyhow::ensure!(!text.is_empty(), "No transcription returned");
     let llm = started.elapsed();
     if std::env::var_os("HERMES_TRACE").is_some_and(|value| value == "1") {
         eprintln!(
