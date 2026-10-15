@@ -25,16 +25,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
-      - run: cargo build --locked --release
+      - run: cargo build --locked
       - name: Bundle macOS app
         if: runner.os == 'macOS'
-        run: scripts/bundle-macos.sh
+        run: scripts/bundle-macos.sh target/debug/hermes
       - uses: actions/upload-artifact@v4
         with:
           name: hermes-${{ runner.os }}
           path: |
-            target/release/hermes
-            target/release/hermes.exe
+            target/debug/hermes
+            target/debug/hermes.exe
             target/release/Hermes.app
           if-no-files-found: error
   smoke:
@@ -77,8 +77,8 @@ jobs:
       - name: macOS demo
         if: runner.os == 'macOS'
         run: |
-          chmod +x smoke-bin/Hermes.app/Contents/MacOS/hermes
-          python scripts/smoke-demo.py smoke-bin/Hermes.app/Contents/MacOS/hermes
+          chmod +x smoke-bin/release/Hermes.app/Contents/MacOS/hermes
+          python scripts/smoke-demo.py smoke-bin/release/Hermes.app/Contents/MacOS/hermes
       - name: Windows demo
         if: runner.os == 'Windows'
         run: python scripts/smoke-demo.py smoke-bin/hermes.exe

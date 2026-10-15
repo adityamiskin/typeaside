@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "convex dev",
     "dev:setup": "CONVEX_AGENT_MODE=anonymous convex dev --once",
-    "codegen": "convex codegen"
+    "codegen": "convex codegen",
+    "deploy": "convex deploy"
   },
   "dependencies": {
     "@dodopayments/convex": "^0.2.15",

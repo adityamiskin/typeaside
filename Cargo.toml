@@ -51,6 +51,12 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsA
 keyring = { path = "vendor/keyring" }
 gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = 0
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

@@ -1,13 +1,6 @@
 name: Release
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      upload:
-        description: Upload installers to R2
-        type: boolean
-        default: false
 permissions:
   contents: read
 concurrency:
@@ -20,15 +13,15 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Read version and validate tag
+      - name: Require main and read version
         id: version
         shell: bash
         run: |
-          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
-          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$version" ]]; then
-            echo "Tag must match Cargo.toml version v$version" >&2
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "Releases run from main only" >&2
             exit 1
           fi
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
           echo "version=$version" >> "$GITHUB_OUTPUT"
   build:
     needs: version
@@ -86,7 +79,6 @@ jobs:
           if-no-files-found: error
   upload:
     needs: [version, build]
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.upload)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
