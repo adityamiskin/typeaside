@@ -45,7 +45,8 @@ pub struct Onboarding {
     direction: f32,
     entered: Instant,
     welcome_shown: bool,
-    welcome_reveal: bool,
+    welcome_intro: bool,
+    intro_time: Option<f32>,
     frame: Instant,
     result: Spring,
     had_result: bool,
@@ -78,7 +79,8 @@ impl Onboarding {
             direction: 1.,
             entered: Instant::now(),
             welcome_shown: false,
-            welcome_reveal: false,
+            welcome_intro: false,
+            intro_time: None,
             frame: Instant::now(),
             result: Spring::new(0.),
             had_result: false,
@@ -156,6 +158,7 @@ impl MainWindow {
             return;
         }
         if self.state.read(cx).is_demo {
+            self.onboarding.intro_time = super::demo::intro_time();
             self.state.update(cx, |s, _| {
                 s.onboarding_own_key =
                     std::env::var("HERMES_DEMO_ACCOUNT").as_deref() != Ok("signed-in");
@@ -188,10 +191,7 @@ impl MainWindow {
         self.capture = None;
         self.onboarding.pending_key = false;
         let step = self.state.read(cx).onboarding_step;
-        self.onboarding.welcome_reveal = step == Step::Welcome && !self.onboarding.welcome_shown;
-        if step == Step::Welcome {
-            self.onboarding.welcome_shown = true;
-        }
+        self.onboarding.welcome_intro = step == Step::Welcome && !self.onboarding.welcome_shown;
         self.state.update(cx, |s, cx| {
             s.mic_testing = step == Step::Microphone;
             s.mic_generation += 1;
@@ -272,6 +272,24 @@ impl MainWindow {
             [true; 3]
         }
     }
+    pub fn skip_intro(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.state.read(cx).config.onboarded
+            && self.state.read(cx).onboarding_step == Step::Welcome
+            && self.onboarding.welcome_intro
+            && self
+                .onboarding
+                .intro_time
+                .unwrap_or_else(|| self.onboarding.entered.elapsed().as_secs_f32())
+                < 3.2
+        {
+            if self.onboarding.intro_time.is_none() {
+                self.onboarding.welcome_intro = false;
+                cx.notify();
+            }
+            return true;
+        }
+        false
+    }
     pub fn onboarding_next(&mut self, skip: bool, w: &mut Window, cx: &mut Context<Self>) {
         if !skip && !self.onboarding_ready(cx) {
             return;
@@ -327,6 +345,10 @@ impl MainWindow {
     pub fn onboarding(&mut self, w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let now = Instant::now();
+        if self.onboarding.welcome_intro && !self.onboarding.welcome_shown {
+            self.onboarding.entered = now;
+            self.onboarding.welcome_shown = true;
+        }
         let dt = now
             .duration_since(self.onboarding.frame)
             .as_secs_f32()
@@ -335,14 +357,20 @@ impl MainWindow {
         let moving = self.onboarding.slide.step(dt, 260., 28.);
         let s = self.state.read(cx);
         let step = s.onboarding_step;
-        let elapsed = self.onboarding.entered.elapsed().as_secs_f32();
-        let reveal = |delay: f32| {
-            if self.onboarding.welcome_reveal {
-                ((elapsed - delay) / 0.3).clamp(0., 1.)
-            } else {
-                1.
-            }
+        let elapsed = if step == Step::Welcome && self.onboarding.welcome_intro {
+            self.onboarding
+                .intro_time
+                .unwrap_or_else(|| self.onboarding.entered.elapsed().as_secs_f32())
+        } else {
+            3.2
         };
+        let tween = move |start: f32, duration: f32| {
+            1. - (1. - ((elapsed - start) / duration).clamp(0., 1.)).powi(3)
+        };
+        let reveal = |delay| tween(delay, 0.3);
+        let ink = Palette::dark();
+        let paper = tween(2., 0.6);
+        let title_color = ink.fg.blend(p.fg.opacity(paper));
         let has_result = s.onboarding_transcript.is_some();
         if has_result && !self.onboarding.had_result {
             self.onboarding.result = Spring::new(0.);
@@ -350,7 +378,9 @@ impl MainWindow {
         }
         self.onboarding.had_result = has_result;
         let result_moving = self.onboarding.result.step(dt, 260., 28.);
-        if moving || result_moving || (self.onboarding.welcome_reveal && elapsed < 0.7) {
+        if (step != Step::Welcome && (moving || result_moving))
+            || (step == Step::Welcome && self.onboarding.intro_time.is_none() && elapsed < 3.2)
+        {
             w.request_animation_frame();
         }
         let mut col = div()
@@ -367,22 +397,110 @@ impl MainWindow {
                         .flex()
                         .items_center()
                         .justify_center()
+                        .relative()
+                        .top(px(10. * (1. - reveal(2.35))))
                         .child(
                             div()
-                                .size(px(64. * (0.92 + 0.08 * reveal(0.))))
+                                .size(px(64. * (0.92 + 0.08 * reveal(2.35))))
                                 .rounded(px(16.))
                                 .bg(p.blue)
-                                .opacity(reveal(0.)),
+                                .opacity(reveal(2.35)),
                         ),
                 )
                 .child(
-                    text("Your voice, written.", 34., p.fg)
+                    div()
+                        .flex()
+                        .relative()
+                        .mt(px(32.))
+                        .h(px(40.))
+                        .text_size(px(34.))
                         .line_height(px(40.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .mt(px(32.))
-                        .relative()
-                        .top(px(10. * (1. - reveal(0.12))))
-                        .opacity(reveal(0.12)),
+                        .text_color(title_color)
+                        .children("Just say it.".chars().enumerate().map(|(i, ch)| {
+                            let appeared = tween(1.35 + i as f32 * 0.065, 0.12);
+                            let last = ((elapsed - 1.35) / 0.065).floor().max(0.) as usize;
+                            div()
+                                .relative()
+                                .child(
+                                    div()
+                                        .relative()
+                                        .top(px(4. * (1. - appeared)))
+                                        .opacity(appeared)
+                                        .child(if ch == ' ' {
+                                            "\u{a0}".into()
+                                        } else {
+                                            ch.to_string()
+                                        }),
+                                )
+                                .when(elapsed >= 1.35 && i == last.min(11), |d| {
+                                    d.child(
+                                        div()
+                                            .absolute()
+                                            .right(px(-2.))
+                                            .top(px(3.))
+                                            .w(px(2.))
+                                            .h(px(34.))
+                                            .rounded(px(2.))
+                                            .bg(ink.blue)
+                                            .opacity(1. - tween(2.15, 0.25)),
+                                    )
+                                })
+                        }))
+                        .when(elapsed < 1.35, |d| {
+                            d.child(
+                                gpui::canvas(
+                                    |_, _, _| (),
+                                    move |bounds, _, window, _| {
+                                        let ramp = tween(0.15, 0.3);
+                                        let collapse = tween(1.05, 0.3);
+                                        for i in 0..BARS {
+                                            let distance =
+                                                (i as f32 - BAR_CENTER).abs() / BAR_CENTER;
+                                            let envelope = 1. - 0.75 * distance.powi(2);
+                                            let speech = (0.5
+                                                + 0.5
+                                                    * (elapsed * (7. + i as f32 * 0.9)
+                                                        + i as f32 * 1.7)
+                                                        .sin())
+                                                * (0.6 + 0.4 * (elapsed * 3.1 + i as f32).sin());
+                                            let surviving = i == BARS / 2;
+                                            let height = 4. + 40. * envelope * speech * ramp;
+                                            let height = height * (1. - collapse)
+                                                + if surviving { 34. } else { 4. } * collapse;
+                                            let width =
+                                                4. - if surviving { 2. * collapse } else { 0. };
+                                            let x = bounds.center().x
+                                                + px((i as f32 - BAR_CENTER) * 9. - 2.);
+                                            let x = x + (bounds.left() - x) * collapse;
+                                            let color =
+                                                ink.fg.blend(ink.blue.opacity(1. - distance));
+                                            window.paint_quad(
+                                                gpui::fill(
+                                                    gpui::Bounds::new(
+                                                        gpui::point(
+                                                            x,
+                                                            bounds.center().y - px(height / 2.),
+                                                        ),
+                                                        gpui::size(px(width), px(height)),
+                                                    ),
+                                                    color.opacity(
+                                                        ramp * if surviving {
+                                                            1.
+                                                        } else {
+                                                            1. - collapse
+                                                        },
+                                                    ),
+                                                )
+                                                .corner_radii(px(2.)),
+                                            );
+                                        }
+                                    },
+                                )
+                                .absolute()
+                                .size_full(),
+                            )
+                        }),
                 )
                 .child(
                     sub(
@@ -391,15 +509,15 @@ impl MainWindow {
                     )
                     .mt(px(12.))
                     .relative()
-                    .top(px(10. * (1. - reveal(0.22))))
-                    .opacity(reveal(0.22)),
+                    .top(px(10. * (1. - reveal(2.45))))
+                    .opacity(reveal(2.45)),
                 )
                 .child(
                     div()
                         .mt(px(32.))
                         .relative()
-                        .top(px(10. * (1. - reveal(0.34))))
-                        .opacity(reveal(0.34))
+                        .top(px(10. * (1. - reveal(2.55))))
+                        .opacity(reveal(2.55))
                         .child(
                             pill("Get started", true, true, p)
                                 .id("get-started")
@@ -414,7 +532,9 @@ impl MainWindow {
                     text("Takes about a minute.", 12., p.faint)
                         .mt(px(18.))
                         .mb(px(12.))
-                        .opacity(reveal(0.34)),
+                        .relative()
+                        .top(px(10. * (1. - reveal(2.6))))
+                        .opacity(reveal(2.6)),
                 ),
             Step::Account => {
                 let own = s.onboarding_own_key;
@@ -900,7 +1020,9 @@ impl MainWindow {
                 )
             }
         };
-        let bloom = reveal(0.2)
+        let growth = 1. - (1. - ((elapsed - 2.) / 0.9).clamp(0., 1.)).powi(5);
+        let flower_scale = 0.82 + 0.18 * growth;
+        let bloom = growth
             * if p.mode == gpui_kit::component::ThemeMode::Dark {
                 0.5
             } else {
@@ -922,12 +1044,13 @@ impl MainWindow {
                 gpui::linear_color_stop(p.tint, 0.),
                 gpui::linear_color_stop(p.tint.opacity(0.), 0.6),
             ))
+            .child(div().absolute().size_full().bg(ink.bg).opacity(1. - paper))
             .child(
                 img("onboarding/bloom.png")
                     .absolute()
                     .right(px(-130.))
                     .bottom(px(if full { 0. } else { 72. }))
-                    .size(px(360.))
+                    .size(px(360. * flower_scale))
                     .opacity(bloom),
             )
             .child(
@@ -935,8 +1058,8 @@ impl MainWindow {
                     .absolute()
                     .left(px(-24.))
                     .bottom(px(if full { 0. } else { 72. }))
-                    .w(px(180.))
-                    .h(px(210.))
+                    .w(px(180. * flower_scale))
+                    .h(px(210. * flower_scale))
                     .opacity(bloom),
             )
             .child(
@@ -949,13 +1072,12 @@ impl MainWindow {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(
-                        col.relative()
-                            .left(px(28.
-                                * self.onboarding.direction
-                                * (1. - self.onboarding.slide.value)))
-                            .opacity(self.onboarding.slide.value.clamp(0., 1.)),
-                    ),
+                    .child(col.relative().when(step != Step::Welcome, |col| {
+                        col.left(px(28.
+                            * self.onboarding.direction
+                            * (1. - self.onboarding.slide.value)))
+                            .opacity(self.onboarding.slide.value.clamp(0., 1.))
+                    })),
             )
             .when(!full, |root| {
                 root.child(

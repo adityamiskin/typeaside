@@ -181,3 +181,11 @@ pub fn account() -> Option<hermes::account::Account> {
         },
     })
 }
+
+pub fn intro_time() -> Option<f32> {
+    std::env::var("HERMES_DEMO_INTRO")
+        .ok()?
+        .parse::<f32>()
+        .ok()
+        .filter(|t| t.is_finite() && *t >= 0.)
+}
