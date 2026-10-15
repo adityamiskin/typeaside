@@ -106,6 +106,14 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                 } else {
                     AppConfig::load(&load_paths)?
                 };
+                // Rewrites the entry so it follows a moved app and replaces older formats.
+                if !is_demo
+                    && !cfg!(debug_assertions)
+                    && config.launch_at_login
+                    && let Err(error) = hermes::autostart::set_enabled(true)
+                {
+                    eprintln!("hermes: cannot register login launch: {error:#}");
+                }
                 if is_demo {
                     match std::env::var("HERMES_THEME").as_deref() {
                         Ok("light") => config.theme = hermes::config::Theme::Light,
