@@ -1,7 +1,7 @@
 use super::{
     AppState,
     theme::*,
-    window::{MainWindow, Page, Shortcut},
+    window::{MainWindow, Shortcut},
 };
 use gpui::{AppContext, Context, Entity, IntoElement, Styled, Window, div, prelude::*, px};
 use gpui_kit::component::{
@@ -39,7 +39,7 @@ enum Selection {
     Translation,
 }
 #[derive(Clone, Copy)]
-enum Toggle {
+pub(super) enum Toggle {
     Editing,
     Sounds,
     Duck,
@@ -203,6 +203,18 @@ impl MainWindow {
             (&self.settings.cleanup_key, true),
         ] {
             cx.subscribe_in(entity, window, move |this, _, event, w, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+                if !editing
+                    && !this.state.read(cx).config.onboarded
+                    && this.state.read(cx).onboarding_step == super::onboarding::Step::Account
+                {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.onboarding_next(false, w, cx);
+                    }
+                    return;
+                }
                 if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
                     this.save_key(editing, w, cx);
                 }
@@ -235,6 +247,13 @@ impl MainWindow {
                         }
                     }
                     s.persist();
+                    if matches!(field, Selection::Device) && s.mic_testing {
+                        s.command(if !s.config.onboarded {
+                            hermes::engine::Command::MicPreview
+                        } else {
+                            hermes::engine::Command::MicTest(true)
+                        });
+                    }
                     cx.notify();
                 });
             })
@@ -242,7 +261,7 @@ impl MainWindow {
         }
         self.settings.refresh(&self.state, window, cx);
     }
-    fn save_key(&mut self, editing: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn save_key(&mut self, editing: bool, window: &mut Window, cx: &mut Context<Self>) {
         let entity = if editing {
             self.settings.cleanup_key.clone()
         } else {
@@ -266,6 +285,12 @@ impl MainWindow {
             }
             Ok::<_, anyhow::Error>(host)
         });
+        if !editing {
+            self.state.update(cx, |s, _| {
+                s.key_hint = "Saving…".into();
+                s.save_error = None;
+            });
+        }
         entity.update(cx, |input, cx| input.set_value("", window, cx));
         let state = self.state.clone();
         cx.spawn(async move |_, cx| {
@@ -341,7 +366,7 @@ impl MainWindow {
                 cx.notify();
             }))
     }
-    fn toggle(
+    pub(super) fn toggle(
         &self,
         id: &'static str,
         on: bool,
@@ -349,6 +374,7 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let p = palette(cx);
+        let onboarding = !self.state.read(cx).config.onboarded;
         div().flex().justify_end().child(
             div()
                 .id(id)
@@ -356,7 +382,13 @@ impl MainWindow {
                 .h(px(18.))
                 .rounded_full()
                 .relative()
-                .bg(if on { p.accent } else { p.border })
+                .bg(if on {
+                    p.accent
+                } else if onboarding {
+                    p.kbd
+                } else {
+                    p.border
+                })
                 .cursor_pointer()
                 .child(
                     div()
@@ -365,7 +397,13 @@ impl MainWindow {
                         .left(px(if on { 14. } else { 2. }))
                         .size(px(14.))
                         .rounded_full()
-                        .bg(if on { p.on_accent } else { p.bg }),
+                        .bg(if on {
+                            p.on_accent
+                        } else if onboarding {
+                            p.fg
+                        } else {
+                            p.bg
+                        }),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.state.update(cx, |s, cx| {
@@ -399,7 +437,7 @@ impl MainWindow {
                 })),
         )
     }
-    fn sign_in(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn sign_in(&mut self, cx: &mut Context<Self>) {
         if self.state.read(cx).signing_in.is_some() {
             return;
         }
@@ -434,11 +472,6 @@ impl MainWindow {
                         Ok(account) => {
                             s.account = Some(account);
                             s.config.transcription = Source::Hosted;
-                            if !s.config.onboarded {
-                                s.onboarding_step = 1;
-                                s.mic_testing = true;
-                                s.command(hermes::engine::Command::MicTest(true));
-                            }
                             s.persist();
                         }
                         Err(error) => s.save_error = Some(error.to_string()),
@@ -793,204 +826,8 @@ impl MainWindow {
                     )),
             )
     }
-    pub fn onboarding(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let account_row = self.account_row(cx);
-        let p = palette(cx);
-        let s = self.state.read(cx);
-        let step = s.onboarding_step;
-        let title = if step == 2 {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child("Hold")
-                .child(
-                    kbd(key_label(&s.config.hotkey), p)
-                        .text_size(px(16.))
-                        .line_height(px(19.)),
-                )
-                .child("and say hello")
-        } else {
-            div().child(if step == 0 {
-                "How should Hermes transcribe?"
-            } else {
-                "Check your microphone"
-            })
-        };
-        let mut col = div()
-            .w(px(420.))
-            .flex()
-            .flex_col()
-            .gap(px(14.))
-            .child(
-                div()
-                    .font_family(MONO)
-                    .text_size(px(12.))
-                    .line_height(px(14.))
-                    .text_color(p.muted)
-                    .child(format!("{} / 3", step + 1)),
-            )
-            .child(
-                div()
-                    .text_size(px(20.))
-                    .line_height(px(29.))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(title),
-            );
-        col = match step {
-            0 => col
-                .when(s.signing_in.is_some(), |col| col.child(account_row))
-                .when(s.signing_in.is_none(), |col| {
-                    col.children(
-                        [
-                            (false, "Sign in, free", "2,000 words a week, no API key"),
-                            (true, "Use my own key", "Groq or OpenAI-compatible key"),
-                        ]
-                        .into_iter()
-                        .map(|(own, title, subtitle)| {
-                            div()
-                                .id(title)
-                                .w_full()
-                                .h(px(44.))
-                                .border_1()
-                                .border_color(p.border)
-                                .rounded(px(6.))
-                                .px(px(12.))
-                                .flex()
-                                .flex_col()
-                                .justify_center()
-                                .cursor_pointer()
-                                .child(
-                                    div()
-                                        .text_size(px(13.))
-                                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .text_color(p.fg)
-                                        .child(title),
-                                )
-                                .child(div().text_size(px(12.)).text_color(p.muted).child(subtitle))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if own {
-                                        this.state.update(cx, |s, cx| {
-                                            s.onboarding_own_key = true;
-                                            s.config.transcription = Source::OwnKey;
-                                            cx.notify();
-                                        });
-                                    } else {
-                                        this.sign_in(cx);
-                                    }
-                                }))
-                        }),
-                    )
-                })
-                .when(s.onboarding_own_key && s.signing_in.is_none(), |col| {
-                    col.child(input(&self.settings.key, p))
-                }),
-            1 => col
-                .child(
-                    Select::new(&self.settings.device)
-                        .small()
-                        .w_full()
-                        .min_h(px(30.))
-                        .max_h(px(30.))
-                        .bg(p.bg),
-                )
-                .child(meter(s.level, 12, 28., p)),
-            _ => col.child(
-                div()
-                    .text_color(if s.onboarding_transcript.is_some() {
-                        p.fg
-                    } else {
-                        p.muted
-                    })
-                    .child(
-                        s.onboarding_transcript
-                            .clone()
-                            .unwrap_or_else(|| "Waiting for your voice".into()),
-                    ),
-            ),
-        };
-        col = col.when_some(s.save_error.clone(), |col, error| {
-            col.child(div().text_color(p.red).child(error))
-        });
-        col =
-            col.child(
-                div()
-                    .flex()
-                    .justify_end()
-                    .gap(px(10.))
-                    .mt(px(8.))
-                    .when(step == 1, |row| {
-                        row.child(button("Back", false, p).id("onboarding-back").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.state.update(cx, |s, cx| {
-                                    s.onboarding_step = 0;
-                                    s.mic_testing = false;
-                                    s.mic_generation += 1;
-                                    s.command(hermes::engine::Command::MicTest(false));
-                                    cx.notify();
-                                });
-                            }),
-                        ))
-                    })
-                    .when(step == 2, |row| {
-                        row.child(
-                            button("Skip", false, p).id("onboarding-skip").on_click(
-                                cx.listener(|this, _, w, cx| this.finish_onboarding(w, cx)),
-                            ),
-                        )
-                    })
-                    .when(
-                        step != 0 || (s.onboarding_own_key && s.signing_in.is_none()),
-                        |row| {
-                            row.child(
-                                button(if step == 2 { "Done" } else { "Continue" }, true, p)
-                                    .id("onboarding-next")
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        if step == 2 {
-                                            if this.state.read(cx).onboarding_transcript.is_some() {
-                                                this.finish_onboarding(w, cx);
-                                            }
-                                            return;
-                                        }
-                                        if step == 0 {
-                                            this.save_key(false, w, cx);
-                                        }
-                                        this.state.update(cx, |s, cx| {
-                                            s.onboarding_step += 1;
-                                            if step == 1 {
-                                                s.mic_testing = false;
-                                                s.mic_generation += 1;
-                                                s.command(hermes::engine::Command::MicTest(false));
-                                            }
-                                            cx.notify();
-                                        });
-                                        if step == 0 {
-                                            this.start_mic(cx);
-                                        }
-                                    })),
-                            )
-                        },
-                    ),
-            );
-        div()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(col)
-    }
-    fn finish_onboarding(&mut self, w: &mut Window, cx: &mut Context<Self>) {
-        self.state.update(cx, |s, cx| {
-            s.config.onboarded = true;
-            s.mic_testing = false;
-            s.mic_generation += 1;
-            s.command(hermes::engine::Command::MicTest(false));
-            s.persist();
-            cx.notify();
-        });
-        self.set_page(Page::Home, w, cx);
-    }
 }
+
 pub fn meter(level: f32, bars: usize, height: f32, p: Palette) -> impl IntoElement {
     div()
         .flex()

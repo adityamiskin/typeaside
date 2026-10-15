@@ -78,6 +78,7 @@ pub enum Command {
     PasteLast,
     /// Streams Event::Level from the mic without recording, for settings and onboarding.
     MicTest(bool),
+    MicPreview,
 }
 
 pub struct Engine {
@@ -228,7 +229,7 @@ fn run(
     let mut last = load_history(&paths).pop().map(|entry| entry.cleaned);
     let mut context = (Mode::Dictate, None, String::new());
     let mut start_mode = Mode::Dictate;
-    let mut monitor: Option<(AudioRecorder, Instant)> = None;
+    let mut monitor: Option<(AudioRecorder, Option<Instant>)> = None;
     let mut effects = None;
     let mut restoring = Vec::new();
     let mut tick = Instant::now();
@@ -241,7 +242,7 @@ fn run(
             tick = Instant::now();
             if monitor
                 .as_ref()
-                .is_some_and(|(_, deadline)| Instant::now() >= *deadline)
+                .is_some_and(|(_, deadline)| deadline.is_some_and(|until| Instant::now() >= until))
             {
                 monitor = None;
             }
@@ -562,20 +563,29 @@ fn run(
             Command::MicTest(false) => {
                 monitor = None;
             }
-            Command::MicTest(true) if recorder.is_none() => match AudioRecorder::monitor(&config) {
-                Ok(capture) => monitor = Some((capture, Instant::now() + Duration::from_secs(10))),
-                Err(error) => {
-                    report_error(&events, error);
-                    if config.sounds {
-                        crate::cues::play(crate::cues::Cue::Error);
+            Command::MicTest(true) | Command::MicPreview if recorder.is_none() => {
+                match AudioRecorder::monitor(&config) {
+                    Ok(capture) => {
+                        monitor = Some((
+                            capture,
+                            matches!(command, Command::MicTest(true))
+                                .then(|| Instant::now() + Duration::from_secs(10)),
+                        ))
+                    }
+                    Err(error) => {
+                        report_error(&events, error);
+                        if config.sounds {
+                            crate::cues::play(crate::cues::Cue::Error);
+                        }
                     }
                 }
-            },
+            }
             Command::Start
             | Command::Stop
             | Command::RetryFailed
             | Command::DiscardFailed
-            | Command::MicTest(true) => {}
+            | Command::MicTest(true)
+            | Command::MicPreview => {}
         }
     }
     drop(recorder);

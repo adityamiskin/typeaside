@@ -63,6 +63,11 @@ pub fn history() -> Vec<Dictation> {
 pub fn spawn() -> async_channel::Receiver<Event> {
     let (tx, rx) = async_channel::unbounded();
     std::thread::spawn(move || {
+        if std::env::var("HERMES_DEMO_PAGE").as_deref() == Ok("onboarding") {
+            // Keep the onboarding fixture static and avoid creating an overlay window.
+            std::thread::park();
+            return;
+        }
         let started = Instant::now();
         let send = |event| {
             match &event {
@@ -154,7 +159,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
 pub fn account() -> Option<hermes::account::Account> {
     use hermes::account::{Account, Plan, Usage};
     let value = std::env::var("HERMES_DEMO_ACCOUNT").ok()?;
-    if !["free", "pro", "limit"].contains(&value.as_str()) {
+    if !["free", "pro", "limit", "signed-in"].contains(&value.as_str()) {
         return None;
     }
     Some(Account {

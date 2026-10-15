@@ -56,6 +56,7 @@ pub struct MainWindow {
     pub settings_scroll: gpui::ScrollHandle,
     pub focus: FocusHandle,
     page: Page,
+    pub onboarding: super::onboarding::Onboarding,
     trace_started: Option<std::time::Instant>,
 }
 impl MainWindow {
@@ -94,6 +95,14 @@ impl MainWindow {
         .detach();
         cx.observe_in(&state, window, |this, _, window, cx| {
             this.settings.refresh(&this.state, window, cx);
+            if this.onboarding.pending_key {
+                if this.state.read(cx).key_hint == "Saved in keyring" {
+                    this.onboarding.pending_key = false;
+                    this.onboarding_next(false, window, cx);
+                } else if this.state.read(cx).save_error.is_some() {
+                    this.onboarding.pending_key = false;
+                }
+            }
             theme::apply(this.state.read(cx).config.theme, window.appearance(), cx);
             cx.notify();
         })
@@ -111,7 +120,7 @@ impl MainWindow {
         let page = state.read(cx).initial_page;
         let trace_started = state.read(cx).trace_started;
         let mut this = Self {
-            state,
+            state: state.clone(),
             settings,
             word_input,
             search_input,
@@ -124,6 +133,7 @@ impl MainWindow {
             settings_scroll: gpui::ScrollHandle::new(),
             focus: cx.focus_handle(),
             page,
+            onboarding: super::onboarding::Onboarding::new(state.read(cx).onboarding_steps.clone()),
             trace_started,
         };
         this.bind_settings(window, cx);
@@ -132,12 +142,6 @@ impl MainWindow {
                 let at = this.state.read(cx).history.get(1).map(|d| d.at);
                 this.state.update(cx, |s, _| s.expanded = at);
                 this.hovered_history = Some(0);
-            }
-            if page == Page::Onboarding && this.state.read(cx).onboarding_step == 0 {
-                this.state.update(cx, |s, cx| {
-                    s.key_hint = "gsk_…".into();
-                    cx.notify();
-                });
             }
             if page == Page::Dictionary {
                 this.hovered_word = Some(3);
@@ -161,13 +165,11 @@ impl MainWindow {
             if page == Page::Snippets {
                 this.edit_snippet(Some(1), window, cx);
             }
-            if page == Page::Onboarding && this.state.read(cx).onboarding_step == 1 {
-                this.start_mic(cx);
-            }
         }
         if page == Page::Settings {
             super::refresh_account(&this.state, cx);
         }
+        this.init_onboarding(window, cx);
         this
     }
     pub fn set_page(&mut self, page: Page, _: &mut Window, cx: &mut Context<Self>) {
@@ -476,7 +478,7 @@ impl Render for MainWindow {
                     .child(kbd(hotkey, p)),
             );
         let content = if onboarding {
-            self.onboarding(cx).into_any_element()
+            self.onboarding(window, cx).into_any_element()
         } else {
             match self.page {
                 Page::Home => self.home(cx).into_any_element(),
@@ -491,13 +493,18 @@ impl Render for MainWindow {
             .size_full()
             .flex()
             .flex_col()
-            .children(permission_notice.as_ref().map(|notice| {
-                div()
-                    .px(px(16.))
-                    .py(px(8.))
-                    .text_color(p.red)
-                    .child(notice.clone())
-            }))
+            .children(
+                permission_notice
+                    .as_ref()
+                    .filter(|_| !onboarding)
+                    .map(|notice| {
+                        div()
+                            .px(px(16.))
+                            .py(px(8.))
+                            .text_color(p.red)
+                            .child(notice.clone())
+                    }),
+            )
             .child(div().flex_1().min_h_0().child(content));
         let root = div()
             .id("main")
@@ -517,7 +524,7 @@ impl Render for MainWindow {
             .when(!onboarding, |root| root.child(side))
             .child(div().flex_1().min_w_0().h_full().child(content));
         let _ = window;
-        root.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+        root.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, w, cx| {
             if let Some(target) = this.capture.take() {
                 this.save_shortcut(
                     target,
@@ -525,6 +532,12 @@ impl Render for MainWindow {
                     cx,
                 );
                 cx.stop_propagation();
+            } else if !this.state.read(cx).config.onboarded {
+                match event.keystroke.key.as_str() {
+                    "enter" => this.onboarding_next(false, w, cx),
+                    "escape" => this.onboarding_back(cx),
+                    _ => {}
+                }
             }
         }))
         .on_modifiers_changed(cx.listener(
