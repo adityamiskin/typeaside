@@ -1018,11 +1018,6 @@ small {
   fill: #16171a;
   opacity: 0.85;
 }
-.app-fallback {
-  font-size: 20px;
-  font-weight: 600;
-  opacity: 0.85;
-}
 @keyframes marquee {
   to {
     translate: -50% 0;

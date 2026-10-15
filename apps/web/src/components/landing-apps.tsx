@@ -1,17 +1,13 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { appIcons, type AppIconName } from "../lib/app-icons";
 
-export function AppTile({ name }: { name: AppIconName | "slack" }) {
-  const title = name === "slack" ? "Slack" : appIcons[name].title;
+export function AppTile({ name }: { name: AppIconName }) {
+  const { title, path } = appIcons[name];
   return (
     <span className="app-tile" title={title} role="img" aria-label={title}>
-      {name === "slack" ? (
-        <span className="app-fallback">S</span>
-      ) : (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d={appIcons[name].path} />
-        </svg>
-      )}
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d={path} />
+      </svg>
     </span>
   );
 }
@@ -58,7 +54,7 @@ const useCases = [
     text: "Prompt AI and write tickets at the speed you think.",
   },
   {
-    apps: ["gmail", "slack", "discord"],
+    apps: ["gmail", "whatsapp", "discord"],
     text: "Answer email and chat without touching the keyboard.",
   },
 ] as const;
@@ -119,7 +115,7 @@ export function LandingApps() {
             <span className="rolling-window" aria-hidden="true">
               <span
                 className="rolling-column"
-                style={{ transform: `translateY(${(1 - index) * 1.12}em)` } as CSSProperties}
+                style={{ transform: `translateY(${(1 - index) * 1.12}em)` }}
               >
                 {words.map((word, i) => (
                   <span key={word} className={i === index ? "active" : ""}>
