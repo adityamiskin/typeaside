@@ -15,7 +15,7 @@ pub fn hosted_url() -> String {
     std::env::var("HERMES_API_URL")
         .unwrap_or_else(|_| {
             option_env!("HERMES_API_URL")
-                .unwrap_or("https://tangible-ferret-27.convex.site")
+                .unwrap_or("https://doting-rhinoceros-418.convex.site")
                 .into()
         })
         .trim_end_matches('/')

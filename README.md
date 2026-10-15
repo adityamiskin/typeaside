@@ -47,7 +47,7 @@ Web env lives in `apps/web/.env` locally. The Cloudflare Vite plugin loads it lo
 | `WORKOS_REDIRECT_URI`    | Callback URL, local `http://localhost:3001/api/auth/callback` |
 | `WORKOS_COOKIE_PASSWORD` | At least 32 random characters for session encryption          |
 
-Set backend env on the intended **development** Convex deployment with `bunx convex env set NAME value` from `packages/backend`. Convex functions do not read `.env.example` files. Never put secrets in `VITE_` variables.
+Set backend env on the intended Convex deployment with `bunx convex env set NAME value` for development or `bunx convex env set --prod NAME value` for production from `packages/backend`. Convex functions do not read `.env.example` files. Never put secrets in `VITE_` variables.
 
 | Backend variable               | Purpose                                                   |
 | ------------------------------ | --------------------------------------------------------- |
@@ -84,7 +84,7 @@ bun run build
 PATH=$HOME/.cargo/bin:$PATH cargo check
 ```
 
-`bun run check` runs Vite+ format, lint and type checks. Rust/vendor files are excluded from the web formatter. `bun run build` builds locally and does not deploy. Deployment uses `bun run deploy` through Wrangler. Workers Builds runs `bun run build` then `bun run deploy` from `apps/web`, on pushes to `main` only. Preview builds and preview URLs are disabled. The deployed site uses Convex dev, WorkOS staging and Dodo test mode.
+`bun run check` runs Vite+ format, lint and type checks. Rust/vendor files are excluded from the web formatter. `bun run build` builds locally and does not deploy. Deployment uses `bun run deploy` through Wrangler. Workers Builds runs `bun run build` then `bun run deploy` from `apps/web`, on pushes to `main` only. Preview builds and preview URLs are disabled. The deployed site uses Convex production, WorkOS Production and Dodo Live mode.
 
 Real WorkOS credentials are needed to verify OAuth, signed-in account UI and browser-to-desktop token handoff. Dodo test credentials, product IDs and a reachable signed webhook endpoint are needed to verify checkout, portal and subscription lifecycle. Groq credentials are needed to verify actual transcription, cleanup and provider responses. Legal pages are visibly marked as drafts pending legal review. Installers are served from the `hermes-releases` R2 bucket through `/releases/<file>`.
 

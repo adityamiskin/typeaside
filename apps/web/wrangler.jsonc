@@ -9,7 +9,7 @@
   "keep_vars": true,
   "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "hermes-releases" }],
   "vars": {
-    "VITE_CONVEX_URL": "https://tangible-ferret-27.convex.cloud",
+    "VITE_CONVEX_URL": "https://doting-rhinoceros-418.convex.cloud",
     "WORKOS_REDIRECT_URI": "https://hermes.adityamiskin98.workers.dev/api/auth/callback",
   },
 }
