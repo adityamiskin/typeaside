@@ -55,3 +55,6 @@ coverage
 .cache
 tmp
 temp
+
+# Generated Fumadocs collections
+apps/web/.source/

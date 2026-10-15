@@ -1,6 +1,7 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import { fumadocsMdx } from "fumadocs-mdx/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins, loadEnv } from "vite-plus";
 
@@ -15,6 +16,36 @@ export default defineConfig(({ mode }) => {
     if (localEnv[key] && process.env[key] === undefined) process.env[key] = localEnv[key];
   }
   return {
+    // Vite needs source maps enabled for its CSS chunk transforms in the Workers build.
+    build: { sourcemap: true },
+    css: {
+      postcss: {
+        plugins: [
+          {
+            postcssPlugin: "scope-site-styles",
+            OnceExit(root, { result }) {
+              const file = result.opts.from?.split("?")[0];
+              const scope = file?.endsWith("/src/styles/docs.css")
+                ? "html.hermes-docs"
+                : file?.endsWith("/src/index.css")
+                  ? "html:not(.hermes-docs)"
+                  : undefined;
+              if (!scope) return;
+              root.walkRules((rule) => {
+                rule.selector = rule.selector.replaceAll(":root", ":scope");
+              });
+              const nodes = root.nodes.filter(
+                (node) =>
+                  node.type !== "atrule" ||
+                  !["font-face", "property", "charset"].includes(node.name),
+              );
+              for (const node of nodes) node.remove();
+              root.append({ name: "scope", params: `(${scope})`, nodes });
+            },
+          },
+        ],
+      },
+    },
     server: {
       port: 3001,
     },
@@ -23,6 +54,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: lazyPlugins(() => [
       cloudflare({ viteEnvironment: { name: "ssr" } }),
+      fumadocsMdx(),
       tailwindcss(),
       tanstackStart(),
       viteReact(),

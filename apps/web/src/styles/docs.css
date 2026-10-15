@@ -1,0 +1,52 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+@source "../../content/docs";
+@source not inline("[&_::highlight(fd-search)]:text-fd-primary [&_::highlight(fd-search)]:underline");
+
+:root {
+  --color-fd-background: #f9f9f8;
+  --color-fd-foreground: #16171a;
+  --color-fd-muted: #efefed;
+  --color-fd-muted-foreground: #6b6e76;
+  --color-fd-popover: #fff;
+  --color-fd-popover-foreground: #16171a;
+  --color-fd-card: #fff;
+  --color-fd-card-foreground: #16171a;
+  --color-fd-border: #e9e9e7;
+  --color-fd-primary: #16171a;
+  --color-fd-primary-foreground: #fff;
+  --color-fd-secondary: #efefed;
+  --color-fd-secondary-foreground: #16171a;
+  --color-fd-accent: #efefed;
+  --color-fd-accent-foreground: #16171a;
+  --font-sans: "Hanken Grotesk Variable", system-ui, sans-serif;
+  color-scheme: light;
+}
+body {
+  font-family: var(--font-sans);
+}
+.docs-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.docs-logo svg {
+  width: 20px;
+  height: 20px;
+}
+
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 20px;
+  z-index: 100;
+  padding: 12px;
+  background: var(--color-fd-background);
+}
+.skip-link:focus {
+  top: 12px;
+}

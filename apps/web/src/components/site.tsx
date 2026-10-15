@@ -13,6 +13,7 @@ import { auth } from "../integrations/auth";
 import { useOS } from "../lib/downloads";
 
 const links = [
+  { label: "Docs", href: "/docs" },
   { label: "Features", href: "/#features" },
   { label: "Pricing", href: "/#pricing" },
 ];
@@ -89,6 +90,7 @@ export function Footer() {
     <footer className="wrap">
       <nav className="foot-links" aria-label="Footer navigation">
         {[
+          { label: "Docs", href: "/docs" },
           { label: "Download", href: "/download" },
           { label: "Pricing", href: "/#pricing" },
           { label: "Account", href: "/account" },

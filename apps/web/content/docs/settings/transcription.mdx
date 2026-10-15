@@ -1,0 +1,29 @@
+---
+title: Transcription
+description: Use a Hermes account or connect your own provider.
+---
+
+## Hermes account
+
+1. Open **Settings → Account** and choose **Sign in**.
+2. Complete the browser connection flow.
+3. Under **Transcription → Source**, select **Hermes account**.
+
+Hosted transcription uses your account allowance. See [Plans](/docs/account/plans).
+
+## Bring your own key
+
+1. Select **Own key** under **Transcription → Source**.
+2. Set **Endpoint** to your provider's OpenAI-compatible base URL, including its API prefix, such as `https://api.groq.com/openai/v1`.
+3. Enter the provider's transcription **Model** and **API key**. Leave the key field or press Enter to save it.
+4. If you use AI editing or voice commands, configure the **Editing** endpoint, model, and key too.
+
+The transcription endpoint must accept `/audio/transcriptions`; the editing endpoint must accept `/chat/completions`. Check model names with your provider. BYOK requests go directly from Hermes to the configured provider and do not use the hosted allowance.
+
+## Key storage
+
+Hermes stores keys in macOS Keychain, Windows Credential Manager, or Linux Secret Service. Keys are associated with the endpoint host, so two endpoints on the same host share the saved key. On Linux, make sure your Secret Service keyring is available and unlocked.
+
+## Language
+
+**Settings → Language → Spoken** chooses a language or automatic detection. **Translate to** requests translated output through the editing model. Set it to **Off** to keep the spoken language.

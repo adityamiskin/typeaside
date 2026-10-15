@@ -1,0 +1,29 @@
+---
+title: Edit by voice
+description: Rewrite selected text with a spoken instruction.
+---
+
+## How to use it
+
+These steps use the default Hold recording mode. In Toggle mode, press the command binding once to start and again to stop.
+
+1. Select text in your app.
+2. Hold the **Command** key binding, `RIGHTALT` by default. This is the setting named Command, not necessarily the macOS Command key.
+3. Say an instruction, such as “make this shorter” or “rewrite this as a polite email”.
+4. Release the key. Hermes transcribes the instruction and asks the editing model to rewrite the selection.
+5. Keep the selection and destination app in place until Hermes pastes the replacement.
+
+On macOS and Windows, Hermes copies the selection using the system copy shortcut. On Linux it reads the Wayland primary selection. The target app must support that selection mechanism.
+
+<Callout type="warn">
+  If no selection is available, Hermes treats your instruction as a request to write new text. Check
+  that the text is selected before recording.
+</Callout>
+
+Voice editing uses the editing endpoint and model. Snippet expansion and dictation tone cleanup are part of the dictation path, not the voice command path.
+
+<Cards>
+  <Card title="Transcription settings" href="/docs/settings/transcription">
+    Configure the transcription and editing providers.
+  </Card>
+</Cards>

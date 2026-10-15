@@ -1,6 +1,12 @@
 import type { ConvexQueryClient } from "@convex-dev/react-query";
 import type { QueryClient } from "@tanstack/react-query";
-import { HeadContent, Outlet, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
+import {
+  HeadContent,
+  Outlet,
+  Scripts,
+  useRouterState,
+  createRootRouteWithContext,
+} from "@tanstack/react-router";
 import type { ConvexReactClient } from "convex/react";
 import bodyFont from "@fontsource-variable/hanken-grotesk/files/hanken-grotesk-latin-wght-normal.woff2?url";
 import { Header, Footer } from "../components/site";
@@ -44,8 +50,12 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   component: RootDocument,
 });
 function RootDocument() {
+  const isDocs = useRouterState({
+    select: (state) =>
+      state.location.pathname === "/docs" || state.location.pathname.startsWith("/docs/"),
+  });
   return (
-    <html lang="en">
+    <html lang="en" className={isDocs ? "hermes-docs" : undefined}>
       <head>
         <HeadContent />
       </head>
@@ -53,11 +63,11 @@ function RootDocument() {
         <a className="skip-link" href="#main">
           Skip to content
         </a>
-        <Header />
+        {!isDocs && <Header />}
         <div id="main">
           <Outlet />
         </div>
-        <Footer />
+        {!isDocs && <Footer />}
         <Scripts />
       </body>
     </html>

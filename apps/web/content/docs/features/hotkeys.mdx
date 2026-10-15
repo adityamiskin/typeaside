@@ -1,0 +1,58 @@
+---
+title: Hotkeys
+description: Choose the keys you use to dictate, edit, and cancel.
+---
+
+## Default bindings
+
+| Action in Settings | Default               | Behavior                                   |
+| ------------------ | --------------------- | ------------------------------------------ |
+| Dictate            | `RIGHTCTRL`           | Hold to record dictation                   |
+| Command            | `RIGHTALT`            | Hold to record a voice editing instruction |
+| Paste last         | `LEFTALT+LEFTSHIFT+V` | Paste the latest dictation                 |
+| Cancel             | `ESCAPE`              | Cancel recording or processing             |
+
+`RIGHTCTRL` is the right Control key. `RIGHTALT` is the right Alt key, or right Option on macOS.
+
+## How to use it
+
+1. Focus the app where you want text.
+2. Hold the dictation key while you speak.
+3. Release it and wait for the result.
+
+The **Hold / Toggle** setting beside **Dictate** applies to both Dictate and Command. In Toggle mode, press the same key again to stop.
+
+## Changing the hotkey
+
+1. Open **Settings → Shortcuts**.
+2. Click the binding beside **Dictate** or **Command**.
+3. Press your chosen key or combination. Use the recorder to capture it.
+
+## Key name rules
+
+Bindings in the configuration use `+` between keys, for example `CTRL+SHIFT+SPACE`.
+
+- `CTRL`, `ALT`, `SHIFT`, and `META` accept either side.
+- `LEFTCTRL`, `RIGHTCTRL`, `LEFTALT`, `RIGHTALT`, and the corresponding Shift and Meta names keep their side.
+- `META` means Command on macOS and the Windows key on Windows. On Linux it is usually Super.
+- Existing Linux `KEY_` prefixes remain valid.
+
+The macOS and Windows recorder saves generic modifiers. Physical letter positions follow the standard US key table on macOS. Unsupported native key names produce an error at startup.
+
+## Choosing keys
+
+Choose a key present on your keyboard that you rarely use alone. Check it in the apps you dictate into. Avoid combinations reserved by your desktop or frequently used by your editor. Right Alt may also act as AltGr on some layouts.
+
+<Callout type="info">
+  If your keyboard has no right Control key, record a different binding before you start dictating.
+</Callout>
+
+## Troubleshooting
+
+Check that Hermes is running, the binding matches your keyboard, and your operating system has granted keyboard access. On Linux, evdev access is required. On macOS, check Accessibility and Input Monitoring, then restart Hermes.
+
+<Cards>
+  <Card title="Permissions" href="/docs/permissions">
+    Review the access Hermes needs on your operating system.
+  </Card>
+</Cards>
