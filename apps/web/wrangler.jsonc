@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hermes",
+  "main": "@tanstack/react-start/server-entry",
+  "compatibility_date": "2026-10-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "keep_vars": true,
+  "vars": {
+    "VITE_CONVEX_URL": "https://tangible-ferret-27.convex.cloud",
+    "WORKOS_REDIRECT_URI": "https://hermes.adityamiskin98.workers.dev/api/auth/callback",
+  },
+}

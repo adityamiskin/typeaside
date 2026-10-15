@@ -15,7 +15,7 @@ pub fn hosted_url() -> String {
     std::env::var("HERMES_API_URL")
         .unwrap_or_else(|_| {
             option_env!("HERMES_API_URL")
-                .unwrap_or("http://127.0.0.1:3211")
+                .unwrap_or("https://tangible-ferret-27.convex.site")
                 .into()
         })
         .trim_end_matches('/')
@@ -25,7 +25,7 @@ pub fn web_url() -> String {
     std::env::var("HERMES_WEB_URL")
         .unwrap_or_else(|_| {
             option_env!("HERMES_WEB_URL")
-                .unwrap_or("http://localhost:3001")
+                .unwrap_or("https://hermes.adityamiskin98.workers.dev")
                 .into()
         })
         .trim_end_matches('/')

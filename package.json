@@ -19,10 +19,8 @@
       "@workos/authkit-tanstack-react-start": "^0.11.1",
       "@types/react": "^19.3.0",
       "@types/react-dom": "^19.3.0",
-      "alchemy": "2.0.0-beta.83",
       "vite": "npm:@voidzero-dev/vite-plus-core@1.2.0",
-      "vite-plus": "1.2.0",
-      "effect": "^4.0.4"
+      "vite-plus": "1.2.0"
     }
   },
   "type": "module",
@@ -35,8 +33,7 @@
     "build": "vp run -r build",
     "check": "vp check",
     "fix": "vp check --fix",
-    "deploy": "vp run --filter web deploy",
-    "destroy": "vp run --filter web destroy"
+    "deploy": "vp run --filter web deploy"
   },
   "dependencies": {
     "@hermes/env": "workspace:*",

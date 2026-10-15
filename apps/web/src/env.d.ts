@@ -1,5 +1,9 @@
-// Types `import { env } from "cloudflare:workers"` with the bindings declared in
-// `alchemy.run.ts`.
 declare module "cloudflare:workers" {
-  export const env: import("../alchemy.run").WebsiteEnv;
+  export const env: {
+    VITE_CONVEX_URL: string;
+    WORKOS_CLIENT_ID: string;
+    WORKOS_API_KEY: string;
+    WORKOS_REDIRECT_URI: string;
+    WORKOS_COOKIE_PASSWORD: string;
+  };
 }

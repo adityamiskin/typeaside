@@ -6,14 +6,14 @@ Native voice dictation for macOS, Windows and Linux, with a TanStack Start websi
 
 - `Cargo.toml`, `src/`, `assets/`, `vendor/`: Rust/GPUI desktop app, still at the repository root.
 - `apps/web`: marketing, downloads, WorkOS sign-in, account and desktop connection routes.
-- `apps/web/alchemy.run.ts`: Cloudflare Workers stack through Alchemy v2.
+- `apps/web/wrangler.jsonc`: Cloudflare Worker configuration.
 - `packages/backend/convex`: identities, Dodo billing, desktop tokens, weekly usage and HTTP proxy.
 - `packages/ui`: shared Base UI shadcn primitives and Hermes Tailwind v4 tokens.
 - `packages/env`, `packages/config`: client environment validation and shared TypeScript configuration.
 
 ## Local development
 
-Use Bun and Vite+ (`vp`). Do not use the Alchemy dev/deploy commands for credential-free local development.
+Use Bun and Vite+ (`vp`). Local development runs in the Workers runtime without Cloudflare credentials.
 
 ```bash
 bun install
@@ -30,14 +30,14 @@ In another terminal:
 
 ```bash
 cp apps/web/.env.example apps/web/.env
-bun run --cwd apps/web dev:local
+bun run --cwd apps/web dev
 ```
 
 Open `http://localhost:3001`. Public pages render without WorkOS, Dodo or Groq credentials. `/account` shows sign-in; a valid signed-out `/desktop/connect` request redirects through the sign-in endpoint. Without WorkOS configuration that endpoint leads to the local sign-in page. No mock authentication bypass is shipped.
 
 ## Environment
 
-Web env lives in `apps/web/.env` locally. Alchemy binds these values into the Cloudflare Worker when explicitly deployed:
+Web env lives in `apps/web/.env` locally. The Cloudflare Vite plugin loads it locally. Set `VITE_CONVEX_URL` in Workers Builds and the WorkOS bindings in Worker settings. API keys and cookie passwords must be secrets:
 
 | Variable                 | Purpose                                                       |
 | ------------------------ | ------------------------------------------------------------- |
@@ -84,6 +84,6 @@ bun run build
 PATH=$HOME/.cargo/bin:$PATH cargo check
 ```
 
-`bun run check` runs Vite+ format, lint and type checks. Rust/vendor files are excluded from the web formatter. `bun run build` builds locally and does not deploy. Deployment remains Cloudflare through Alchemy and requires a separate explicit authorization.
+`bun run check` runs Vite+ format, lint and type checks. Rust/vendor files are excluded from the web formatter. `bun run build` builds locally and does not deploy. Deployment uses `bun run deploy` through Wrangler. Workers Builds runs `bun run build` then `bun run deploy` from `apps/web`, on pushes to `main` only. Preview builds and preview URLs are disabled. The deployed site uses Convex dev, WorkOS staging and Dodo test mode.
 
 Real WorkOS credentials are needed to verify OAuth, signed-in account UI and browser-to-desktop token handoff. Dodo test credentials, product IDs and a reachable signed webhook endpoint are needed to verify checkout, portal and subscription lifecycle. Groq credentials are needed to verify actual transcription, cleanup and provider responses. Legal pages are visibly marked as drafts pending legal review. Download assets must be attached to GitHub Releases under the configured names.

@@ -4,7 +4,7 @@
 
 Bun monorepo:
 
-- TanStack Start in `apps/web`, deployed to Cloudflare Workers through Alchemy v2 (`apps/web/alchemy.run.ts`)
+- TanStack Start in `apps/web`, deployed to Cloudflare Workers through Wrangler (`apps/web/wrangler.jsonc`)
 - Tailwind CSS v4 and shadcn/ui primitives in `packages/ui`
 - Vite+ (`vp`) for dev, build, lint, format, type checks, and task running. Lint and format config lives in the root `vite.config.ts`
 
@@ -17,8 +17,8 @@ Bun monorepo:
 - Do not introduce another backend, auth provider, deployment target, formatter, or linter.
 - Use shadcn primitives from `@hermes/ui/components/*` before adding custom UI.
 - This shadcn setup uses Base UI. Use exported class helpers like `buttonVariants` for link-styled buttons instead of Radix `asChild`.
-- Keep deployment on Cloudflare through Alchemy.
-- Worker bindings are declared in `apps/web/alchemy.run.ts`. Read them with `import { env } from "cloudflare:workers"` inside request handlers, not at module scope.
+- Keep deployment on Cloudflare through Wrangler.
+- Worker bindings are declared in `apps/web/wrangler.jsonc`. Read them with `import { env } from "cloudflare:workers"` inside request handlers, not at module scope.
 - Do not put secrets in public `VITE_` variables.
 
 - Keep Convex functions in `packages/backend/convex` and import APIs from `@hermes/backend/convex/_generated/api`.
@@ -26,7 +26,7 @@ Bun monorepo:
 
 ## Environment
 
-Local env lives in `apps/web/.env` (examples in `apps/web/.env.example`). Alchemy loads it and binds each var listed in `alchemy.run.ts`.
+Local env lives in `apps/web/.env` (examples in `apps/web/.env.example`). The Cloudflare Vite plugin loads it for local development. Configure deployed bindings and secrets in the Worker settings.
 
 Convex deployment env is set with `bunx convex env set` from `packages/backend`; see `packages/backend/.env.example`.
 
