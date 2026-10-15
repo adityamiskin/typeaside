@@ -257,10 +257,10 @@ impl Render for MainWindow {
                     let weekday = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
                         .map(|date| date.with_timezone(&chrono::Local).format("%a").to_string())
                         .unwrap_or_default();
-                    format!("Limit reached · resets {weekday}")
+                    format!("Resets {weekday}")
                 } else {
                     format!(
-                        "{} / {} words",
+                        "{} / {}",
                         super::settings::grouped(account.usage.words),
                         super::settings::grouped(cap)
                     )

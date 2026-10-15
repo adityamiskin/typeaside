@@ -761,15 +761,6 @@ impl MainWindow {
     }
     pub fn onboarding(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let account_row = self.account_row(cx);
-        let share_usage = self.state.read(cx).config.share_usage;
-        let share_usage_toggle = self
-            .toggle(
-                "onboarding-share-usage",
-                share_usage,
-                Toggle::ShareUsage,
-                cx,
-            )
-            .into_any_element();
         let p = palette(cx);
         let s = self.state.read(cx);
         let step = s.onboarding_step;
@@ -884,19 +875,6 @@ impl MainWindow {
                     ),
             ),
         };
-        col = col.when(step == 2, |col| {
-            col.child(form_row(
-                "Share anonymous usage stats",
-                share_usage_toggle,
-                p,
-            ))
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(p.muted)
-                    .child("Counts only. Never your words or audio."),
-            )
-        });
         col = col.when_some(s.save_error.clone(), |col, error| {
             col.child(div().text_color(p.red).child(error))
         });
