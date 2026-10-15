@@ -1,0 +1,22 @@
+{
+  "name": "@hermes/backend",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "scripts": {
+    "dev": "convex dev",
+    "dev:setup": "CONVEX_AGENT_MODE=anonymous convex dev --once",
+    "codegen": "convex codegen"
+  },
+  "dependencies": {
+    "@dodopayments/convex": "^0.2.15",
+    "convex": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@hermes/config": "workspace:*",
+    "@types/node": "^26.6.5",
+    "typescript": "catalog:"
+  }
+}
