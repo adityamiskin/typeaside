@@ -649,6 +649,7 @@ footer {
   margin: 48px 0 0 -0.04em;
   color: var(--text);
   user-select: none;
+  pointer-events: none;
 }
 
 @media (max-width: 900px) {
