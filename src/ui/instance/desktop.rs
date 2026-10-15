@@ -16,12 +16,12 @@ pub enum Claim {
 }
 
 pub fn claim(name: &str, show: bool) -> Claim {
-    let Some(dirs) = directories::ProjectDirs::from("", "", "hermes") else {
-        return Claim::Primary(None);
-    };
     #[cfg(target_os = "macos")]
     let path = {
         use std::os::unix::fs::DirBuilderExt;
+        let Some(dirs) = directories::ProjectDirs::from("", "", "hermes") else {
+            return Claim::Primary(None);
+        };
         if std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -33,12 +33,11 @@ pub fn claim(name: &str, show: bool) -> Claim {
         dirs.data_local_dir().join(name)
     };
     #[cfg(target_os = "windows")]
-    let path = {
-        use std::hash::{Hash, Hasher};
-        let mut hash = std::collections::hash_map::DefaultHasher::new();
-        dirs.data_local_dir().hash(&mut hash);
-        format!("hermes-{:x}-{name}", hash.finish())
-    };
+    // Pipe names are machine-wide, so scope them to the user.
+    let path = format!(
+        "hermes-{}-{name}",
+        std::env::var("USERNAME").unwrap_or_default()
+    );
     #[cfg(target_os = "macos")]
     let connected = UnixStream::connect(&path);
     #[cfg(target_os = "windows")]

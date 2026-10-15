@@ -5,7 +5,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-/// Secret Service lookups are D-Bus round trips, so keys are cached per host for the process.
+/// Keyring lookups can be IPC round trips (D-Bus on Linux), so keys are cached per host for the process.
 fn cache() -> &'static Mutex<HashMap<String, String>> {
     static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
     CACHE.get_or_init(Default::default)
@@ -16,14 +16,7 @@ fn entry(host: &str) -> Result<Entry> {
     STORE
         .get_or_init(|| keyring::use_named_store(store_name()).map_err(|error| error.to_string()))
         .clone()
-        .map_err(|error| {
-            let name = if cfg!(target_os = "linux") {
-                "Secret Service"
-            } else {
-                store_name()
-            };
-            anyhow!("failed to open {name} keyring: {error}")
-        })?;
+        .map_err(|error| anyhow!("failed to open {} keyring: {error}", store_name()))?;
     Entry::new("hermes", host).with_context(|| format!("failed to open credential for {host}"))
 }
 

@@ -8,38 +8,30 @@ use std::{
 
 #[cfg(target_os = "linux")]
 struct Volume(String);
-#[cfg(not(target_os = "linux"))]
-struct Volume;
 
+#[cfg(target_os = "linux")]
 impl Volume {
     fn duck() -> Option<Self> {
-        #[cfg(not(target_os = "linux"))]
-        {
-            None
+        let output = Command::new("timeout")
+            .args(["0.5s", "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
         }
-        #[cfg(target_os = "linux")]
-        {
-            let output = Command::new("timeout")
-                .args(["0.5s", "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
-                .stderr(Stdio::null())
-                .output()
-                .ok()?;
-            if !output.status.success() {
-                return None;
-            }
-            let text = String::from_utf8(output.stdout).ok()?;
-            if text.contains("MUTED") {
-                return None;
-            }
-            let original = text.split_whitespace().nth(1)?.to_owned();
-            let volume = original.parse::<f64>().ok()?;
-            if !volume.is_finite() || volume < 0. {
-                return None;
-            }
-            let guard = Self(original);
-            set_volume(&(volume * 0.3).to_string());
-            Some(guard)
+        let text = String::from_utf8(output.stdout).ok()?;
+        if text.contains("MUTED") {
+            return None;
         }
+        let original = text.split_whitespace().nth(1)?.to_owned();
+        let volume = original.parse::<f64>().ok()?;
+        if !volume.is_finite() || volume < 0. {
+            return None;
+        }
+        let guard = Self(original);
+        set_volume(&(volume * 0.3).to_string());
+        Some(guard)
     }
 }
 
@@ -52,10 +44,20 @@ fn set_volume(value: &str) {
         .status();
 }
 
+#[cfg(target_os = "linux")]
 impl Drop for Volume {
     fn drop(&mut self) {
-        #[cfg(target_os = "linux")]
         set_volume(&self.0);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+struct Volume;
+
+#[cfg(not(target_os = "linux"))]
+impl Volume {
+    fn duck() -> Option<Self> {
+        None
     }
 }
 
@@ -79,9 +81,9 @@ impl ListeningEffects {
                     cues::wait(Cue::Start);
                 }
                 if matches!(receiver.try_recv(), Err(mpsc::TryRecvError::Empty)) {
-                    let volume = if duck { Volume::duck() } else { None };
+                    // Restores the volume when it goes out of scope, before the stop cue.
+                    let _volume = if duck { Volume::duck() } else { None };
                     let _ = receiver.recv();
-                    drop(volume);
                 }
                 if sounds {
                     cues::wait(Cue::Stop);

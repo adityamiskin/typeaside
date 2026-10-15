@@ -822,48 +822,34 @@ pub fn shortcut_combo(k: &gpui::Keystroke) -> String {
         ";" => "SEMICOLON",
         "[" => "LEFTBRACE",
         "]" => "RIGHTBRACE",
-        "'" if !cfg!(target_os = "linux") => "APOSTROPHE",
-        "\\" if !cfg!(target_os = "linux") => "BACKSLASH",
-        "`" if !cfg!(target_os = "linux") => "GRAVE",
+        "'" => "APOSTROPHE",
+        "\\" => "BACKSLASH",
+        "`" => "GRAVE",
         "control_r" => "RIGHTCTRL",
         "control_l" => "LEFTCTRL",
         "alt_r" => "RIGHTALT",
         "alt_l" => "LEFTALT",
         other => other,
     };
+    // Linux binds evdev codes, which are side-specific; elsewhere either side matches.
+    let [ctrl, alt, shift, meta] = if cfg!(target_os = "linux") {
+        ["LEFTCTRL", "LEFTALT", "LEFTSHIFT", "LEFTMETA"]
+    } else {
+        ["CTRL", "ALT", "SHIFT", "META"]
+    };
     let mut parts = Vec::new();
-    #[cfg(not(target_os = "linux"))]
-    {
-        if k.modifiers.control && !key.ends_with("CTRL") {
-            parts.push("CTRL".into());
-        }
-        if k.modifiers.alt && !key.ends_with("ALT") {
-            parts.push("ALT".into());
-        }
-        if k.modifiers.shift && !key.ends_with("SHIFT") {
-            parts.push("SHIFT".into());
-        }
-        if k.modifiers.platform && !key.ends_with("META") {
-            parts.push("META".into());
-        }
-        parts.push(key.to_uppercase());
-        parts.join("+")
+    if k.modifiers.control && !key.ends_with("CTRL") {
+        parts.push(ctrl.into());
     }
-    #[cfg(target_os = "linux")]
-    {
-        if k.modifiers.control && !key.ends_with("CTRL") {
-            parts.push("LEFTCTRL".into());
-        }
-        if k.modifiers.alt && !key.ends_with("ALT") {
-            parts.push("LEFTALT".into());
-        }
-        if k.modifiers.shift && !key.ends_with("SHIFT") {
-            parts.push("LEFTSHIFT".into());
-        }
-        if k.modifiers.platform {
-            parts.push("LEFTMETA".into());
-        }
-        parts.push(key.to_uppercase());
-        parts.join("+")
+    if k.modifiers.alt && !key.ends_with("ALT") {
+        parts.push(alt.into());
     }
+    if k.modifiers.shift && !key.ends_with("SHIFT") {
+        parts.push(shift.into());
+    }
+    if k.modifiers.platform && !key.ends_with("META") {
+        parts.push(meta.into());
+    }
+    parts.push(key.to_uppercase());
+    parts.join("+")
 }
