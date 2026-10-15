@@ -9,7 +9,7 @@ use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
     select::{Select, SelectEvent, SelectState},
 };
-use hermes::config::{AppConfig, RecordingMode, Theme};
+use hermes::config::{AppConfig, RecordingMode, Source, Theme};
 
 const LANGUAGES: [(&str, &str); 12] = [
     ("English", "en"),
@@ -391,94 +391,201 @@ impl MainWindow {
                 })),
         )
     }
+    fn sign_in(&mut self, cx: &mut Context<Self>) {
+        if self.state.read(cx).signing_in.is_some() {
+            return;
+        }
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.state.update(cx, |s, cx| {
+            s.account_revision += 1;
+            s.signing_in = Some(cancel.clone());
+            s.save_error = None;
+            cx.notify();
+        });
+        let demo = self.state.read(cx).is_demo;
+        let task_cancel = cancel.clone();
+        let task = cx.background_executor().spawn(async move {
+            if demo {
+                return Err(anyhow::anyhow!("Sign in is unavailable in demo mode"));
+            }
+            hermes::account::sign_in(&task_cancel)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.state.update(cx, |s, cx| {
+                    if !s
+                        .signing_in
+                        .as_ref()
+                        .is_some_and(|active| std::sync::Arc::ptr_eq(active, &cancel))
+                    {
+                        return;
+                    }
+                    s.signing_in = None;
+                    match result {
+                        Ok(account) => {
+                            s.account = Some(account);
+                            s.config.transcription = Source::Hosted;
+                            if !s.config.onboarded {
+                                s.onboarding_step = 1;
+                                s.mic_testing = true;
+                                s.command(hermes::engine::Command::MicTest(true));
+                            }
+                            s.persist();
+                        }
+                        Err(error) => s.save_error = Some(error.to_string()),
+                    }
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
+    }
+    fn account_row(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let p = palette(cx);
+        let s = self.state.read(cx);
+        let row = div().flex().items_center().gap(px(12.)).text_size(px(12.));
+        if s.signing_in.is_some() {
+            return row
+                .child(div().text_color(p.muted).child("Waiting for browser..."))
+                .child(
+                    button("Cancel", false, p)
+                        .id("cancel-sign-in")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.state.update(cx, |s, cx| {
+                                if let Some(cancel) = s.signing_in.take() {
+                                    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                                }
+                                cx.notify();
+                            });
+                        })),
+                );
+        }
+        if let Some(account) = &s.account {
+            let limit = account.at_limit();
+            let plan = if limit {
+                let resets = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
+                    .map(|date| {
+                        date.with_timezone(&chrono::Local)
+                            .format("%a %-I:%M %p")
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+                format!("Weekly limit reached, resets {resets}")
+            } else if account.plan == hermes::account::Plan::Pro {
+                "Pro".into()
+            } else {
+                format!(
+                    "Free, {} of {} words this week",
+                    grouped(account.usage.words),
+                    grouped(account.usage.cap.unwrap_or(2000))
+                )
+            };
+            row.child(div().text_color(p.fg).child(account.email.clone()))
+                .child(
+                    div()
+                        .text_color(if limit { p.red } else { p.muted })
+                        .child(plan),
+                )
+                .child(div().flex_1())
+                .child(
+                    button(if limit { "Upgrade" } else { "Manage" }, false, p)
+                        .id("manage-account")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if this.state.read(cx).is_demo {
+                                return;
+                            }
+                            cx.background_executor()
+                                .spawn(async {
+                                    let _ = hermes::account::open(format!(
+                                        "{}/account",
+                                        hermes::account::web_url()
+                                    ));
+                                })
+                                .detach();
+                        })),
+                )
+                .child(
+                    button("Sign out", false, p)
+                        .id("sign-out")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.state.update(cx, |s, _| s.account_revision += 1);
+                            let mut config = this.state.read(cx).config.clone();
+                            let demo = this.state.read(cx).is_demo;
+                            let task = cx.background_executor().spawn(async move {
+                                if !demo {
+                                    hermes::account::sign_out(&mut config)?;
+                                }
+                                Ok::<_, anyhow::Error>(config.transcription)
+                            });
+                            cx.spawn(async move |this, cx| {
+                                let result = task.await;
+                                let _ = this.update(cx, |this, cx| {
+                                    this.state.update(cx, |s, cx| {
+                                        match result {
+                                            Ok(source) => {
+                                                s.account = None;
+                                                s.config.transcription = source;
+                                                s.persist();
+                                            }
+                                            Err(error) => s.save_error = Some(error.to_string()),
+                                        }
+                                        cx.notify();
+                                    });
+                                });
+                            })
+                            .detach();
+                        })),
+                )
+        } else {
+            row.child(div().text_color(p.muted).child("Not signed in"))
+                .child(
+                    button("Sign in", true, p)
+                        .id("sign-in")
+                        .on_click(cx.listener(|this, _, _, cx| this.sign_in(cx))),
+                )
+        }
+    }
     pub fn settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let s = self.state.read(cx);
         let c = s.config.clone();
         let testing = s.mic_testing;
         let level = s.level;
-        let theme = div()
-            .flex()
-            .h(px(26.))
-            .border_1()
-            .border_color(p.border)
-            .rounded(px(6.))
-            .overflow_hidden()
-            .children(
-                [
-                    (Theme::System, "System"),
-                    (Theme::Light, "Light"),
-                    (Theme::Dark, "Dark"),
-                ]
-                .into_iter()
-                .map(|(value, label)| {
-                    let on = c.theme == value;
-                    div()
-                        .id(label)
-                        .flex()
-                        .items_center()
-                        .px(px(10.))
-                        .text_size(px(12.))
-                        .line_height(px(17.4))
-                        .font_weight(if on {
-                            gpui::FontWeight::MEDIUM
-                        } else {
-                            gpui::FontWeight::NORMAL
-                        })
-                        .bg(if on { p.accent } else { p.bg })
-                        .text_color(if on { p.on_accent } else { p.fg })
-                        .cursor_pointer()
-                        .child(label)
-                        .on_click(cx.listener(move |this, _, w, cx| {
-                            this.state.update(cx, |s, cx| {
-                                s.config.theme = value;
-                                s.persist();
-                                cx.notify();
-                            });
-                            super::theme::apply(value, w.appearance(), cx);
-                        }))
-                }),
-            );
-        let mode = div()
-            .flex()
-            .h(px(26.))
-            .border_1()
-            .border_color(p.border)
-            .rounded(px(6.))
-            .overflow_hidden()
-            .children(
-                [
-                    (RecordingMode::Hold, "Hold"),
-                    (RecordingMode::Toggle, "Toggle"),
-                ]
-                .into_iter()
-                .map(|(value, label)| {
-                    let on = c.mode == value;
-                    div()
-                        .id(label)
-                        .flex()
-                        .items_center()
-                        .px(px(10.))
-                        .text_size(px(12.))
-                        .line_height(px(17.4))
-                        .font_weight(if on {
-                            gpui::FontWeight::MEDIUM
-                        } else {
-                            gpui::FontWeight::NORMAL
-                        })
-                        .bg(if on { p.accent } else { p.bg })
-                        .text_color(if on { p.on_accent } else { p.fg })
-                        .cursor_pointer()
-                        .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.update(cx, |s, cx| {
-                                s.config.mode = value;
-                                s.persist();
-                                cx.notify();
-                            });
-                        }))
-                }),
-            );
+        let theme = segmented(
+            [
+                (Theme::System, "System"),
+                (Theme::Light, "Light"),
+                (Theme::Dark, "Dark"),
+            ],
+            c.theme,
+            p,
+            cx,
+            |this, value, w, cx| {
+                this.state.update(cx, |s, _| s.config.theme = value);
+                super::theme::apply(value, w.appearance(), cx);
+            },
+        );
+        let mode = segmented(
+            [
+                (RecordingMode::Hold, "Hold"),
+                (RecordingMode::Toggle, "Toggle"),
+            ],
+            c.mode,
+            p,
+            cx,
+            |this, value, _, cx| this.state.update(cx, |s, _| s.config.mode = value),
+        );
+        let source = segmented(
+            [
+                (Source::Hosted, "Hermes account"),
+                (Source::OwnKey, "Own key"),
+            ],
+            c.transcription,
+            p,
+            cx,
+            |this, value, _, cx| this.state.update(cx, |s, _| s.config.transcription = value),
+        );
         div()
             .size_full()
             .flex()
@@ -493,6 +600,8 @@ impl MainWindow {
                     .overflow_y_scroll()
                     .px(px(INSET))
                     .pb(px(24.))
+                    .child(section("Account"))
+                    .child(form_row("Account", self.account_row(cx), p))
                     .child(section("Appearance"))
                     .child(form_row("Theme", div().flex().child(theme), p))
                     .child(section("Shortcuts"))
@@ -561,22 +670,31 @@ impl MainWindow {
                         p,
                     ))
                     .child(section("Transcription"))
-                    .child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
-                    .child(form_row("Model", input(&self.settings.model, p), p))
-                    .child(form_row("API key", input(&self.settings.key, p), p))
+                    .child(form_row("Source", div().flex().child(source), p))
+                    .when(c.transcription == Source::OwnKey, |col| {
+                        col.child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
+                            .child(form_row("Model", input(&self.settings.model, p), p))
+                            .child(form_row("API key", input(&self.settings.key, p), p))
+                    })
                     .child(section("Editing"))
                     .child(form_row(
                         "AI editing",
                         self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx),
                         p,
                     ))
-                    .child(form_row(
-                        "Endpoint",
-                        input(&self.settings.cleanup_endpoint, p),
-                        p,
-                    ))
-                    .child(form_row("Model", input(&self.settings.cleanup_model, p), p))
-                    .child(form_row("API key", input(&self.settings.cleanup_key, p), p))
+                    .when(c.transcription == Source::OwnKey, |col| {
+                        col.child(form_row(
+                            "Endpoint",
+                            input(&self.settings.cleanup_endpoint, p),
+                            p,
+                        ))
+                        .child(form_row("Model", input(&self.settings.cleanup_model, p), p))
+                        .child(form_row(
+                            "API key",
+                            input(&self.settings.cleanup_key, p),
+                            p,
+                        ))
+                    })
                     .child(section("Behavior"))
                     .child(form_row(
                         "Sound cues",
@@ -619,17 +737,7 @@ impl MainWindow {
                                         let folder = this.state.read(cx).paths.config_dir.clone();
                                         cx.background_executor()
                                             .spawn(async move {
-                                                let _ = std::process::Command::new(
-                                                    if cfg!(target_os = "macos") {
-                                                        "open"
-                                                    } else if cfg!(target_os = "windows") {
-                                                        "explorer.exe"
-                                                    } else {
-                                                        "xdg-open"
-                                                    },
-                                                )
-                                                .arg(folder)
-                                                .status();
+                                                let _ = hermes::account::open(folder);
                                             })
                                             .detach();
                                     })),
@@ -639,6 +747,7 @@ impl MainWindow {
             )
     }
     pub fn onboarding(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let account_row = self.account_row(cx);
         let p = palette(cx);
         let s = self.state.read(cx);
         let step = s.onboarding_step;
@@ -656,7 +765,7 @@ impl MainWindow {
                 .child("and say hello")
         } else {
             div().child(if step == 0 {
-                "Add a Groq API key"
+                "How should Hermes transcribe?"
             } else {
                 "Check your microphone"
             })
@@ -682,7 +791,53 @@ impl MainWindow {
                     .child(title),
             );
         col = match step {
-            0 => col.child(input(&self.settings.key, p)),
+            0 => col
+                .when(s.signing_in.is_some(), |col| col.child(account_row))
+                .when(s.signing_in.is_none(), |col| {
+                    col.children(
+                        [
+                            (false, "Sign in, free", "2,000 words a week, no API key"),
+                            (true, "Use my own key", "Groq or OpenAI-compatible key"),
+                        ]
+                        .into_iter()
+                        .map(|(own, title, subtitle)| {
+                            div()
+                                .id(title)
+                                .w_full()
+                                .h(px(44.))
+                                .border_1()
+                                .border_color(p.border)
+                                .rounded(px(6.))
+                                .px(px(12.))
+                                .flex()
+                                .flex_col()
+                                .justify_center()
+                                .cursor_pointer()
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(p.fg)
+                                        .child(title),
+                                )
+                                .child(div().text_size(px(12.)).text_color(p.muted).child(subtitle))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if own {
+                                        this.state.update(cx, |s, cx| {
+                                            s.onboarding_own_key = true;
+                                            s.config.transcription = Source::OwnKey;
+                                            cx.notify();
+                                        });
+                                    } else {
+                                        this.sign_in(cx);
+                                    }
+                                }))
+                        }),
+                    )
+                })
+                .when(s.onboarding_own_key && s.signing_in.is_none(), |col| {
+                    col.child(input(&self.settings.key, p))
+                }),
             1 => col
                 .child(
                     Select::new(&self.settings.device)
@@ -707,6 +862,9 @@ impl MainWindow {
                     ),
             ),
         };
+        col = col.when_some(s.save_error.clone(), |col, error| {
+            col.child(div().text_color(p.red).child(error))
+        });
         col =
             col.child(
                 div()
@@ -734,32 +892,37 @@ impl MainWindow {
                             ),
                         )
                     })
-                    .child(
-                        button(if step == 2 { "Done" } else { "Continue" }, true, p)
-                            .id("onboarding-next")
-                            .on_click(cx.listener(move |this, _, w, cx| {
-                                if step == 2 {
-                                    if this.state.read(cx).onboarding_transcript.is_some() {
-                                        this.finish_onboarding(w, cx);
-                                    }
-                                    return;
-                                }
-                                if step == 0 {
-                                    this.save_key(false, w, cx);
-                                }
-                                this.state.update(cx, |s, cx| {
-                                    s.onboarding_step += 1;
-                                    if step == 1 {
-                                        s.mic_testing = false;
-                                        s.mic_generation += 1;
-                                        s.command(hermes::engine::Command::MicTest(false));
-                                    }
-                                    cx.notify();
-                                });
-                                if step == 0 {
-                                    this.start_mic(cx);
-                                }
-                            })),
+                    .when(
+                        step != 0 || (s.onboarding_own_key && s.signing_in.is_none()),
+                        |row| {
+                            row.child(
+                                button(if step == 2 { "Done" } else { "Continue" }, true, p)
+                                    .id("onboarding-next")
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        if step == 2 {
+                                            if this.state.read(cx).onboarding_transcript.is_some() {
+                                                this.finish_onboarding(w, cx);
+                                            }
+                                            return;
+                                        }
+                                        if step == 0 {
+                                            this.save_key(false, w, cx);
+                                        }
+                                        this.state.update(cx, |s, cx| {
+                                            s.onboarding_step += 1;
+                                            if step == 1 {
+                                                s.mic_testing = false;
+                                                s.mic_generation += 1;
+                                                s.command(hermes::engine::Command::MicTest(false));
+                                            }
+                                            cx.notify();
+                                        });
+                                        if step == 0 {
+                                            this.start_mic(cx);
+                                        }
+                                    })),
+                            )
+                        },
                     ),
             );
         div()
@@ -852,4 +1015,60 @@ pub fn shortcut_combo(k: &gpui::Keystroke) -> String {
     }
     parts.push(key.to_uppercase());
     parts.join("+")
+}
+
+fn grouped(value: u64) -> String {
+    let digits = value.to_string();
+    digits
+        .chars()
+        .enumerate()
+        .fold(String::new(), |mut result, (index, ch)| {
+            if index > 0 && (digits.len() - index).is_multiple_of(3) {
+                result.push(',');
+            }
+            result.push(ch);
+            result
+        })
+}
+
+fn segmented<T: Copy + PartialEq + 'static, const N: usize>(
+    options: [(T, &'static str); N],
+    current: T,
+    p: Palette,
+    cx: &mut Context<MainWindow>,
+    select: impl Fn(&mut MainWindow, T, &mut Window, &mut Context<MainWindow>) + Copy + 'static,
+) -> gpui::Div {
+    div()
+        .flex()
+        .h(px(26.))
+        .border_1()
+        .border_color(p.border)
+        .rounded(px(6.))
+        .overflow_hidden()
+        .children(options.map(|(value, label)| {
+            let on = current == value;
+            div()
+                .id(label)
+                .flex()
+                .items_center()
+                .px(px(10.))
+                .text_size(px(12.))
+                .line_height(px(17.4))
+                .font_weight(if on {
+                    gpui::FontWeight::MEDIUM
+                } else {
+                    gpui::FontWeight::NORMAL
+                })
+                .bg(if on { p.accent } else { p.bg })
+                .text_color(if on { p.on_accent } else { p.fg })
+                .cursor_pointer()
+                .child(label)
+                .on_click(cx.listener(move |this, _, w, cx| {
+                    select(this, value, w, cx);
+                    this.state.update(cx, |s, cx| {
+                        s.persist();
+                        cx.notify();
+                    });
+                }))
+        }))
 }

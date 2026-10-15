@@ -131,6 +131,14 @@ impl Default for Cleanup {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    Hosted,
+    #[default]
+    OwnKey,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -138,6 +146,7 @@ pub struct AppConfig {
     pub mode: RecordingMode,
     pub cancel_hotkey: Option<String>,
     pub input_device: Option<String>,
+    pub transcription: Source,
     pub stt: Endpoint,
     pub language: Option<String>,
     pub cleanup: Cleanup,
@@ -164,6 +173,7 @@ impl Default for AppConfig {
             mode: RecordingMode::Hold,
             cancel_hotkey: Some("ESCAPE".into()),
             input_device: None,
+            transcription: Source::OwnKey,
             stt: Endpoint::new("https://api.groq.com/openai/v1", "whisper-large-v3-turbo"),
             language: None,
             cleanup: Cleanup::default(),
@@ -184,6 +194,16 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    pub fn effective(&self) -> Self {
+        let mut config = self.clone();
+        if self.transcription == Source::Hosted {
+            let base = format!("{}/openai/v1", crate::account::hosted_url());
+            config.stt.base_url = base.clone();
+            config.cleanup.endpoint.base_url = base;
+        }
+        config
+    }
+
     pub fn load(paths: &AppPaths) -> Result<Self> {
         match std::fs::read(&paths.config_file) {
             Ok(bytes) => serde_json::from_slice(&bytes).context("invalid config JSON"),

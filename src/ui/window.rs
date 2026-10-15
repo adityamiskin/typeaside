@@ -165,9 +165,15 @@ impl MainWindow {
                 this.start_mic(cx);
             }
         }
+        if page == Page::Settings {
+            super::refresh_account(&this.state, cx);
+        }
         this
     }
     pub fn set_page(&mut self, page: Page, _: &mut Window, cx: &mut Context<Self>) {
+        if page == Page::Settings {
+            super::refresh_account(&self.state, cx);
+        }
         self.page = page;
         self.state.update(cx, |s, _| s.initial_page = page);
         self.capture = None;

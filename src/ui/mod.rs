@@ -19,6 +19,10 @@ use hermes::engine::{Command, Dictation, Engine, Event, Phase};
 use hermes::{config::AppConfig, credentials, paths::AppPaths};
 
 pub struct AppState {
+    account: Option<hermes::account::Account>,
+    account_revision: u64,
+    signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    onboarding_own_key: bool,
     config: AppConfig,
     paths: AppPaths,
     engine: Option<Engine>,
@@ -154,6 +158,10 @@ fn start_ui(
     theme::init(config.theme, cx);
     trace("theme init end", started);
     let state = cx.new(|_| AppState {
+        account: if is_demo { demo::account() } else { None },
+        account_revision: 0,
+        signing_in: None,
+        onboarding_own_key: false,
         config,
         paths,
         engine: None,
@@ -297,6 +305,9 @@ fn start_ui(
                     }
                 }
                 Event::Done(dictation) => {
+                    if state.read(cx).config.transcription == hermes::config::Source::Hosted {
+                        refresh_account(&state, cx);
+                    }
                     state.update(cx, |s, cx| {
                         if !s.config.onboarded && s.onboarding_step == 2 {
                             s.onboarding_transcript = Some(dictation.cleaned.clone());
@@ -312,6 +323,11 @@ fn start_ui(
                     }
                 }
                 Event::Phase(phase) => {
+                    if matches!(&phase, Phase::Error(_))
+                        && state.read(cx).config.transcription == hermes::config::Source::Hosted
+                    {
+                        refresh_account(&state, cx);
+                    }
                     state.update(cx, |s, cx| {
                         s.phase = phase.clone();
                         cx.notify();
@@ -348,4 +364,29 @@ fn trace(stage: &str, started: std::time::Instant) {
             started.elapsed().as_secs_f64() * 1000.
         );
     }
+}
+
+fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
+    if state.read(cx).is_demo {
+        return;
+    }
+    let revision = state.update(cx, |s, _| {
+        s.account_revision += 1;
+        s.account_revision
+    });
+    let state = state.clone();
+    let task = cx
+        .background_executor()
+        .spawn(async { hermes::account::me() });
+    cx.spawn(async move |cx| {
+        if let Ok(account) = task.await {
+            state.update(cx, |s, cx| {
+                if s.account_revision == revision {
+                    s.account = account;
+                    cx.notify();
+                }
+            });
+        }
+    })
+    .detach();
 }

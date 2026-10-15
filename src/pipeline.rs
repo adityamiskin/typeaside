@@ -17,6 +17,8 @@ pub fn run(
     selection: &str,
     cleaning: impl FnOnce(),
 ) -> Result<Output> {
+    let effective = config.effective();
+    let config = &effective;
     let started = Instant::now();
     let raw = transcribe::transcribe(config, audio)?;
     let stt = started.elapsed();

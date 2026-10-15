@@ -87,3 +87,12 @@ fn store_name() -> &'static str {
         "windows"
     }
 }
+
+pub fn delete_credential(host: &str) -> Result<()> {
+    match entry(host)?.delete_credential() {
+        Ok(()) | Err(Error::NoEntry) => {}
+        Err(error) => return Err(anyhow!("failed to delete credential for {host}: {error}")),
+    }
+    cache().lock().expect("credential cache").remove(host);
+    Ok(())
+}

@@ -14,6 +14,7 @@ pub(crate) fn client() -> &'static Client {
 }
 
 pub(crate) fn prewarm(config: &AppConfig) {
+    let config = config.effective();
     for endpoint in [&config.stt, &config.cleanup.endpoint] {
         let endpoint = endpoint.clone();
         let _ = std::thread::Builder::new()
@@ -32,4 +33,17 @@ pub(crate) fn prewarm(config: &AppConfig) {
                 }
             });
     }
+}
+
+pub(crate) fn checked(
+    response: reqwest::blocking::Response,
+) -> anyhow::Result<reqwest::blocking::Response> {
+    if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
+        let body: serde_json::Value = response.json()?;
+        if body["error"]["type"] == "limit" {
+            anyhow::bail!("Weekly free limit reached. Upgrade to Pro or use your own key.");
+        }
+        anyhow::bail!("Hosted request failed (402)");
+    }
+    Ok(response.error_for_status()?)
 }

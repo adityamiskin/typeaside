@@ -35,17 +35,18 @@ fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {
     struct Response {
         text: String,
     }
-    let response = crate::http::client()
-        .post(format!(
-            "{}/audio/transcriptions",
-            config.stt.base_url.trim_end_matches('/')
-        ))
-        .bearer_auth(key)
-        .timeout(Duration::from_secs(30))
-        .multipart(form)
-        .send()?
-        .error_for_status()?
-        .json::<Response>()?;
+    let response = crate::http::checked(
+        crate::http::client()
+            .post(format!(
+                "{}/audio/transcriptions",
+                config.stt.base_url.trim_end_matches('/')
+            ))
+            .bearer_auth(key)
+            .timeout(Duration::from_secs(30))
+            .multipart(form)
+            .send()?,
+    )?
+    .json::<Response>()?;
     Ok(response.text.trim().to_owned())
 }
 

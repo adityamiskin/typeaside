@@ -130,31 +130,32 @@ fn completion(config: &AppConfig, system: &str, text: &str, timeout: Duration) -
     struct Message {
         content: String,
     }
-    let response = crate::http::client()
-        .post(format!(
-            "{}/chat/completions",
-            endpoint.base_url.trim_end_matches('/')
-        ))
-        .bearer_auth(key)
-        .timeout(timeout)
-        .json(&Request {
-            model: &endpoint.model,
-            reasoning_effort: config.cleanup.reasoning_effort.as_deref(),
-            temperature: 0.,
-            messages: [
-                ChatMessage {
-                    role: "system",
-                    content: system,
-                },
-                ChatMessage {
-                    role: "user",
-                    content: text,
-                },
-            ],
-        })
-        .send()?
-        .error_for_status()?
-        .json::<Response>()?;
+    let response = crate::http::checked(
+        crate::http::client()
+            .post(format!(
+                "{}/chat/completions",
+                endpoint.base_url.trim_end_matches('/')
+            ))
+            .bearer_auth(key)
+            .timeout(timeout)
+            .json(&Request {
+                model: &endpoint.model,
+                reasoning_effort: config.cleanup.reasoning_effort.as_deref(),
+                temperature: 0.,
+                messages: [
+                    ChatMessage {
+                        role: "system",
+                        content: system,
+                    },
+                    ChatMessage {
+                        role: "user",
+                        content: text,
+                    },
+                ],
+            })
+            .send()?,
+    )?
+    .json::<Response>()?;
     response
         .choices
         .into_iter()
