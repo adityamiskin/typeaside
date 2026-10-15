@@ -11,6 +11,7 @@
     "deploy": "convex deploy"
   },
   "dependencies": {
+    "@convex-dev/rate-limiter": "^0.4.2",
     "@dodopayments/convex": "^0.2.15",
     "convex": "catalog:",
     "zod": "catalog:"

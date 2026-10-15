@@ -56,6 +56,7 @@ pub struct MainWindow {
     pub settings_scroll: gpui::ScrollHandle,
     pub focus: FocusHandle,
     page: Page,
+    pub onboarding: super::onboarding::Onboarding,
     trace_started: Option<std::time::Instant>,
 }
 impl MainWindow {
@@ -94,6 +95,14 @@ impl MainWindow {
         .detach();
         cx.observe_in(&state, window, |this, _, window, cx| {
             this.settings.refresh(&this.state, window, cx);
+            if this.onboarding.pending_key {
+                if this.state.read(cx).key_hint == "Saved in keyring" {
+                    this.onboarding.pending_key = false;
+                    this.onboarding_next(false, window, cx);
+                } else if this.state.read(cx).save_error.is_some() {
+                    this.onboarding.pending_key = false;
+                }
+            }
             theme::apply(this.state.read(cx).config.theme, window.appearance(), cx);
             cx.notify();
         })
@@ -111,7 +120,7 @@ impl MainWindow {
         let page = state.read(cx).initial_page;
         let trace_started = state.read(cx).trace_started;
         let mut this = Self {
-            state,
+            state: state.clone(),
             settings,
             word_input,
             search_input,
@@ -124,6 +133,7 @@ impl MainWindow {
             settings_scroll: gpui::ScrollHandle::new(),
             focus: cx.focus_handle(),
             page,
+            onboarding: super::onboarding::Onboarding::new(state.read(cx).onboarding_steps.clone()),
             trace_started,
         };
         this.bind_settings(window, cx);
@@ -132,12 +142,6 @@ impl MainWindow {
                 let at = this.state.read(cx).history.get(1).map(|d| d.at);
                 this.state.update(cx, |s, _| s.expanded = at);
                 this.hovered_history = Some(0);
-            }
-            if page == Page::Onboarding && this.state.read(cx).onboarding_step == 0 {
-                this.state.update(cx, |s, cx| {
-                    s.key_hint = "gsk_…".into();
-                    cx.notify();
-                });
             }
             if page == Page::Dictionary {
                 this.hovered_word = Some(3);
@@ -161,13 +165,11 @@ impl MainWindow {
             if page == Page::Snippets {
                 this.edit_snippet(Some(1), window, cx);
             }
-            if page == Page::Onboarding && this.state.read(cx).onboarding_step == 1 {
-                this.start_mic(cx);
-            }
         }
         if page == Page::Settings {
             super::refresh_account(&this.state, cx);
         }
+        this.init_onboarding(window, cx);
         this
     }
     pub fn set_page(&mut self, page: Page, _: &mut Window, cx: &mut Context<Self>) {
@@ -236,13 +238,96 @@ impl Render for MainWindow {
         } else {
             match &state.phase {
                 Phase::Idle => (p.green, "Ready".into()),
-                Phase::Listening(_) => (p.accent, "Listening".into()),
-                Phase::Transcribing => (p.accent, "Transcribing".into()),
-                Phase::Cleaning => (p.accent, "Cleaning".into()),
+                Phase::Listening(_) => (p.blue, "Listening".into()),
+                Phase::Transcribing => (p.blue, "Transcribing".into()),
+                Phase::Cleaning => (p.blue, "Cleaning".into()),
                 Phase::Error(e) => (p.red, e.clone()),
             }
         };
         let hotkey = key_label(&state.config.hotkey);
+        let usage = state
+            .account
+            .as_ref()
+            .filter(|account| {
+                account.plan == hermes::account::Plan::Free
+                    && state.config.transcription == hermes::config::Source::Hosted
+            })
+            .map(|account| {
+                let cap = account.usage.cap.unwrap_or(2000);
+                let limit = account.at_limit();
+                let label = if limit {
+                    let weekday = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
+                        .map(|date| date.with_timezone(&chrono::Local).format("%a").to_string())
+                        .unwrap_or_default();
+                    format!("Resets {weekday}")
+                } else {
+                    format!(
+                        "{} / {}",
+                        super::settings::grouped(account.usage.words),
+                        super::settings::grouped(cap)
+                    )
+                };
+                let fraction = if cap == 0 {
+                    1.
+                } else {
+                    (account.usage.words as f32 / cap as f32).min(1.)
+                };
+                div()
+                    .px(px(10.))
+                    .pb(px(8.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(8.))
+                            .text_size(px(12.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_ellipsis()
+                                    .text_color(if limit { p.red } else { p.muted })
+                                    .child(label),
+                            )
+                            .child(
+                                div()
+                                    .id("sidebar-upgrade")
+                                    .flex_shrink_0()
+                                    .text_color(p.blue)
+                                    .cursor_pointer()
+                                    .child("Upgrade")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if this.state.read(cx).is_demo {
+                                            return;
+                                        }
+                                        cx.background_executor()
+                                            .spawn(async {
+                                                let _ = hermes::account::open(format!(
+                                                    "{}/account",
+                                                    hermes::account::web_url()
+                                                ));
+                                            })
+                                            .detach();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(6.))
+                            .h(px(2.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(p.divider)
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(gpui::relative(fraction))
+                                    .rounded_full()
+                                    .bg(if limit { p.red } else { p.blue }),
+                            ),
+                    )
+            });
         let side = div()
             .w(px(SIDEBAR))
             .flex_shrink_0()
@@ -265,7 +350,7 @@ impl Render for MainWindow {
                     .text_size(px(14.))
                     .line_height(px(20.3))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(div().size(px(16.)).rounded(px(4.)).bg(p.accent))
+                    .child(div().size(px(16.)).rounded(px(4.)).bg(p.blue))
                     .child("Hermes"),
             )
             .children(
@@ -289,7 +374,7 @@ impl Render for MainWindow {
                         .items_center()
                         .gap(px(10.))
                         .cursor_pointer()
-                        .bg(if selected { p.selected } else { p.side })
+                        .bg(if selected { p.tint } else { p.side })
                         .text_color(if selected { p.fg } else { p.muted })
                         .hover(|s| s.bg(p.hover))
                         .child(
@@ -297,13 +382,87 @@ impl Render for MainWindow {
                                 .path(icon)
                                 .size(px(15.))
                                 .flex_shrink_0()
-                                .text_color(if selected { p.accent } else { p.muted }),
+                                .text_color(if selected { p.blue } else { p.muted }),
                         )
                         .child(title)
                         .on_click(cx.listener(move |this, _, w, cx| this.set_page(page, w, cx)))
                 }),
             )
             .child(div().flex_1())
+            .children(state.update.as_ref().map(|release| {
+                let (label, color) = match state.update_status {
+                    hermes::update::Status::Available => {
+                        (format!("Update to {}", release.version), p.fg)
+                    }
+                    hermes::update::Status::Installing => ("Updating".into(), p.muted),
+                    hermes::update::Status::Failed => ("Update failed".into(), p.red),
+                };
+                div()
+                    .id("install-update")
+                    .min_h(px(30.))
+                    .max_h(px(30.))
+                    .px(px(10.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .text_color(color)
+                    .when(
+                        state.update_status != hermes::update::Status::Installing,
+                        |row| {
+                            row.cursor_pointer()
+                                .hover(|s| s.bg(p.hover))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    super::install_update(&this.state, cx);
+                                }))
+                        },
+                    )
+                    .child(
+                        gpui::svg()
+                            .path("icons/circle-arrow-down.svg")
+                            .size(px(15.))
+                            .flex_shrink_0()
+                            .text_color(p.blue),
+                    )
+                    .child(label)
+            }))
+            .child(
+                div()
+                    .id("feedback")
+                    .h(px(30.))
+                    .flex_shrink_0()
+                    .px(px(10.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .text_color(p.muted)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.hover))
+                    .child(
+                        gpui::svg()
+                            .path("icons/message-square.svg")
+                            .size(px(15.))
+                            .text_color(p.muted),
+                    )
+                    .child("Feedback")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if this.state.read(cx).is_demo {
+                            return;
+                        }
+                        cx.background_executor()
+                            .spawn(async {
+                                let _ = hermes::account::open(format!(
+                                    "{}/feedback?version={}&os={}",
+                                    hermes::account::web_url(),
+                                    env!("CARGO_PKG_VERSION"),
+                                    std::env::consts::OS
+                                ));
+                            })
+                            .detach();
+                    })),
+            )
+            .when_some(usage, |side, usage| side.child(usage))
             .child(
                 div()
                     .flex()
@@ -319,7 +478,7 @@ impl Render for MainWindow {
                     .child(kbd(hotkey, p)),
             );
         let content = if onboarding {
-            self.onboarding(cx).into_any_element()
+            self.onboarding(window, cx).into_any_element()
         } else {
             match self.page {
                 Page::Home => self.home(cx).into_any_element(),
@@ -334,13 +493,18 @@ impl Render for MainWindow {
             .size_full()
             .flex()
             .flex_col()
-            .children(permission_notice.as_ref().map(|notice| {
-                div()
-                    .px(px(16.))
-                    .py(px(8.))
-                    .text_color(p.red)
-                    .child(notice.clone())
-            }))
+            .children(
+                permission_notice
+                    .as_ref()
+                    .filter(|_| !onboarding)
+                    .map(|notice| {
+                        div()
+                            .px(px(16.))
+                            .py(px(8.))
+                            .text_color(p.red)
+                            .child(notice.clone())
+                    }),
+            )
             .child(div().flex_1().min_h_0().child(content));
         let root = div()
             .id("main")
@@ -360,7 +524,7 @@ impl Render for MainWindow {
             .when(!onboarding, |root| root.child(side))
             .child(div().flex_1().min_w_0().h_full().child(content));
         let _ = window;
-        root.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+        root.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, w, cx| {
             if let Some(target) = this.capture.take() {
                 this.save_shortcut(
                     target,
@@ -368,6 +532,12 @@ impl Render for MainWindow {
                     cx,
                 );
                 cx.stop_propagation();
+            } else if !this.state.read(cx).config.onboarded {
+                match event.keystroke.key.as_str() {
+                    "enter" => this.onboarding_next(false, w, cx),
+                    "escape" => this.onboarding_back(cx),
+                    _ => {}
+                }
             }
         }))
         .on_modifiers_changed(cx.listener(

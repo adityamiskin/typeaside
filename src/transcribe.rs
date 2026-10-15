@@ -50,7 +50,7 @@ fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {
     Ok(response.text.trim().to_owned())
 }
 
-fn encode_wav(audio: &[f32]) -> Result<Vec<u8>> {
+pub(crate) fn encode_wav(audio: &[f32]) -> Result<Vec<u8>> {
     let bytes = u32::try_from(audio.len().checked_mul(2).context("audio too large")?)?;
     let riff_size = bytes.checked_add(36).context("audio too large")?;
     let mut wav = Vec::with_capacity(audio.len() * 2 + 44);
@@ -72,6 +72,28 @@ fn encode_wav(audio: &[f32]) -> Result<Vec<u8>> {
     Ok(wav)
 }
 
+pub(crate) fn decode_wav(wav: &[u8]) -> Result<Vec<f32>> {
+    anyhow::ensure!(wav.len() >= 44, "incomplete recording WAV");
+    anyhow::ensure!(
+        &wav[..4] == b"RIFF"
+            && &wav[8..20] == b"WAVEfmt \x10\x00\x00\x00"
+            && wav[20..36] == [1, 0, 1, 0, 128, 62, 0, 0, 0, 125, 0, 0, 2, 0, 16, 0]
+            && &wav[36..40] == b"data",
+        "unsupported recording WAV"
+    );
+    let size = u32::from_le_bytes(wav[40..44].try_into()?) as usize;
+    anyhow::ensure!(
+        size == wav.len() - 44 && size.is_multiple_of(2),
+        "incomplete recording WAV"
+    );
+    Ok(wav[44..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|sample| f32::from(i16::from_le_bytes([sample[0], sample[1]])) / f32::from(i16::MAX))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +102,17 @@ mod tests {
         net::TcpListener,
         thread,
     };
+
+    #[test]
+    fn recording_wav_round_trip() -> Result<()> {
+        let samples = [-1.0, -0.73, -0.001, 0.0, 0.001, 0.42, 1.0];
+        let decoded = decode_wav(&encode_wav(&samples)?)?;
+        assert_eq!(decoded.len(), samples.len());
+        for (actual, expected) in decoded.iter().zip(samples) {
+            assert!((actual - expected).abs() <= 1.0 / f32::from(i16::MAX));
+        }
+        Ok(())
+    }
 
     #[test]
     fn wav_and_multipart_request() -> Result<()> {

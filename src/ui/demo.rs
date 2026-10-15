@@ -1,6 +1,6 @@
 use hermes::{
     config::{AppConfig, Snippet},
-    engine::{Dictation, Event, Mode, Phase},
+    engine::{Dictation, Event, FailedRecording, Mode, Phase},
 };
 use std::time::{Duration, Instant, SystemTime};
 
@@ -12,6 +12,11 @@ pub fn config() -> AppConfig {
             hermes::config::Source::OwnKey
         },
         onboarded: std::env::var("HERMES_DEMO_PAGE").as_deref() != Ok("onboarding"),
+        theme: match std::env::var("HERMES_DEMO_THEME").as_deref() {
+            Ok("light") => hermes::config::Theme::Light,
+            Ok("dark") => hermes::config::Theme::Dark,
+            _ => hermes::config::Theme::System,
+        },
         dictionary: [
             "Hermes",
             "niri",
@@ -63,6 +68,11 @@ pub fn history() -> Vec<Dictation> {
 pub fn spawn() -> async_channel::Receiver<Event> {
     let (tx, rx) = async_channel::unbounded();
     std::thread::spawn(move || {
+        if std::env::var("HERMES_DEMO_PAGE").as_deref() == Ok("onboarding") {
+            // Keep the onboarding fixture static and avoid creating an overlay window.
+            std::thread::park();
+            return;
+        }
         let started = Instant::now();
         let send = |event| {
             match &event {
@@ -73,10 +83,17 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                 Event::Done(_) => {
                     eprintln!("hermes demo @{:.3}s: Done", started.elapsed().as_secs_f32())
                 }
-                Event::Level(_) => {}
+                Event::Level(_) | Event::Failed(_) => {}
             }
             tx.send_blocking(event).is_ok()
         };
+        if !send(Event::Failed(Some(FailedRecording {
+            at: SystemTime::now(),
+            audio_ms: 12_000,
+            retrying: false,
+        }))) {
+            return;
+        }
         std::thread::sleep(Duration::from_secs(2));
         if let Ok(visual) = std::env::var("HERMES_DEMO_OVERLAY") {
             let event = match visual.as_str() {
@@ -147,7 +164,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
 pub fn account() -> Option<hermes::account::Account> {
     use hermes::account::{Account, Plan, Usage};
     let value = std::env::var("HERMES_DEMO_ACCOUNT").ok()?;
-    if !["free", "pro", "limit"].contains(&value.as_str()) {
+    if !["free", "pro", "limit", "signed-in"].contains(&value.as_str()) {
         return None;
     }
     Some(Account {

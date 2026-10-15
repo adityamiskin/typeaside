@@ -16,38 +16,67 @@ unsafe extern "C" {
 }
 
 pub fn request() {
-    if !unsafe { AXIsProcessTrusted() } {
-        let options = CFDictionary::from_CFType_pairs(&[(
-            CFString::new("AXTrustedCheckOptionPrompt"),
-            CFBoolean::true_value(),
-        )]);
-        unsafe {
-            AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef());
-        }
-    }
-    if !unsafe { CGPreflightListenEventAccess() } {
-        unsafe {
-            CGRequestListenEventAccess();
+    let granted = statuses();
+    for index in [1, 2] {
+        if !granted[index] {
+            request_one(index);
         }
     }
     unsafe {
-        if bundled_microphone_description()
-            && let Some(audio) = AVMediaTypeAudio
-            && AVCaptureDevice::authorizationStatusForMediaType(audio)
+        if AVMediaTypeAudio.is_some_and(|audio| {
+            AVCaptureDevice::authorizationStatusForMediaType(audio)
                 == AVAuthorizationStatus::NotDetermined
-        {
-            let completion = block2::RcBlock::new(|granted: objc2::runtime::Bool| {
-                if !granted.as_bool() {
-                    eprintln!(
-                        "hermes: microphone permission denied; enable Hermes in System Settings > Privacy & Security > Microphone"
-                    );
-                }
-            });
-            AVCaptureDevice::requestAccessForMediaType_completionHandler(audio, &completion);
+        }) {
+            request_one(0);
         }
     }
     if let Some(message) = notice() {
         eprintln!("hermes: {message}");
+    }
+}
+
+pub fn statuses() -> [bool; 3] {
+    [
+        unsafe {
+            AVMediaTypeAudio.is_some_and(|audio| {
+                AVCaptureDevice::authorizationStatusForMediaType(audio)
+                    == AVAuthorizationStatus::Authorized
+            })
+        },
+        unsafe { AXIsProcessTrusted() },
+        unsafe { CGPreflightListenEventAccess() },
+    ]
+}
+
+pub fn request_one(index: usize) {
+    match index {
+        0 => unsafe {
+            if bundled_microphone_description()
+                && let Some(audio) = AVMediaTypeAudio
+                && AVCaptureDevice::authorizationStatusForMediaType(audio)
+                    == AVAuthorizationStatus::NotDetermined
+            {
+                let completion = block2::RcBlock::new(|_: objc2::runtime::Bool| {});
+                AVCaptureDevice::requestAccessForMediaType_completionHandler(audio, &completion);
+            } else if !statuses()[0] {
+                let _ = hermes::account::open(
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+                );
+            }
+        },
+        1 => {
+            let options = CFDictionary::from_CFType_pairs(&[(
+                CFString::new("AXTrustedCheckOptionPrompt"),
+                CFBoolean::true_value(),
+            )]);
+            unsafe {
+                AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef());
+            }
+        }
+        2 => unsafe {
+            CGRequestListenEventAccess();
+        },
+        _ => {}
     }
 }
 

@@ -4,6 +4,7 @@ mod dictionary;
 mod home;
 mod instance;
 mod motion;
+mod onboarding;
 mod overlay;
 #[cfg(target_os = "macos")]
 mod permissions;
@@ -15,12 +16,14 @@ mod tray;
 mod window;
 
 use gpui::{App, AppContext, QuitMode, WindowHandle};
-use hermes::engine::{Command, Dictation, Engine, Event, Phase};
+use hermes::engine::{Command, Dictation, Engine, Event, FailedRecording, Phase};
 use hermes::{config::AppConfig, credentials, paths::AppPaths};
 
 pub struct AppState {
     account: Option<hermes::account::Account>,
     account_revision: u64,
+    update: Option<hermes::update::Release>,
+    update_status: hermes::update::Status,
     signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     onboarding_own_key: bool,
     config: AppConfig,
@@ -31,6 +34,7 @@ pub struct AppState {
     editing_key_hint: String,
     devices: Vec<String>,
     history: Vec<Dictation>,
+    failed: Option<FailedRecording>,
     phase: Phase,
     save_error: Option<String>,
     #[cfg(target_os = "macos")]
@@ -42,7 +46,10 @@ pub struct AppState {
     mic_testing: bool,
     mic_generation: u64,
     level: f32,
-    onboarding_step: usize,
+    onboarding_step: onboarding::Step,
+    onboarding_steps: Vec<onboarding::Step>,
+    onboarding_heard: bool,
+    onboarding_raw: Option<String>,
     onboarding_transcript: Option<String>,
 }
 
@@ -92,10 +99,6 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             trace("application ready", started);
-            #[cfg(target_os = "macos")]
-            if !is_demo {
-                permissions::request();
-            }
             let load_paths = paths.clone();
             let load = cx.background_executor().spawn(async move {
                 let mut config = if is_demo {
@@ -149,6 +152,10 @@ fn start_ui(
     started: std::time::Instant,
     cx: &mut App,
 ) {
+    #[cfg(target_os = "macos")]
+    if !is_demo && config.onboarded {
+        permissions::request();
+    }
     let initial_page = if is_demo {
         window::Page::from_demo()
     } else {
@@ -160,6 +167,8 @@ fn start_ui(
     let state = cx.new(|_| AppState {
         account: if is_demo { demo::account() } else { None },
         account_revision: 0,
+        update: None,
+        update_status: hermes::update::Status::Available,
         signing_in: None,
         onboarding_own_key: false,
         config,
@@ -178,8 +187,16 @@ fn start_ui(
             "Checking keyring…"
         }
         .into(),
-        devices: vec!["System default".into()],
+        devices: vec![
+            if is_demo && initial_page == window::Page::Onboarding {
+                "MacBook Pro Microphone"
+            } else {
+                "System default"
+            }
+            .into(),
+        ],
         history,
+        failed: None,
         phase: Phase::Idle,
         save_error: None,
         #[cfg(target_os = "macos")]
@@ -191,16 +208,10 @@ fn start_ui(
         mic_testing: false,
         mic_generation: 0,
         level: if is_demo { 0.7 } else { 0. },
-        onboarding_step: if initial_page == window::Page::Onboarding {
-            std::env::var("HERMES_DEMO_STEP")
-                .ok()
-                .and_then(|s| s.parse::<usize>().ok())
-                .filter(|step| (1..=3).contains(step))
-                .unwrap_or(2)
-                - 1
-        } else {
-            0
-        },
+        onboarding_step: onboarding::Step::initial(is_demo),
+        onboarding_steps: onboarding::Onboarding::visible_steps(is_demo),
+        onboarding_heard: is_demo,
+        onboarding_raw: None,
         onboarding_transcript: None,
     });
     let mut main_window: Option<gpui::AnyWindowHandle> = None;
@@ -238,6 +249,7 @@ fn start_ui(
     })
     .detach();
     if !is_demo {
+        schedule_updates(&state, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
             let stt = key_hint(&config.stt.base_url);
@@ -261,6 +273,28 @@ fn start_ui(
         })
         .detach();
     }
+    if !is_demo {
+        let telemetry_state = state.clone();
+        cx.spawn(async move |cx| {
+            let mut delay = std::time::Duration::from_secs(30);
+            loop {
+                cx.background_executor().timer(delay).await;
+                let (config, paths) = cx.update(|cx| {
+                    let s = telemetry_state.read(cx);
+                    (s.config.clone(), s.paths.clone())
+                });
+                if config.share_usage {
+                    cx.background_executor()
+                        .spawn(async move {
+                            hermes::telemetry::send(&config, &hermes::engine::load_history(&paths));
+                        })
+                        .await;
+                }
+                delay = std::time::Duration::from_secs(6 * 60 * 60);
+            }
+        })
+        .detach();
+    }
     let startup_config = state.read(cx).config.clone();
     let startup = cx.background_executor().spawn(async move {
         if is_demo {
@@ -276,7 +310,7 @@ fn start_ui(
                     s.engine = engine;
                     s.command(Command::Reload(Box::new(s.config.clone())));
                     if s.mic_testing {
-                        s.command(Command::MicTest(true));
+                        s.command(if !s.config.onboarded && s.onboarding_step == onboarding::Step::Microphone {Command::MicPreview} else {Command::MicTest(true)});
                     }
                     cx.notify();
                 });
@@ -295,26 +329,34 @@ fn start_ui(
             cx.update(|cx| match event {
                 Event::Level(level) => {
                     state.update(cx, |s, cx| {
-                        if s.mic_testing {
-                            s.level = level;
-                            cx.notify();
+                        if s.mic_testing || s.onboarding_step == onboarding::Step::Practice {
+                            if s.onboarding_step == onboarding::Step::Microphone && level > 0.25 { s.onboarding_heard = true; }
+                            if s.level != level { s.level = level; cx.notify(); }
                         }
                     });
                     if let Some(surface) = surface {
                         let _ = surface.update(cx, |v, _, cx| v.level(level, cx));
                     }
                 }
+                Event::Failed(failed) => {
+                    state.update(cx, |s, cx| {
+                        s.failed = failed;
+                        cx.notify();
+                    });
+                }
                 Event::Done(dictation) => {
                     if state.read(cx).config.transcription == hermes::config::Source::Hosted {
                         refresh_account(&state, cx);
                     }
                     state.update(cx, |s, cx| {
-                        if !s.config.onboarded && s.onboarding_step == 2 {
+                        if !s.config.onboarded && s.onboarding_step == onboarding::Step::Practice {
                             s.onboarding_transcript = Some(dictation.cleaned.clone());
+                            s.onboarding_raw = Some(dictation.raw.clone());
                         }
                         s.history.insert(0, dictation);
                         cx.notify();
                     });
+                    if !state.read(cx).config.onboarded { return; }
                     let updated =
                         surface.is_some_and(|h| h.update(cx, |v, w, cx| v.success(w, cx)).is_ok());
                     if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
@@ -323,15 +365,20 @@ fn start_ui(
                     }
                 }
                 Event::Phase(phase) => {
-                    if matches!(&phase, Phase::Error(_))
+                    if matches!(&phase, Phase::Error(error) if error.contains("Weekly free limit reached"))
                         && state.read(cx).config.transcription == hermes::config::Source::Hosted
                     {
                         refresh_account(&state, cx);
                     }
                     state.update(cx, |s, cx| {
+                        if !s.config.onboarded && s.onboarding_step == onboarding::Step::Practice && matches!(phase, Phase::Listening(_)) {
+                            s.onboarding_transcript = None;
+                            s.onboarding_raw = None;
+                        }
                         s.phase = phase.clone();
                         cx.notify();
                     });
+                    if !state.read(cx).config.onboarded { return; }
                     let updated = surface.is_some_and(|h| {
                         h.update(cx, |v, w, cx| v.phase(phase.clone(), w, cx))
                             .is_ok()
@@ -387,6 +434,73 @@ fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
                 }
             });
         }
+    })
+    .detach();
+}
+
+fn schedule_updates(state: &gpui::Entity<AppState>, cx: &mut App) {
+    let state = state.downgrade();
+    cx.spawn(async move |cx| {
+        let mut delay = std::time::Duration::from_secs(10);
+        loop {
+            cx.background_executor().timer(delay).await;
+            let result = cx
+                .background_executor()
+                .spawn(async { hermes::update::check() })
+                .await;
+            let Some(state) = state.upgrade() else { break };
+            match result {
+                Ok(release) => state.update(cx, |s, cx| {
+                    if s.update_status != hermes::update::Status::Installing {
+                        s.update = release;
+                        s.update_status = hermes::update::Status::Available;
+                        cx.notify();
+                    }
+                }),
+                Err(error) => eprintln!("hermes: update check failed: {error:#}"),
+            }
+            delay = std::time::Duration::from_secs(6 * 60 * 60);
+        }
+    })
+    .detach();
+}
+
+fn install_update(state: &gpui::Entity<AppState>, cx: &mut App) {
+    let current = state.read(cx);
+    if current.is_demo || current.update_status == hermes::update::Status::Installing {
+        return;
+    }
+    if current.update_status == hermes::update::Status::Failed {
+        cx.background_executor()
+            .spawn(async {
+                let _ = hermes::account::open(format!("{}/download", hermes::account::web_url()));
+            })
+            .detach();
+        return;
+    }
+    let Some(release) = current.update.clone() else {
+        return;
+    };
+    state.update(cx, |s, cx| {
+        s.update_status = hermes::update::Status::Installing;
+        cx.notify();
+    });
+    let state = state.clone();
+    let task = cx
+        .background_executor()
+        .spawn(async move { hermes::update::install(&release) });
+    cx.spawn(async move |cx| {
+        let result = task.await;
+        state.update(cx, |s, cx| {
+            s.update_status = match result {
+                Ok(()) => hermes::update::Status::Available,
+                Err(error) => {
+                    eprintln!("hermes: update failed: {error:#}");
+                    hermes::update::Status::Failed
+                }
+            };
+            cx.notify();
+        });
     })
     .detach();
 }

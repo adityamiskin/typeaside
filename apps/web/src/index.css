@@ -1258,3 +1258,28 @@ small {
     transform: none;
   }
 }
+
+.feedback-form {
+  max-width: 560px;
+}
+.kinds {
+  grid-template-columns: repeat(3, auto);
+  width: fit-content;
+  margin: 0 0 8px;
+}
+.kinds button {
+  border-radius: 999px;
+  transition:
+    color 0.3s,
+    background 0.3s;
+}
+.kinds button[aria-pressed="true"] {
+  background: var(--white);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.1);
+}
+.feedback-form textarea {
+  min-height: 168px;
+}
+.feedback-form .error {
+  margin-top: 16px;
+}

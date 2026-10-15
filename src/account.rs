@@ -149,7 +149,7 @@ fn receive_callback(
     bail!("Sign in timed out")
 }
 
-const CONNECTED_PAGE: &str = "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#13110e;color:#f2ece1;font-family:Inter,system-ui,sans-serif}</style><p>Hermes is connected. You can close this tab.</p>";
+const CONNECTED_PAGE: &str = "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f9f9f8;color:#16171a;font-family:Inter,system-ui,sans-serif}</style><p>Hermes is connected. You can close this tab.</p>";
 
 fn callback_token(request_line: &str, state: &str) -> Option<String> {
     let target = request_line

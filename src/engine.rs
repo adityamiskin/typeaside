@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::OpenOptions,
     io::{BufRead, BufReader, Write},
-    sync::mpsc,
+    sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant, SystemTime},
 };
@@ -51,23 +51,34 @@ pub struct Dictation {
 }
 
 #[derive(Debug, Clone)]
+pub struct FailedRecording {
+    pub at: SystemTime,
+    pub audio_ms: u32,
+    pub retrying: bool,
+}
+
+#[derive(Debug, Clone)]
 pub enum Event {
     Phase(Phase),
     /// Mic level in 0.0..=1.0, sent at ~30 Hz while listening.
     Level(f32),
     Done(Dictation),
+    Failed(Option<FailedRecording>),
 }
 
 #[derive(Debug, Clone)]
 pub enum Command {
     Start,
     Stop,
+    RetryFailed,
+    DiscardFailed,
     Cancel,
     Reload(Box<AppConfig>),
     /// Re-pastes the latest dictation into the focused app.
     PasteLast,
     /// Streams Event::Level from the mic without recording, for settings and onboarding.
     MicTest(bool),
+    MicPreview,
 }
 
 pub struct Engine {
@@ -131,11 +142,40 @@ pub fn save_history(paths: &AppPaths, history: &[Dictation]) -> Result<()> {
     std::fs::rename(temporary, &paths.history_file).context("failed to save history")
 }
 
+fn failed_recording(paths: &AppPaths, retrying: bool) -> Option<FailedRecording> {
+    let metadata = std::fs::metadata(&paths.failed_file).ok()?;
+    Some(FailedRecording {
+        at: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+        audio_ms: (metadata.len().saturating_sub(44) / 32).min(u64::from(u32::MAX)) as u32,
+        retrying,
+    })
+}
+
+fn append_history(paths: &AppPaths, dictation: &Dictation) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&paths.history_file)
+        .context("cannot append dictation history")?;
+    let mut line = serde_json::to_vec(dictation)?;
+    line.push(b'\n');
+    file.write_all(&line)?;
+    file.sync_data()?;
+    Ok(())
+}
+
+fn discard_failed(paths: &AppPaths) -> Result<()> {
+    match std::fs::remove_file(&paths.failed_file) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        result => result.context("cannot discard failed recording"),
+    }
+}
+
 enum Message {
     Command(Command),
     Hotkey(u64, HotkeyEvent),
     Cleaning(u64),
-    Finished(u64, Result<Option<Dictation>>),
+    Finished(u64, Result<Dictation>),
     Shutdown,
 }
 
@@ -177,16 +217,19 @@ fn run(
     events: async_channel::Sender<Event>,
 ) {
     phase(&events, Phase::Idle);
+    let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
     let mut epoch = 0;
     let mut hotkeys = open_hotkeys(&config, &tx, epoch, &events);
     let mut recorder: Option<AudioRecorder> = None;
     let mut generation = 0u64;
     let mut busy = None;
+    let mut pending_audio: Option<Arc<[f32]>> = None;
+    let mut retrying = false;
     let mut injector: Option<TextInjector> = None;
     let mut last = load_history(&paths).pop().map(|entry| entry.cleaned);
     let mut context = (Mode::Dictate, None, String::new());
     let mut start_mode = Mode::Dictate;
-    let mut monitor: Option<(AudioRecorder, Instant)> = None;
+    let mut monitor: Option<(AudioRecorder, Option<Instant>)> = None;
     let mut effects = None;
     let mut restoring = Vec::new();
     let mut tick = Instant::now();
@@ -199,7 +242,7 @@ fn run(
             tick = Instant::now();
             if monitor
                 .as_ref()
-                .is_some_and(|(_, deadline)| Instant::now() >= *deadline)
+                .is_some_and(|(_, deadline)| deadline.is_some_and(|until| Instant::now() >= until))
             {
                 monitor = None;
             }
@@ -272,42 +315,52 @@ fn run(
                     continue;
                 }
                 busy = None;
+                let audio = pending_audio.take();
+                let result = result.and_then(|dictation| {
+                    if !dictation.cleaned.is_empty() {
+                        append_history(&paths, &dictation)?;
+                    }
+                    Ok(dictation)
+                });
                 match result {
-                    Ok(Some(mut dictation)) => {
-                        let completed = (|| -> Result<()> {
-                            let started = Instant::now();
-                            let injector = match &mut injector {
-                                Some(injector) => injector,
-                                slot => slot.insert(TextInjector::new()?),
-                            };
-                            injector.inject_text(
-                                &dictation.cleaned,
-                                dictation.app_id.as_deref(),
-                                config.auto_submit,
-                            )?;
-                            if std::env::var_os("HERMES_TRACE").is_some_and(|value| value == "1") {
-                                eprintln!("hermes: inject={}ms", started.elapsed().as_millis());
-                            }
-                            dictation.latency_ms = dictation.latency_ms.saturating_add(
-                                started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32,
-                            );
-                            let mut file = OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open(&paths.history_file)
-                                .context("cannot append dictation history")?;
-                            let mut line = serde_json::to_vec(&dictation)?;
-                            line.push(b'\n');
-                            file.write_all(&line)?;
-                            Ok(())
-                        })();
-                        match completed {
-                            Ok(()) => {
-                                last = Some(dictation.cleaned.clone());
-                                let _ = events.try_send(Event::Done(dictation));
-                            }
-                            Err(error) => {
+                    Ok(dictation) if dictation.cleaned.is_empty() => {
+                        if retrying {
+                            if let Err(error) = discard_failed(&paths) {
                                 report_error(&events, error);
+                            }
+                            let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                        }
+                    }
+                    Ok(dictation) => {
+                        last = Some(dictation.cleaned.clone());
+                        let _ = events.try_send(Event::Done(dictation.clone()));
+                        if retrying {
+                            if let Err(error) = discard_failed(&paths) {
+                                report_error(&events, error);
+                            }
+                            let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                        } else {
+                            let injected = (|| -> Result<()> {
+                                let started = Instant::now();
+                                let injector = match &mut injector {
+                                    Some(injector) => injector,
+                                    slot => slot.insert(TextInjector::new()?),
+                                };
+                                injector.inject_text(
+                                    &dictation.cleaned,
+                                    dictation.app_id.as_deref(),
+                                    config.auto_submit,
+                                )?;
+                                if std::env::var_os("HERMES_TRACE")
+                                    .is_some_and(|value| value == "1")
+                                {
+                                    eprintln!("hermes: inject={}ms", started.elapsed().as_millis());
+                                }
+                                Ok(())
+                            })();
+                            if let Err(error) = injected {
+                                eprintln!("hermes: paste failed: {error:#}");
+                                report_error(&events, "Couldn't paste. Saved to Home.");
                                 if config.sounds {
                                     crate::cues::play(crate::cues::Cue::Error);
                                 }
@@ -315,8 +368,22 @@ fn run(
                             }
                         }
                     }
-                    Ok(None) => {}
                     Err(error) => {
+                        if !retrying
+                            && context.0 == Mode::Dictate
+                            && let Some(audio) = audio
+                        {
+                            let saved = crate::transcribe::encode_wav(&audio).and_then(|wav| {
+                                let temporary = paths.failed_file.with_extension("wav.tmp");
+                                std::fs::write(&temporary, wav)?;
+                                std::fs::rename(temporary, &paths.failed_file)?;
+                                Ok(())
+                            });
+                            if let Err(error) = saved {
+                                eprintln!("hermes: cannot save failed recording: {error:#}");
+                            }
+                        }
+                        let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
                         report_error(&events, error);
                         if config.sounds {
                             crate::cues::play(crate::cues::Cue::Error);
@@ -354,43 +421,78 @@ fn run(
                     }
                 }
             }
-            Command::Stop => {
-                let Some(capture) = recorder.take() else {
+            Command::DiscardFailed if busy.is_none() => {
+                if let Err(error) = discard_failed(&paths) {
+                    report_error(&events, error);
+                }
+                let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+            }
+            Command::Stop | Command::RetryFailed if busy.is_none() => {
+                retrying = matches!(command, Command::RetryFailed);
+                if retrying && recorder.is_some() {
                     continue;
-                };
-                stop_effects(&mut effects, &mut restoring);
-                let audio = match capture.stop() {
-                    Ok(audio) => audio,
-                    Err(error) => {
-                        report_error(&events, error);
+                }
+                let audio = if retrying {
+                    let loaded = std::fs::read(&paths.failed_file)
+                        .context("cannot read failed recording")
+                        .and_then(|wav| crate::transcribe::decode_wav(&wav));
+                    match loaded {
+                        Ok(audio) => {
+                            context = (Mode::Dictate, None, String::new());
+                            let _ = events.try_send(Event::Failed(failed_recording(&paths, true)));
+                            audio
+                        }
+                        Err(error) => {
+                            report_error(&events, error);
+                            let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                            if config.sounds {
+                                crate::cues::play(crate::cues::Cue::Error);
+                            }
+                            continue;
+                        }
+                    }
+                } else {
+                    let Some(capture) = recorder.take() else {
+                        continue;
+                    };
+                    stop_effects(&mut effects, &mut restoring);
+                    let audio = match capture.stop() {
+                        Ok(audio) => audio,
+                        Err(error) => {
+                            report_error(&events, error);
+                            if config.sounds {
+                                crate::cues::play(crate::cues::Cue::Error);
+                            }
+                            continue;
+                        }
+                    };
+                    if crate::transcribe::is_tap(&audio) {
+                        phase(&events, Phase::Idle);
+                        continue;
+                    }
+                    if !crate::transcribe::has_speech(&audio) {
+                        report_error(&events, "No speech detected");
                         if config.sounds {
                             crate::cues::play(crate::cues::Cue::Error);
                         }
                         continue;
                     }
+                    audio
                 };
-                if crate::transcribe::is_tap(&audio) {
-                    phase(&events, Phase::Idle);
-                    continue;
-                }
-                if !crate::transcribe::has_speech(&audio) {
-                    report_error(&events, "No speech detected");
-                    if config.sounds {
-                        crate::cues::play(crate::cues::Cue::Error);
-                    }
-                    continue;
-                }
+                let audio: Arc<[f32]> = audio.into();
+                pending_audio = Some(audio.clone());
                 generation = generation.wrapping_add(1);
                 let id = generation;
                 busy = Some(id);
                 phase(&events, Phase::Transcribing);
                 let pipeline_config = config.clone();
-                let tx = tx.clone();
+                let pipeline_tx = tx.clone();
                 let (mode, app_id, selection) = context.clone();
                 let spawned = thread::Builder::new()
                     .name("hermes-transcription".into())
                     .spawn(move || {
-                        let result = (|| -> Result<Option<Dictation>> {
+                        let tx = pipeline_tx;
+                        let result = (|| -> Result<Dictation> {
                             let started = Instant::now();
                             let output = crate::pipeline::run(
                                 &pipeline_config,
@@ -402,10 +504,7 @@ fn run(
                                     let _ = tx.send(Message::Cleaning(id));
                                 },
                             )?;
-                            if output.text.is_empty() {
-                                return Ok(None);
-                            }
-                            Ok(Some(Dictation {
+                            Ok(Dictation {
                                 at: SystemTime::now(),
                                 raw: output.raw,
                                 cleaned: output.text,
@@ -414,16 +513,12 @@ fn run(
                                 latency_ms: started.elapsed().as_millis().min(u128::from(u32::MAX))
                                     as u32,
                                 mode,
-                            }))
+                            })
                         })();
                         let _ = tx.send(Message::Finished(id, result));
                     });
                 if let Err(error) = spawned {
-                    busy = None;
-                    report_error(&events, error);
-                    if config.sounds {
-                        crate::cues::play(crate::cues::Cue::Error);
-                    }
+                    let _ = tx.send(Message::Finished(id, Err(error.into())));
                 }
             }
             Command::Cancel => {
@@ -431,6 +526,8 @@ fn run(
                 monitor = None;
                 stop_effects(&mut effects, &mut restoring);
                 busy = None;
+                pending_audio = None;
+                let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
                 phase(&events, Phase::Idle);
             }
             Command::Reload(next) => {
@@ -438,6 +535,8 @@ fn run(
                 monitor = None;
                 stop_effects(&mut effects, &mut restoring);
                 busy = None;
+                pending_audio = None;
+                let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
                 drop(hotkeys.take());
                 epoch = epoch.wrapping_add(1);
                 config = *next;
@@ -464,16 +563,29 @@ fn run(
             Command::MicTest(false) => {
                 monitor = None;
             }
-            Command::MicTest(true) if recorder.is_none() => match AudioRecorder::monitor(&config) {
-                Ok(capture) => monitor = Some((capture, Instant::now() + Duration::from_secs(10))),
-                Err(error) => {
-                    report_error(&events, error);
-                    if config.sounds {
-                        crate::cues::play(crate::cues::Cue::Error);
+            Command::MicTest(true) | Command::MicPreview if recorder.is_none() => {
+                match AudioRecorder::monitor(&config) {
+                    Ok(capture) => {
+                        monitor = Some((
+                            capture,
+                            matches!(command, Command::MicTest(true))
+                                .then(|| Instant::now() + Duration::from_secs(10)),
+                        ))
+                    }
+                    Err(error) => {
+                        report_error(&events, error);
+                        if config.sounds {
+                            crate::cues::play(crate::cues::Cue::Error);
+                        }
                     }
                 }
-            },
-            Command::Start | Command::MicTest(true) => {}
+            }
+            Command::Start
+            | Command::Stop
+            | Command::RetryFailed
+            | Command::DiscardFailed
+            | Command::MicTest(true)
+            | Command::MicPreview => {}
         }
     }
     drop(recorder);

@@ -18,11 +18,12 @@ export const downloads = {
     ],
   },
 };
-export const releaseFiles = new Set(
-  Object.values(downloads).flatMap(({ files }) =>
+export const releaseFiles = new Set([
+  "latest.json",
+  ...Object.values(downloads).flatMap(({ files }) =>
     files.map(({ href }) => href.slice(release.length)),
   ),
-);
+]);
 export function detectOS(agent: string) {
   if (/Macintosh|Mac OS X/.test(agent) && !/iPhone|iPad/.test(agent)) return "macOS";
   if (/Windows/.test(agent)) return "Windows";
