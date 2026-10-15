@@ -552,88 +552,40 @@ impl MainWindow {
         let c = s.config.clone();
         let testing = s.mic_testing;
         let level = s.level;
-        let theme = div()
-            .flex()
-            .h(px(26.))
-            .border_1()
-            .border_color(p.border)
-            .rounded(px(6.))
-            .overflow_hidden()
-            .children(
-                [
-                    (Theme::System, "System"),
-                    (Theme::Light, "Light"),
-                    (Theme::Dark, "Dark"),
-                ]
-                .into_iter()
-                .map(|(value, label)| {
-                    let on = c.theme == value;
-                    div()
-                        .id(label)
-                        .flex()
-                        .items_center()
-                        .px(px(10.))
-                        .text_size(px(12.))
-                        .line_height(px(17.4))
-                        .font_weight(if on {
-                            gpui::FontWeight::MEDIUM
-                        } else {
-                            gpui::FontWeight::NORMAL
-                        })
-                        .bg(if on { p.accent } else { p.bg })
-                        .text_color(if on { p.on_accent } else { p.fg })
-                        .cursor_pointer()
-                        .child(label)
-                        .on_click(cx.listener(move |this, _, w, cx| {
-                            this.state.update(cx, |s, cx| {
-                                s.config.theme = value;
-                                s.persist();
-                                cx.notify();
-                            });
-                            super::theme::apply(value, w.appearance(), cx);
-                        }))
-                }),
-            );
-        let mode = div()
-            .flex()
-            .h(px(26.))
-            .border_1()
-            .border_color(p.border)
-            .rounded(px(6.))
-            .overflow_hidden()
-            .children(
-                [
-                    (RecordingMode::Hold, "Hold"),
-                    (RecordingMode::Toggle, "Toggle"),
-                ]
-                .into_iter()
-                .map(|(value, label)| {
-                    let on = c.mode == value;
-                    div()
-                        .id(label)
-                        .flex()
-                        .items_center()
-                        .px(px(10.))
-                        .text_size(px(12.))
-                        .line_height(px(17.4))
-                        .font_weight(if on {
-                            gpui::FontWeight::MEDIUM
-                        } else {
-                            gpui::FontWeight::NORMAL
-                        })
-                        .bg(if on { p.accent } else { p.bg })
-                        .text_color(if on { p.on_accent } else { p.fg })
-                        .cursor_pointer()
-                        .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.update(cx, |s, cx| {
-                                s.config.mode = value;
-                                s.persist();
-                                cx.notify();
-                            });
-                        }))
-                }),
-            );
+        let theme = segmented(
+            [
+                (Theme::System, "System"),
+                (Theme::Light, "Light"),
+                (Theme::Dark, "Dark"),
+            ],
+            c.theme,
+            p,
+            cx,
+            |this, value, w, cx| {
+                this.state.update(cx, |s, _| s.config.theme = value);
+                super::theme::apply(value, w.appearance(), cx);
+            },
+        );
+        let mode = segmented(
+            [
+                (RecordingMode::Hold, "Hold"),
+                (RecordingMode::Toggle, "Toggle"),
+            ],
+            c.mode,
+            p,
+            cx,
+            |this, value, _, cx| this.state.update(cx, |s, _| s.config.mode = value),
+        );
+        let source = segmented(
+            [
+                (Source::Hosted, "Hermes account"),
+                (Source::OwnKey, "Own key"),
+            ],
+            c.transcription,
+            p,
+            cx,
+            |this, value, _, cx| this.state.update(cx, |s, _| s.config.transcription = value),
+        );
         div()
             .size_full()
             .flex()
@@ -718,47 +670,7 @@ impl MainWindow {
                         p,
                     ))
                     .child(section("Transcription"))
-                    .child(form_row(
-                        "Source",
-                        div().flex().child(
-                            div()
-                                .flex()
-                                .h(px(26.))
-                                .border_1()
-                                .border_color(p.border)
-                                .rounded(px(6.))
-                                .overflow_hidden()
-                                .children(
-                                    [
-                                        (Source::Hosted, "Hermes account"),
-                                        (Source::OwnKey, "Own key"),
-                                    ]
-                                    .into_iter()
-                                    .map(|(value, label)| {
-                                        let on = c.transcription == value;
-                                        div()
-                                            .id(label)
-                                            .flex()
-                                            .items_center()
-                                            .px(px(10.))
-                                            .text_size(px(12.))
-                                            .line_height(px(17.4))
-                                            .bg(if on { p.accent } else { p.bg })
-                                            .text_color(if on { p.on_accent } else { p.fg })
-                                            .cursor_pointer()
-                                            .child(label)
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.state.update(cx, |s, cx| {
-                                                    s.config.transcription = value;
-                                                    s.persist();
-                                                    cx.notify();
-                                                });
-                                            }))
-                                    }),
-                                ),
-                        ),
-                        p,
-                    ))
+                    .child(form_row("Source", div().flex().child(source), p))
                     .when(c.transcription == Source::OwnKey, |col| {
                         col.child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
                             .child(form_row("Model", input(&self.settings.model, p), p))
@@ -1117,4 +1029,46 @@ fn grouped(value: u64) -> String {
             result.push(ch);
             result
         })
+}
+
+fn segmented<T: Copy + PartialEq + 'static, const N: usize>(
+    options: [(T, &'static str); N],
+    current: T,
+    p: Palette,
+    cx: &mut Context<MainWindow>,
+    select: impl Fn(&mut MainWindow, T, &mut Window, &mut Context<MainWindow>) + Copy + 'static,
+) -> gpui::Div {
+    div()
+        .flex()
+        .h(px(26.))
+        .border_1()
+        .border_color(p.border)
+        .rounded(px(6.))
+        .overflow_hidden()
+        .children(options.map(|(value, label)| {
+            let on = current == value;
+            div()
+                .id(label)
+                .flex()
+                .items_center()
+                .px(px(10.))
+                .text_size(px(12.))
+                .line_height(px(17.4))
+                .font_weight(if on {
+                    gpui::FontWeight::MEDIUM
+                } else {
+                    gpui::FontWeight::NORMAL
+                })
+                .bg(if on { p.accent } else { p.bg })
+                .text_color(if on { p.on_accent } else { p.fg })
+                .cursor_pointer()
+                .child(label)
+                .on_click(cx.listener(move |this, _, w, cx| {
+                    select(this, value, w, cx);
+                    this.state.update(cx, |s, cx| {
+                        s.persist();
+                        cx.notify();
+                    });
+                }))
+        }))
 }

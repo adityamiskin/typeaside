@@ -45,7 +45,6 @@ fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {
             .timeout(Duration::from_secs(30))
             .multipart(form)
             .send()?,
-        config,
     )?
     .json::<Response>()?;
     Ok(response.text.trim().to_owned())

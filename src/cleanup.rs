@@ -43,26 +43,19 @@ fn checked_output(raw: &str, output: Result<String>, translation: bool) -> Strin
     }
 }
 
-pub(crate) fn cleanup(config: &AppConfig, raw: &str, app_id: Option<&str>) -> Result<String> {
+pub(crate) fn cleanup(config: &AppConfig, raw: &str, app_id: Option<&str>) -> String {
     if !config.cleanup.enabled && config.translate_to.is_none() {
-        return Ok(raw.into());
+        return raw.into();
     }
     let prepared = remove_fillers(raw);
     if prepared.is_empty() {
-        return Ok(raw.into());
+        return raw.into();
     }
-    let output = request(config, &prepared, app_id);
-    if output
-        .as_ref()
-        .is_err_and(|error| error.to_string() == crate::account::LIMIT_MESSAGE)
-    {
-        return output;
-    }
-    Ok(checked_output(
+    checked_output(
         &prepared,
-        output,
+        request(config, &prepared, app_id),
         config.translate_to.is_some(),
-    ))
+    )
 }
 
 fn request(config: &AppConfig, text: &str, app_id: Option<&str>) -> Result<String> {
@@ -161,7 +154,6 @@ fn completion(config: &AppConfig, system: &str, text: &str, timeout: Duration) -
                 ],
             })
             .send()?,
-        config,
     )?
     .json::<Response>()?;
     response

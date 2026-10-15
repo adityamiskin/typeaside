@@ -32,7 +32,7 @@ pub fn run(
         if config.cleanup.enabled || config.translate_to.is_some() {
             cleaning();
         }
-        snippets::expand(&cleanup::cleanup(config, &raw, app_id)?, &config.snippets)
+        snippets::expand(&cleanup::cleanup(config, &raw, app_id), &config.snippets)
     };
     let llm = started.elapsed();
     if std::env::var_os("HERMES_TRACE").is_some_and(|value| value == "1") {

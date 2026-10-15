@@ -5,13 +5,11 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::{
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
-
-pub const LIMIT_MESSAGE: &str = "Weekly free limit reached. Upgrade to Pro or use your own key.";
 
 pub fn hosted_url() -> String {
     std::env::var("HERMES_API_URL")
@@ -33,8 +31,9 @@ pub fn web_url() -> String {
         .trim_end_matches('/')
         .into()
 }
+/// Spawned, not awaited: explorer.exe exits 1 even when it opens the target.
 pub fn open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
-    let status = std::process::Command::new(if cfg!(target_os = "macos") {
+    std::process::Command::new(if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(target_os = "windows") {
         "explorer.exe"
@@ -42,8 +41,7 @@ pub fn open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
         "xdg-open"
     })
     .arg(target)
-    .status()?;
-    anyhow::ensure!(status.success(), "Could not open browser or folder");
+    .spawn()?;
     Ok(())
 }
 #[derive(Clone, Deserialize)]
@@ -122,81 +120,22 @@ fn receive_callback(
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Sign in cancelled");
-        let (mut stream, _) = match listener.accept() {
-            Ok(connection) => connection,
+        let mut stream = match listener.accept() {
+            Ok((stream, _)) => stream,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
             Err(error) => return Err(error.into()),
         };
-        stream.set_read_timeout(Some(
-            Duration::from_millis(100).min(deadline.saturating_duration_since(Instant::now())),
-        ))?;
-        stream.set_write_timeout(Some(Duration::from_millis(100)))?;
-        let mut request = Vec::new();
-        let mut byte = [0];
-        while request.len() < 8192 {
-            if stream.read(&mut byte).ok() != Some(1) {
-                break;
-            }
-            request.push(byte[0]);
-            if request.ends_with(b"\r\n\r\n")
-                || Instant::now() >= deadline
-                || cancel.load(Ordering::SeqCst)
-            {
-                break;
-            }
-        }
-        let request = String::from_utf8_lossy(&request);
-        let mut fields = request
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .split_whitespace();
-        let method = fields.next();
-        let target = fields.next().unwrap_or_default();
-        let token = if request.ends_with("\r\n\r\n")
-            && Instant::now() < deadline
-            && !cancel.load(Ordering::SeqCst)
-            && method == Some("GET")
-            && target.starts_with("/callback?")
-        {
-            reqwest::Url::parse(&format!("http://localhost{target}"))
-                .ok()
-                .and_then(|url| {
-                    let pairs: Vec<_> = url.query_pairs().collect();
-                    if pairs.iter().filter(|(key, _)| key == "state").count() != 1
-                        || pairs.iter().filter(|(key, _)| key == "token").count() != 1
-                    {
-                        return None;
-                    }
-                    let matches = pairs
-                        .iter()
-                        .any(|(key, value)| key == "state" && value == state);
-                    pairs
-                        .iter()
-                        .find(|(key, _)| key == "token")
-                        .map(|(_, value)| value.to_string())
-                        .filter(|token| {
-                            matches
-                                && token.len() == 46
-                                && token.starts_with("hm_")
-                                && token.as_bytes()[3..].iter().all(|byte| {
-                                    byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-'
-                                })
-                        })
-                })
-        } else {
-            None
-        };
-        let (status, body) = if token.is_some() {
-            (
-                "200 OK",
-                "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#13110e;color:#f2ece1;font-family:Inter,system-ui,sans-serif}</style><p>Hermes is connected. You can close this tab.</p>",
-            )
-        } else {
-            ("404 Not Found", "Not found")
+        stream.set_nonblocking(false)?;
+        stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+        let mut line = String::new();
+        let _ = BufReader::new(&stream).take(8192).read_line(&mut line);
+        let token = callback_token(&line, state);
+        let (status, body) = match token {
+            Some(_) => ("200 OK", CONNECTED_PAGE),
+            None => ("404 Not Found", "Not found"),
         };
         let _ = write!(
             stream,
@@ -208,6 +147,34 @@ fn receive_callback(
         }
     }
     bail!("Sign in timed out")
+}
+
+const CONNECTED_PAGE: &str = "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#13110e;color:#f2ece1;font-family:Inter,system-ui,sans-serif}</style><p>Hermes is connected. You can close this tab.</p>";
+
+fn callback_token(request_line: &str, state: &str) -> Option<String> {
+    let target = request_line
+        .strip_prefix("GET /callback?")?
+        .split(' ')
+        .next()?;
+    let url = reqwest::Url::parse(&format!("http://localhost/callback?{target}")).ok()?;
+    let (mut states, mut tokens) = (Vec::new(), Vec::new());
+    for (key, value) in url.query_pairs() {
+        match &*key {
+            "state" => states.push(value),
+            "token" => tokens.push(value),
+            _ => {}
+        }
+    }
+    let ([got_state], [token]) = (&states[..], &tokens[..]) else {
+        return None;
+    };
+    let secret = token.strip_prefix("hm_")?;
+    (got_state == state
+        && secret.len() == 43
+        && secret
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'))
+    .then(|| token.to_string())
 }
 
 #[cfg(test)]

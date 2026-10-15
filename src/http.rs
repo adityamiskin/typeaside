@@ -37,14 +37,11 @@ pub(crate) fn prewarm(config: &AppConfig) {
 
 pub(crate) fn checked(
     response: reqwest::blocking::Response,
-    config: &AppConfig,
 ) -> anyhow::Result<reqwest::blocking::Response> {
-    if config.transcription == crate::config::Source::Hosted
-        && response.status() == reqwest::StatusCode::PAYMENT_REQUIRED
-    {
+    if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
         let body: serde_json::Value = response.json()?;
         if body["error"]["type"] == "limit" {
-            anyhow::bail!(crate::account::LIMIT_MESSAGE);
+            anyhow::bail!("Weekly free limit reached. Upgrade to Pro or use your own key.");
         }
         anyhow::bail!("Hosted request failed (402)");
     }
