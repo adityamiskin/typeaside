@@ -9,7 +9,7 @@ use gpui::{
 use gpui_kit::component::input::Input;
 use hermes::{
     config::{AppCategory, Tone},
-    engine::Dictation,
+    engine::{Command, Dictation},
 };
 use std::collections::BTreeSet;
 
@@ -115,6 +115,69 @@ impl MainWindow {
                     )
             }));
         let mut rows = Vec::new();
+        if let Some(failed) = &state.failed {
+            let at: DateTime<Local> = failed.at.into();
+            let seconds = failed.audio_ms / 1000;
+            let actions =
+                if failed.retrying {
+                    div().text_color(p.muted).child("Retrying")
+                } else {
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .child(
+                            button("Retry", true, p)
+                                .id("retry-failed")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.state.update(cx, |s, cx| {
+                                        if !s.is_demo {
+                                            s.command(Command::RetryFailed);
+                                        }
+                                        cx.notify();
+                                    });
+                                })),
+                        )
+                        .child(button("Discard", false, p).id("discard-failed").on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.state.update(cx, |s, cx| {
+                                    if s.is_demo {
+                                        s.failed = None;
+                                    } else {
+                                        s.command(Command::DiscardFailed);
+                                    }
+                                    cx.notify();
+                                });
+                            }),
+                        ))
+                };
+            rows.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(16.))
+                    .px(px(8.))
+                    .mx(px(-8.))
+                    .py(px(8.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().size(px(6.)).flex_shrink_0().rounded_full().bg(p.red))
+                            .child(div().text_color(p.fg).child("Recording didn't transcribe"))
+                            .child(div().text_color(p.muted).child(format!(
+                                "{}:{:02} · {}",
+                                seconds / 60,
+                                seconds % 60,
+                                at.format("%H:%M")
+                            ))),
+                    )
+                    .child(actions)
+                    .into_any_element(),
+            );
+        }
         let mut previous = None;
         let today = Local::now().date_naive();
         let query = state.search.to_lowercase();

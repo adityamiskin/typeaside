@@ -1,6 +1,6 @@
 use hermes::{
     config::{AppConfig, Snippet},
-    engine::{Dictation, Event, Mode, Phase},
+    engine::{Dictation, Event, FailedRecording, Mode, Phase},
 };
 use std::time::{Duration, Instant, SystemTime};
 
@@ -73,10 +73,17 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                 Event::Done(_) => {
                     eprintln!("hermes demo @{:.3}s: Done", started.elapsed().as_secs_f32())
                 }
-                Event::Level(_) => {}
+                Event::Level(_) | Event::Failed(_) => {}
             }
             tx.send_blocking(event).is_ok()
         };
+        if !send(Event::Failed(Some(FailedRecording {
+            at: SystemTime::now(),
+            audio_ms: 12_000,
+            retrying: false,
+        }))) {
+            return;
+        }
         std::thread::sleep(Duration::from_secs(2));
         if let Ok(visual) = std::env::var("HERMES_DEMO_OVERLAY") {
             let event = match visual.as_str() {

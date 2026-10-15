@@ -15,7 +15,7 @@ mod tray;
 mod window;
 
 use gpui::{App, AppContext, QuitMode, WindowHandle};
-use hermes::engine::{Command, Dictation, Engine, Event, Phase};
+use hermes::engine::{Command, Dictation, Engine, Event, FailedRecording, Phase};
 use hermes::{config::AppConfig, credentials, paths::AppPaths};
 
 pub struct AppState {
@@ -31,6 +31,7 @@ pub struct AppState {
     editing_key_hint: String,
     devices: Vec<String>,
     history: Vec<Dictation>,
+    failed: Option<FailedRecording>,
     phase: Phase,
     save_error: Option<String>,
     #[cfg(target_os = "macos")]
@@ -180,6 +181,7 @@ fn start_ui(
         .into(),
         devices: vec!["System default".into()],
         history,
+        failed: None,
         phase: Phase::Idle,
         save_error: None,
         #[cfg(target_os = "macos")]
@@ -303,6 +305,12 @@ fn start_ui(
                     if let Some(surface) = surface {
                         let _ = surface.update(cx, |v, _, cx| v.level(level, cx));
                     }
+                }
+                Event::Failed(failed) => {
+                    state.update(cx, |s, cx| {
+                        s.failed = failed;
+                        cx.notify();
+                    });
                 }
                 Event::Done(dictation) => {
                     if state.read(cx).config.transcription == hermes::config::Source::Hosted {
