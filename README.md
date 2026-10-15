@@ -65,13 +65,13 @@ WorkOS dashboard: callback `http://localhost:3001/api/auth/callback`, sign-in en
 
 Use the Convex **HTTP actions** URL (local `http://127.0.0.1:3211`, hosted `.convex.site`) and `Authorization: Bearer hm_...`:
 
-- `POST /openai/v1/audio/transcriptions`: OpenAI multipart `file`, optional `language`, `prompt`, `response_format`. Forces Groq `whisper-large-v3-turbo`. Returns the provider body unchanged and counts returned transcript words.
-- `POST /openai/v1/chat/completions`: JSON `messages`, optional `temperature`, `max_tokens`, `reasoning_effort`. Forces Groq `qwen/qwen3.8-27b`. Non-streaming only. No additional word counting.
+- `POST /openai/v1/audio/transcriptions`: OpenAI multipart `file`, optional `language`, `prompt`. Forces Groq `whisper-large-v3-turbo` with JSON output. Returns the provider body unchanged and counts returned transcript words.
+- `POST /openai/v1/chat/completions`: JSON `messages`, optional `temperature`, `max_tokens`, `reasoning_effort`. Forces Groq `qwen/qwen3.8-27b`. Non-streaming only, with a 64 KB request limit and at most 2,048 output tokens (also the default). No additional word counting.
 - `GET /v1/me`: email, Free/Pro plan, words, cap and UTC reset timestamp.
 
 For an OpenAI-compatible desktop client, set base URL to `<CONVEX_SITE_URL>/openai/v1` and use a desktop token as the bearer key. No Rust integration is changed here. BYOK continues to call providers directly without an account.
 
-Free includes `FREE_WEEKLY_WORDS = 2000`, exported once in `convex/lib.ts`. The week starts Monday at 00:00 UTC. Pro requires an active subscription. A request that starts below the free cap can finish above it; parallel requests already in flight are not reserved. Later requests return 402 with `error.type = "limit"` and `resets_at`. The lookup reads token, subscription and usage in one Convex query; a successful request writes usage/last-used in one mutation. The lean proxy counts transcription output before cleanup, so provider cleanup can change the final typed word total slightly. It does not retain request contents.
+Free includes `FREE_WEEKLY_WORDS = 2000`, exported once in `convex/lib.ts`. The week starts Monday at 00:00 UTC. Pro requires an active subscription. A request that starts below the free cap can finish above it; parallel requests already in flight are not reserved. Later requests return 402 with `error.type = "limit"` and `resets_at`. The lookup reads token, subscription and usage in one Convex query; a successful request schedules a usage/last-used mutation without waiting for that mutation to finish. The lean proxy counts transcription output before cleanup, so provider cleanup can change the final typed word total slightly. It does not retain request contents.
 
 Desktop connect accepts only integer ports 1024–65535. After sign-in and explicit Connect, it creates a 32-byte token, stores only its SHA-256 hash, and navigates to `http://127.0.0.1:<port>/callback` with encoded state and token. Revoking a device invalidates its token immediately.
 

@@ -5,6 +5,8 @@ import { httpAction, type ActionCtx } from "./_generated/server";
 import { hashToken } from "./lib";
 
 const http = httpRouter();
+const MAX_CHAT_BODY_BYTES = 64 * 1024;
+const MAX_CHAT_TOKENS = 2048;
 function error(status: number, type: string, message: string, extra = {}) {
   return Response.json({ error: { type, message, ...extra } }, { status });
 }
@@ -37,7 +39,8 @@ const transcription = httpAction(async (ctx, request) => {
   const body = new FormData();
   body.set("file", file, file instanceof File ? file.name : "audio.wav");
   body.set("model", "whisper-large-v3-turbo");
-  for (const field of ["language", "prompt", "response_format"]) {
+  body.set("response_format", "json");
+  for (const field of ["language", "prompt"]) {
     const value = incoming.get(field);
     if (typeof value === "string") body.set(field, value);
   }
@@ -53,28 +56,22 @@ const transcription = httpAction(async (ctx, request) => {
   }
   const raw = await upstream.text();
   if (upstream.ok) {
-    const format = body.get("response_format") ?? "json";
-    let text = raw;
-    if (format === "json" || format === "verbose_json") {
-      try {
-        const result: unknown = JSON.parse(raw);
-        text =
-          typeof result === "object" &&
-          result !== null &&
-          "text" in result &&
-          typeof result.text === "string"
-            ? result.text
-            : "";
-      } catch {
+    let text: string;
+    try {
+      const result: unknown = JSON.parse(raw);
+      if (
+        typeof result !== "object" ||
+        result === null ||
+        !("text" in result) ||
+        typeof result.text !== "string"
+      ) {
         return error(502, "provider", "Invalid transcription response");
       }
-    } else if (format === "srt" || format === "vtt") {
-      text = raw
-        .split("\n")
-        .filter((line) => !/^\s*(?:\d+|WEBVTT)?\s*$/.test(line) && !line.includes("-->"))
-        .join(" ");
+      text = result.text;
+    } catch {
+      return error(502, "provider", "Invalid transcription response");
     }
-    await ctx.runMutation(internal.proxy.record, {
+    await ctx.scheduler.runAfter(0, internal.proxy.record, {
       tokenId: account.tokenId,
       startedAt,
       words: text.trim() ? text.trim().split(/\s+/u).length : 0,
@@ -86,16 +83,24 @@ const transcription = httpAction(async (ctx, request) => {
   });
 });
 const chat = httpAction(async (ctx, request) => {
+  if (Number(request.headers.get("Content-Length")) > MAX_CHAT_BODY_BYTES) {
+    return error(413, "request", "Chat request exceeds 64 KB");
+  }
   const startedAt = Date.now();
   const account = await authenticate(ctx, request);
   if (!account) return error(401, "authentication", "Invalid desktop token");
   const blocked = limit(account);
   if (blocked) return blocked;
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return error(503, "configuration", "Text cleanup is unavailable");
   let input: unknown;
   try {
-    input = await request.json();
+    const raw = await request.text();
+    if (
+      raw.length > MAX_CHAT_BODY_BYTES ||
+      new TextEncoder().encode(raw).byteLength > MAX_CHAT_BODY_BYTES
+    ) {
+      return error(413, "request", "Chat request exceeds 64 KB");
+    }
+    input = JSON.parse(raw);
   } catch {
     return error(400, "request", "Expected JSON");
   }
@@ -107,15 +112,26 @@ const chat = httpAction(async (ctx, request) => {
   )
     return error(400, "request", "Messages are required");
   if ("stream" in input && input.stream) return error(400, "request", "Streaming is not supported");
+  const maxTokens: unknown = Reflect.get(input, "max_tokens");
+  if (
+    maxTokens !== undefined &&
+    (typeof maxTokens !== "number" || !Number.isInteger(maxTokens) || maxTokens < 1)
+  ) {
+    return error(400, "request", "max_tokens must be a positive integer");
+  }
   const body: Record<string, unknown> = {
     model: "qwen/qwen3.8-27b",
     messages: input.messages,
     stream: false,
+    max_tokens:
+      typeof maxTokens === "number" ? Math.min(maxTokens, MAX_CHAT_TOKENS) : MAX_CHAT_TOKENS,
   };
-  for (const field of ["temperature", "max_tokens", "reasoning_effort"] as const) {
+  for (const field of ["temperature", "reasoning_effort"] as const) {
     const value: unknown = Reflect.get(input, field);
     if (value !== undefined) body[field] = value;
   }
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return error(503, "configuration", "Text cleanup is unavailable");
   let response: Response;
   try {
     response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -127,7 +143,11 @@ const chat = httpAction(async (ctx, request) => {
     return error(502, "provider", "Text cleanup provider is unavailable");
   }
   if (response.ok)
-    await ctx.runMutation(internal.proxy.record, { tokenId: account.tokenId, startedAt, words: 0 });
+    await ctx.scheduler.runAfter(0, internal.proxy.record, {
+      tokenId: account.tokenId,
+      startedAt,
+      words: 0,
+    });
   return new Response(response.body, {
     status: response.status,
     headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
@@ -141,7 +161,7 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const account = await authenticate(ctx, request);
     if (!account) return error(401, "authentication", "Invalid desktop token");
-    await ctx.runMutation(internal.proxy.record, {
+    await ctx.scheduler.runAfter(0, internal.proxy.record, {
       tokenId: account.tokenId,
       startedAt: Date.now(),
       words: 0,
