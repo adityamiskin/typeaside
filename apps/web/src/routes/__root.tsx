@@ -2,8 +2,7 @@ import type { ConvexQueryClient } from "@convex-dev/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { HeadContent, Outlet, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
 import type { ConvexReactClient } from "convex/react";
-import displayFont from "@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2?url";
-import bodyFont from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
+import bodyFont from "@fontsource-variable/hanken-grotesk/files/hanken-grotesk-latin-wght-normal.woff2?url";
 import { Header, Footer } from "../components/site";
 import { auth } from "../integrations/auth";
 import appCss from "../index.css?url";
@@ -23,7 +22,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Hermes · Speak, and it's written." },
+      { title: "Hermes: just say it" },
       {
         name: "description",
         content:
@@ -32,7 +31,8 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      ...[displayFont, bodyFont].map((href) => ({
+      { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+      ...[bodyFont].map((href) => ({
         rel: "preload",
         href,
         as: "font",
@@ -43,12 +43,10 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   }),
   component: RootDocument,
 });
-const themeScript = `(function(){try{var t=localStorage.getItem('hermes-theme');document.documentElement.className=t==='light'||t==='dark'?t:matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}catch(e){document.documentElement.className=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}})()`;
 function RootDocument() {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en">
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <HeadContent />
       </head>
       <body>

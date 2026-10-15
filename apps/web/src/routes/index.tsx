@@ -1,281 +1,153 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { buttonVariants } from "@hermes/ui/components/button";
-import {
-  AppWindow,
-  Sparkles,
-  WandSparkles,
-  BookA,
-  TextQuote,
-  Palette,
-  Languages,
-  ClipboardPaste,
-  ShieldCheck,
-  Check,
-  Plus,
-} from "lucide-react";
-import { useState } from "react";
-import { Demo } from "../components/demo";
-import { Reveal } from "../components/reveal";
+import { useState, type CSSProperties } from "react";
 import { DownloadButton } from "../components/site";
 import { BillingToggle, CheckoutButton, type Interval } from "../components/billing";
+import { HeroScene } from "../components/hero-scene";
+import { LandingFeatures } from "../components/landing-features";
 
 export const Route = createFileRoute("/")({ component: Landing });
-const features = [
-  {
-    icon: AppWindow,
-    title: "Works in every app",
-    body: "Slack, email, docs, your editor, the terminal. If there's a cursor, Hermes types there.",
-  },
-  {
-    icon: Sparkles,
-    title: "Cleans as you speak",
-    body: "Drops filler words, fixes false starts and punctuates. Change your mind mid-sentence and it keeps the final version.",
-  },
-  {
-    icon: WandSparkles,
-    title: "Command mode",
-    body: "Select text, hold the command shortcut and say what to do: make it friendlier, shorten it, translate it.",
-  },
-  {
-    icon: BookA,
-    title: "Personal dictionary",
-    body: "Names, jargon and product terms, spelled your way every time.",
-  },
-  {
-    icon: TextQuote,
-    title: "Snippets",
-    body: 'Say a cue like "my calendar link" and get the full text.',
-  },
-  {
-    icon: Palette,
-    title: "Styles per app",
-    body: "Casual in chat, polished in email. The tone follows the app you're in.",
-  },
-  {
-    icon: Languages,
-    title: "100+ languages",
-    body: "Dictate in the language you think in, or mix a few.",
-  },
-  {
-    icon: ClipboardPaste,
-    title: "Paste last",
-    body: "Clicked away too soon? One shortcut pastes your last dictation again.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Private by default",
-    body: "Audio isn't stored. History stays on your device. Bring your own key and requests go straight to your provider.",
-  },
-];
 const faqs = [
   [
-    "Is my audio stored?",
-    "No. It's sent for transcription and discarded. Your history lives only on your computer.",
+    "Where does my voice go?",
+    "Audio goes to the transcription service you choose, Hermes or your own provider, and Hermes doesn't keep it. Your history stays on your computer.",
   ],
   [
-    "What counts as a word?",
-    "Words in the final text Hermes types. Commands and edits count the same way.",
+    "Which apps does it work in?",
+    "Any app with a text field. Hermes types where your cursor is, the same way you would.",
   ],
   [
-    "Can I switch between Pro and my own key?",
-    "Yes, any time in Settings. Your own key is used directly and never touches our servers.",
+    "What counts toward the free limit?",
+    "Words in your transcripts. The 2,000 word allowance resets every Monday.",
   ],
-  ["Does it work offline?", "Not yet. Transcription runs in the cloud for speed and accuracy."],
-  ["Which languages?", "Over 100, detected automatically."],
-  ["Which computers?", "macOS 13+, Windows 10 and 11, and Linux with Wayland."],
-];
+  [
+    "Can I switch between my own key and an account?",
+    "Yes, any time in Settings. Your dictionary, snippets and history stay put.",
+  ],
+] as const;
 function Landing() {
   const [interval, setInterval] = useState<Interval>("monthly");
+  const yearly = interval === "yearly";
   return (
-    <main className="container">
-      <section className="hero">
-        <div className="hero-copy">
-          <h1>
-            Speak, and it's <em>written</em>.
-          </h1>
-          <p className="lead">
-            Hermes turns your voice into clean, punctuated text in any app. Hold a key, talk, let
-            go.
+    <main className="landing">
+      <div className="wrap">
+        <header className="hero">
+          <h1>Just say it.</h1>
+          <p className="sub">
+            Hold a key and talk the way you normally would. Hermes writes it up cleanly, in whatever
+            app you're typing in.
           </p>
-          <div className="hero-actions">
-            <DownloadButton />
-            <a href="#pricing" className={buttonVariants({ variant: "outline" })}>
-              See pricing
-            </a>
-          </div>
-          <p className="small hero-note">macOS, Windows and Linux. Free to start.</p>
-        </div>
-        <Demo />
-      </section>
-      <Reveal id="features">
-        <h2>Writes the way you would.</h2>
-        <div className="feature-grid">
-          {features.map(({ icon: Icon, title, body }) => (
-            <article key={title}>
-              <Icon size={20} aria-hidden="true" />
-              <h3>{title}</h3>
-              <p>{body}</p>
-            </article>
-          ))}
-        </div>
-      </Reveal>
-      <Reveal>
-        <h2>Fast because it's native.</h2>
-        <p className="lead">
-          Written in Rust with a GPU-rendered interface.
-          <br className="desktop-break" /> No browser engine bundled inside.
-        </p>
-        <div className="columns stats">
-          {[
-            ["~100 ms", "to open the window"],
-            ["~25 MB", "memory while idle"],
-            ["1 key", "hold to talk, release to type"],
-          ].map(([number, label]) => (
-            <div key={number}>
-              <div className="stat-number">{number}</div>
-              <p>{label}</p>
-            </div>
-          ))}
-        </div>
-      </Reveal>
-      <Reveal>
-        <h2>Three steps. No new habits.</h2>
-        <div className="columns steps">
-          <div>
-            <span>1</span>
-            <h3>Hold your shortcut</h3>
-            <p>
-              Press and hold <kbd>Right Alt</kbd> to start dictating.
-            </p>
-          </div>
-          <div>
-            <span>2</span>
-            <h3>Speak naturally</h3>
-            <p>Ramble, pause, correct yourself. Hermes keeps up.</p>
-          </div>
-          <div>
-            <span>3</span>
-            <h3>Let go</h3>
-            <p>Clean text lands where your cursor is.</p>
-          </div>
-        </div>
-      </Reveal>
-      <Reveal id="pricing">
-        <h2>Simple pricing.</h2>
-        <BillingToggle interval={interval} setInterval={setInterval} />
-        <div className="columns pricing">
-          <Price
-            name="Free"
-            price="$0"
-            description="Hosted transcription with a weekly allowance."
-            items={[
-              "2,000 words a week",
-              "Every feature included",
-              "No API key needed",
-              "macOS, Windows and Linux",
-            ]}
-          >
-            <a
-              href="/download"
-              className={buttonVariants({ variant: "outline", className: "w-full" })}
-            >
-              Download
-            </a>
-          </Price>
-          <Price
-            name="Pro"
-            pro
-            price={interval === "monthly" ? "$12" : "$8"}
-            yearly={interval === "yearly"}
-            description="Unlimited dictation, nothing to manage."
-            items={[
-              "Unlimited words",
-              "Every feature included",
-              "No API key needed",
-              "Cancel anytime",
-            ]}
-          >
-            <CheckoutButton interval={interval} full />
-          </Price>
-          <Price
-            name="Bring your own key"
-            price="$0"
-            description="Use your own Groq or OpenAI key."
-            items={[
-              "Unlimited, billed by your provider",
-              "Every feature included",
-              "Key stored in your OS keychain",
-              "No account needed",
-            ]}
-          >
-            <a
-              href="/download"
-              className={buttonVariants({ variant: "outline", className: "w-full" })}
-            >
-              Download
-            </a>
-          </Price>
-        </div>
-        <p className="small pricing-note">Prices in USD. Taxes calculated at checkout.</p>
-      </Reveal>
-      <Reveal className="faq">
-        <h2>Questions.</h2>
-        <div>
-          {faqs.map(([question, answer]) => (
-            <details key={question}>
-              <summary>
-                {question}
-                <Plus size={18} aria-hidden="true" />
-              </summary>
-              <p>{answer}</p>
-            </details>
-          ))}
-        </div>
-      </Reveal>
-      <Reveal className="closing">
-        <h2>Stop typing everything.</h2>
-        <a href="/download" className={buttonVariants()}>
-          Download
-        </a>
-      </Reveal>
-    </main>
-  );
-}
-function Price({
-  name,
-  price,
-  pro = false,
-  yearly = false,
-  description,
-  items,
-  children,
-}: {
-  name: string;
-  price: string;
-  pro?: boolean;
-  yearly?: boolean;
-  description: string;
-  items: string[];
-  children: React.ReactNode;
-}) {
-  return (
-    <article className={pro ? "pro" : ""}>
-      <h3>{name}</h3>
-      <div className="price">
-        {price}
-        {pro && <span>/mo</span>}
+          <DownloadButton />
+          <p className="avail">Free to start. Linux, macOS and Windows.</p>
+        </header>
       </div>
-      <div className="price-billing small">{yearly ? "Billed $96 yearly" : "\u00a0"}</div>
-      <p className="price-description">{description}</p>
-      {children}
-      <ul>
-        {items.map((item) => (
-          <li key={item}>
-            <Check size={16} aria-hidden="true" />
-            {item}
-          </li>
-        ))}
-      </ul>
-    </article>
+      <HeroScene />
+      <section id="features">
+        <div className="wrap">
+          <h2>Talk like you talk.</h2>
+          <p className="lead">
+            Nobody speaks in finished sentences. Hermes keeps what you meant and quietly drops the
+            rest.
+          </p>
+          <LandingFeatures />
+        </div>
+      </section>
+      <div className="band photo" style={{ "--img": "url(/img/s56.jpg)" } as CSSProperties}>
+        <div>
+          <h2>Light enough to forget.</h2>
+          <p>
+            A small native app, not a browser in disguise. It opens in a tenth of a second, uses
+            about 70 MB, and waits in your tray until you hold the key.
+          </p>
+        </div>
+      </div>
+      <section id="pricing" className="center">
+        <div className="wrap">
+          <h2>Simple pricing</h2>
+          <p className="lead">
+            Start free, go unlimited with Pro, or bring your own API key and pay nothing.
+          </p>
+          <BillingToggle interval={interval} setInterval={setInterval} />
+          <div className="plans">
+            <div className="plan">
+              <h3>Free</h3>
+              <div className="price">
+                <b>$0</b>
+              </div>
+              <p className="note">2,000 words every week</p>
+              <ul>
+                <li>Sign in, nothing to set up</li>
+                <li>Transcription and editing included</li>
+                <li>Resets every Monday</li>
+              </ul>
+              <a className="btn light" href="/download">
+                Download
+              </a>
+            </div>
+            <div
+              className="plan pro photo"
+              style={{ "--img": "url(/img/s18.jpg)" } as CSSProperties}
+            >
+              <div className="inner glass">
+                <h3>Pro</h3>
+                <div className="price">
+                  <b key={interval} className="flip">
+                    {yearly ? "$96" : "$12"}
+                  </b>
+                  <span>{yearly ? "a year" : "a month"}</span>
+                </div>
+                <p className="note">
+                  {yearly ? "Unlimited words, 4 months free" : "Unlimited words"}
+                </p>
+                <ul>
+                  <li>Everything in Free</li>
+                  <li>No weekly limit</li>
+                  <li>Cancel any time</li>
+                </ul>
+                <CheckoutButton interval={interval} full />
+              </div>
+            </div>
+            <div className="plan">
+              <h3>Your own key</h3>
+              <div className="price">
+                <b>$0</b>
+              </div>
+              <p className="note">No account, no limits</p>
+              <ul>
+                <li>Groq or any OpenAI-compatible API</li>
+                <li>You pay your provider directly</li>
+                <li>Key stays in your system keychain</li>
+              </ul>
+              <a className="btn light" href="/download">
+                Download
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div className="wrap faq">
+          <h2>Questions</h2>
+          <div>
+            {faqs.map(([question, answer]) => (
+              <details key={question}>
+                <summary>
+                  {question}
+                  <i aria-hidden="true" />
+                </summary>
+                <p>{answer}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+      <div className="wrap">
+        <div className="final photo" style={{ "--img": "url(/img/s22.jpg)" } as CSSProperties}>
+          <div>
+            <h2>Your voice, typed.</h2>
+            <DownloadButton />
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }

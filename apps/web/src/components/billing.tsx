@@ -13,9 +13,16 @@ export function BillingToggle({
   setInterval: (value: Interval) => void;
 }) {
   return (
-    <div className="billing-toggle" role="group" aria-label="Billing interval">
+    <div
+      className="period"
+      data-year={interval === "yearly" ? "" : undefined}
+      role="group"
+      aria-label="Billing period"
+    >
+      <span className="thumb" aria-hidden="true" />
       <button
         type="button"
+        data-p="month"
         aria-pressed={interval === "monthly"}
         onClick={() => setInterval("monthly")}
       >
@@ -23,12 +30,12 @@ export function BillingToggle({
       </button>
       <button
         type="button"
+        data-p="year"
         aria-pressed={interval === "yearly"}
         onClick={() => setInterval("yearly")}
       >
         Yearly
       </button>
-      <span>Save 33%</span>
     </div>
   );
 }
