@@ -16,8 +16,6 @@ export default defineConfig(({ mode }) => {
     if (localEnv[key] && process.env[key] === undefined) process.env[key] = localEnv[key];
   }
   return {
-    // Vite needs source maps enabled for its CSS chunk transforms in the Workers build.
-    build: { sourcemap: true },
     css: {
       postcss: {
         plugins: [
