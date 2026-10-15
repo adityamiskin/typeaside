@@ -13,23 +13,12 @@ http.route({
     const maxBytes = 8 * 1024;
     if (Number(request.headers.get("Content-Length")) > maxBytes)
       return error(413, "request", "Ping exceeds 8 KB");
+    const body = await request.text();
+    if (new TextEncoder().encode(body).byteLength > maxBytes)
+      return error(413, "request", "Ping exceeds 8 KB");
     let input: unknown;
     try {
-      const reader = request.body?.getReader();
-      if (!reader) return error(400, "request", "Expected JSON");
-      const bytes = new Uint8Array(maxBytes);
-      let size = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > maxBytes) {
-          await reader.cancel();
-          return error(413, "request", "Ping exceeds 8 KB");
-        }
-        bytes.set(value, size - value.byteLength);
-      }
-      input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, size)));
+      input = JSON.parse(body);
     } catch {
       return error(400, "request", "Expected JSON");
     }

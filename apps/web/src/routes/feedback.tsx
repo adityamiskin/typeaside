@@ -9,7 +9,6 @@ import { Field, FieldGroup } from "@hermes/ui/components/field";
 import { Input } from "@hermes/ui/components/input";
 import { Label } from "@hermes/ui/components/label";
 import { Textarea } from "@hermes/ui/components/textarea";
-import { ToggleGroup, ToggleGroupItem } from "@hermes/ui/components/toggle-group";
 
 export const Route = createFileRoute("/feedback")({
   validateSearch: (
@@ -30,11 +29,18 @@ export const Route = createFileRoute("/feedback")({
   component: Feedback,
 });
 
+type Kind = FunctionArgs<typeof api.feedback.send>["kind"];
+const kinds = [
+  ["bug", "Bug"],
+  ["idea", "Idea"],
+  ["other", "Other"],
+] as const satisfies ReadonlyArray<readonly [Kind, string]>;
+
 function Feedback() {
   const { version, os } = Route.useSearch();
   const { isAuthenticated, isLoading } = useConvexAuth();
   const send = useMutation(api.feedback.send);
-  const [kind, setKind] = useState<FunctionArgs<typeof api.feedback.send>["kind"]>("idea");
+  const [kind, setKind] = useState<Kind>("idea");
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
@@ -89,26 +95,19 @@ function Feedback() {
           }}
         >
           <FieldGroup>
-            <Field>
-              <Label id="feedback-kind" className="sr-only">
-                Kind of feedback
-              </Label>
-              <ToggleGroup
-                aria-labelledby="feedback-kind"
-                value={[kind]}
-                variant="outline"
-                spacing={0}
-                disabled={sending}
-                onValueChange={(values) => {
-                  const value = values[0];
-                  if (value === "bug" || value === "idea" || value === "other") setKind(value);
-                }}
-              >
-                <ToggleGroupItem value="bug">Bug</ToggleGroupItem>
-                <ToggleGroupItem value="idea">Idea</ToggleGroupItem>
-                <ToggleGroupItem value="other">Other</ToggleGroupItem>
-              </ToggleGroup>
-            </Field>
+            <div className="period kinds" role="group" aria-label="Kind of feedback">
+              {kinds.map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={kind === value}
+                  disabled={sending}
+                  onClick={() => setKind(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <Field>
               <Label htmlFor="feedback-message" className="sr-only">
                 Your note
