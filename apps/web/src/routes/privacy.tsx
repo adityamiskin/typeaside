@@ -3,7 +3,6 @@ export const Route = createFileRoute("/privacy")({
   head: () => ({ meta: [{ title: "Privacy · Hermes" }] }),
   component: () => (
     <main className="container page legal">
-      <p className="draft">Draft, pending legal review.</p>
       <h1>Privacy.</h1>
       <h2>Your voice and text</h2>
       <p>
@@ -31,7 +30,12 @@ export const Route = createFileRoute("/privacy")({
       <h2>Your control</h2>
       <p>
         You can revoke a connected computer from your account and delete local history in the app.
-        This draft will be updated with account deletion and privacy contact details before launch.
+        To delete your account and its data, email adityamiskin@gmail.com.
+      </p>
+      <h2>Contact</h2>
+      <p>
+        Hermes is operated by Aditya Miskin in India. Send privacy questions to
+        adityamiskin@gmail.com.
       </p>
     </main>
   ),

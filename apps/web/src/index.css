@@ -742,11 +742,6 @@ footer {
 .legal {
   max-width: 768px;
 }
-.draft {
-  color: var(--accent);
-  font-size: 14px;
-  margin-bottom: 32px;
-}
 .legal h2 {
   font-size: 18px;
   line-height: 26px;
@@ -754,7 +749,7 @@ footer {
   letter-spacing: 0;
   margin: 40px 0 12px;
 }
-.legal p:not(.draft) {
+.legal p {
   color: var(--muted-foreground);
 }
 .account {
@@ -910,10 +905,7 @@ a:hover {
 .page .lead {
   margin-block: 24px 48px;
 }
-.page .draft {
-  margin-block: 24px 32px;
-}
-.legal p:not(.draft) {
+.legal p {
   margin-block: 0 20px;
 }
 .legal h1 {

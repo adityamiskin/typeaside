@@ -3,7 +3,6 @@ export const Route = createFileRoute("/terms")({
   head: () => ({ meta: [{ title: "Terms · Hermes" }] }),
   component: () => (
     <main className="container page legal">
-      <p className="draft">Draft, pending legal review.</p>
       <h1>Terms.</h1>
       <h2>Using Hermes</h2>
       <p>
@@ -20,7 +19,9 @@ export const Route = createFileRoute("/terms")({
       <p>
         Dodo Payments is the merchant of record and handles payments and applicable taxes. Pro
         renews at your selected interval until cancelled. Manage your subscription through your
-        account. Cancellation and refund details will be finalized before launch.
+        account. You can cancel at any time and keep Pro until the end of the paid period. If Hermes
+        did not work for you, ask for a refund within 14 days of a charge and we will refund it in
+        full.
       </p>
       <h2>Processing and availability</h2>
       <p>
@@ -34,10 +35,15 @@ export const Route = createFileRoute("/terms")({
         Keep your sign-in and desktop tokens secure. Revoke tokens for computers you no longer use.
         Do not share access to evade plan limits or misuse the hosted service.
       </p>
-      <h2>Before launch</h2>
+      <h2>Changes</h2>
       <p>
-        This draft is not the final agreement. Business identity, contact details, refund terms and
-        other required legal provisions are pending legal review.
+        We may update these terms as Hermes changes. Material changes will be announced on this site
+        before they take effect.
+      </p>
+      <h2>Contact</h2>
+      <p>
+        Hermes is built and operated by Aditya Miskin in India. Email adityamiskin@gmail.com for
+        support, billing or refund requests.
       </p>
     </main>
   ),
