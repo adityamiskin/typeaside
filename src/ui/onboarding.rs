@@ -465,13 +465,13 @@ impl MainWindow {
                                                         .sin())
                                                 * (0.6 + 0.4 * (elapsed * 3.1 + i as f32).sin());
                                             let surviving = i == BARS / 2;
-                                            let height = 4. + 40. * envelope * speech * ramp;
+                                            let height = 4. + 60. * envelope * speech * ramp;
                                             let height = height * (1. - collapse)
                                                 + if surviving { 34. } else { 4. } * collapse;
                                             let width =
-                                                4. - if surviving { 2. * collapse } else { 0. };
+                                                5. - if surviving { 3. * collapse } else { 0. };
                                             let x = bounds.center().x
-                                                + px((i as f32 - BAR_CENTER) * 9. - 2.);
+                                                + px((i as f32 - BAR_CENTER) * 11. - 2.5);
                                             let x = x + (bounds.left() - x) * collapse;
                                             let color =
                                                 ink.fg.blend(ink.blue.opacity(1. - distance));
