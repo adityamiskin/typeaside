@@ -524,7 +524,16 @@ impl Render for MainWindow {
             .when(!onboarding, |root| root.child(side))
             .child(div().flex_1().min_w_0().h_full().child(content));
         let _ = window;
-        root.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, w, cx| {
+        root.capture_any_mouse_down(cx.listener(|this, _, _, cx| {
+            if this.skip_intro(cx) {
+                cx.stop_propagation();
+            }
+        }))
+        .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, w, cx| {
+            if this.skip_intro(cx) {
+                cx.stop_propagation();
+                return;
+            }
             if let Some(target) = this.capture.take() {
                 this.save_shortcut(
                     target,
@@ -542,6 +551,10 @@ impl Render for MainWindow {
         }))
         .on_modifiers_changed(cx.listener(
             |this, event: &gpui::ModifiersChangedEvent, _, cx| {
+                if event.modifiers.modified() && this.skip_intro(cx) {
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.capture.is_some() {
                     if event.modifiers.modified() {
                         #[cfg(target_os = "linux")]
