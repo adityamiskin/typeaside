@@ -3,6 +3,8 @@ import { useState, type CSSProperties } from "react";
 import { DownloadButton } from "../components/site";
 import { BillingToggle, CheckoutButton, type Interval } from "../components/billing";
 import { HeroScene } from "../components/hero-scene";
+import { AppMarquee, LandingApps } from "../components/landing-apps";
+import { LandingBento } from "../components/landing-bento";
 import { LandingFeatures } from "../components/landing-features";
 
 export const Route = createFileRoute("/")({ component: Landing });
@@ -41,6 +43,7 @@ function Landing() {
         </header>
       </div>
       <HeroScene />
+      <AppMarquee />
       <section id="features">
         <div className="wrap">
           <h2>Talk like you talk.</h2>
@@ -49,6 +52,7 @@ function Landing() {
             rest.
           </p>
           <LandingFeatures />
+          <LandingBento />
         </div>
       </section>
       <div className="band photo" style={{ "--img": "url(/img/s56.jpg)" } as CSSProperties}>
@@ -60,6 +64,7 @@ function Landing() {
           </p>
         </div>
       </div>
+      <LandingApps />
       <section id="pricing" className="center">
         <div className="wrap">
           <h2>Simple pricing</h2>

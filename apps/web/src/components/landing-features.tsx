@@ -20,15 +20,6 @@ const FEATURES = [
     out: "Let's meet tomorrow at three.",
   },
   {
-    img: "s56",
-    tint: "#f4f2fb",
-    hl: "#e3def6",
-    t: "Spells your words right",
-    d: "Names, products and jargon from your personal dictionary come out right every time.",
-    raw: "ask priya to look at the kubernetes pr before standup",
-    out: "Ask Priya to look at the Kubernetes PR before standup.",
-  },
-  {
     img: "s18",
     tint: "#f6eef7",
     hl: "#ead9ee",
@@ -36,15 +27,6 @@ const FEATURES = [
     d: "Say a list and get a list. Numbers, dates and emails come out the way you'd type them.",
     raw: "for the trip we need passports chargers and the train tickets",
     out: "For the trip we need:\n1. Passports\n2. Chargers\n3. Train tickets",
-  },
-  {
-    img: "s31",
-    tint: "#f3f4f3",
-    hl: "#e4e6e4",
-    t: "Edits by voice",
-    d: "Select some text, hold the second key, and say what to change.",
-    raw: "make this sound friendlier",
-    out: "Hey! Could you send the file over when you get a chance? Thank you!",
   },
 ] as const;
 
