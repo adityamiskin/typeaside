@@ -6,6 +6,7 @@ import { Button } from "@typeaside/ui/components/button";
 import { auth } from "../../integrations/auth";
 import { detectOS } from "../../lib/downloads";
 import { SignIn } from "../../components/site";
+import { noindex } from "../../lib/seo";
 export const Route = createFileRoute("/desktop/connect")({
   validateSearch: (search: Record<string, unknown>) => {
     const port =
@@ -29,7 +30,11 @@ export const Route = createFileRoute("/desktop/connect")({
       });
   },
   head: () => ({
-    meta: [{ title: "Connect TypeAside" }, { name: "referrer", content: "no-referrer" }],
+    meta: [
+      { title: "Connect TypeAside" },
+      { name: "referrer", content: "no-referrer" },
+      ...noindex.meta,
+    ],
   }),
   component: Connect,
 });

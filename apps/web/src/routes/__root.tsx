@@ -12,6 +12,7 @@ import bodyFont from "@fontsource-variable/hanken-grotesk/files/hanken-grotesk-l
 import { Header, Footer } from "../components/site";
 import { auth } from "../integrations/auth";
 import appCss from "../index.css?url";
+import { siteUrl } from "../lib/seo";
 export interface RouterAppContext {
   queryClient: QueryClient;
   convexClient: ConvexReactClient;
@@ -28,16 +29,20 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "TypeAside: just say it" },
-      {
-        name: "description",
-        content:
-          "Clean, punctuated voice dictation in any app. Native on macOS, Windows and Linux. Free to start.",
-      },
+      { title: "TypeAside" },
+      { name: "theme-color", content: "#f9f9f8" },
+      { property: "og:type", content: "website" },
+      { property: "og:site_name", content: "TypeAside" },
+      { property: "og:image", content: `${siteUrl}/og.png` },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { property: "og:image:alt", content: "TypeAside: just say it." },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
       ...[bodyFont].map((href) => ({
         rel: "preload",
         href,

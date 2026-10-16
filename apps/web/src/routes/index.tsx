@@ -6,8 +6,45 @@ import { HeroScene } from "../components/hero-scene";
 import { AppMarquee, LandingApps } from "../components/landing-apps";
 import { LandingBento } from "../components/landing-bento";
 import { LandingFeatures } from "../components/landing-features";
+import { seo, siteUrl } from "../lib/seo";
 
-export const Route = createFileRoute("/")({ component: Landing });
+const description =
+  "Voice dictation that types clean, punctuated text in any app. Hold a key, talk, and TypeAside writes it up. Native on macOS, Windows and Linux. Free to start.";
+export const Route = createFileRoute("/")({
+  head: () => ({
+    ...seo({
+      path: "/",
+      title: "TypeAside: voice dictation for macOS, Windows and Linux",
+      description,
+    }),
+    scripts: [
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        name: "TypeAside",
+        url: siteUrl,
+        description,
+        applicationCategory: "ProductivityApplication",
+        operatingSystem: "macOS, Windows, Linux",
+        downloadUrl: `${siteUrl}/download`,
+        offers: [
+          { "@type": "Offer", name: "Free", price: "0", priceCurrency: "USD" },
+          { "@type": "Offer", name: "Pro", price: "12", priceCurrency: "USD" },
+        ],
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: faqs.map(([name, text]) => ({
+          "@type": "Question",
+          name,
+          acceptedAnswer: { "@type": "Answer", text },
+        })),
+      },
+    ].map((data) => ({ type: "application/ld+json", children: JSON.stringify(data) })),
+  }),
+  component: Landing,
+});
 const faqs = [
   [
     "Where does my voice go?",

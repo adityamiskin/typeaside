@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { seo } from "../lib/seo";
 export const Route = createFileRoute("/terms")({
-  head: () => ({ meta: [{ title: "Terms · TypeAside" }] }),
+  head: () =>
+    seo({
+      path: "/terms",
+      title: "Terms · TypeAside",
+      description: "Terms of service for TypeAside voice dictation.",
+    }),
   component: () => (
     <main className="container page legal">
       <h1>Terms.</h1>

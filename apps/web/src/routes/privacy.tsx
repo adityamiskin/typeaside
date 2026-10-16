@@ -1,6 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { seo } from "../lib/seo";
 export const Route = createFileRoute("/privacy")({
-  head: () => ({ meta: [{ title: "Privacy · TypeAside" }] }),
+  head: () =>
+    seo({
+      path: "/privacy",
+      title: "Privacy · TypeAside",
+      description:
+        "How TypeAside handles your audio, text and account data. Audio is never stored and your history stays on your device.",
+    }),
   component: () => (
     <main className="container page legal">
       <h1>Privacy.</h1>

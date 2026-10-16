@@ -1,8 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { seo } from "../lib/seo";
 import { buttonVariants } from "@typeaside/ui/components/button";
 import { downloads, useOS } from "../lib/downloads";
 export const Route = createFileRoute("/download")({
-  head: () => ({ meta: [{ title: "Download TypeAside" }] }),
+  head: () =>
+    seo({
+      path: "/download",
+      title: "Download TypeAside",
+      description:
+        "Download TypeAside voice dictation for macOS, Windows and Linux. Free to start, or bring your own API key.",
+    }),
   component: Download,
 });
 function Download() {
