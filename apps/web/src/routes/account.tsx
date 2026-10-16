@@ -9,6 +9,7 @@ import {
   Unauthenticated,
 } from "convex/react";
 import { api } from "@typeaside/backend/convex/_generated/api";
+import { noindex } from "../lib/seo";
 import type { FunctionReturnType } from "convex/server";
 import { Field, FieldGroup, FieldLabel } from "@typeaside/ui/components/field";
 import { Input } from "@typeaside/ui/components/input";
@@ -21,7 +22,7 @@ export const Route = createFileRoute("/account")({
     checkout:
       search.checkout === "monthly" || search.checkout === "yearly" ? search.checkout : undefined,
   }),
-  head: () => ({ meta: [{ title: "Account · TypeAside" }] }),
+  head: () => ({ meta: [{ title: "Account · TypeAside" }, ...noindex.meta] }),
   component: Account,
 });
 function Account() {

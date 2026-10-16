@@ -9,6 +9,7 @@ import { Field, FieldGroup } from "@typeaside/ui/components/field";
 import { Input } from "@typeaside/ui/components/input";
 import { Label } from "@typeaside/ui/components/label";
 import { Textarea } from "@typeaside/ui/components/textarea";
+import { noindex } from "../lib/seo";
 
 export const Route = createFileRoute("/feedback")({
   validateSearch: (
@@ -25,7 +26,7 @@ export const Route = createFileRoute("/feedback")({
         ? search.os
         : undefined,
   }),
-  head: () => ({ meta: [{ title: "Feedback · TypeAside" }] }),
+  head: () => ({ meta: [{ title: "Feedback · TypeAside" }, ...noindex.meta] }),
   component: Feedback,
 });
 

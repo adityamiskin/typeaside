@@ -1,3 +1,6 @@
-# https://www.robotstxt.org/robotstxt.html
 User-agent: *
-Disallow:
+Disallow: /api/
+Disallow: /desktop/
+Disallow: /releases/
+
+Sitemap: https://typeaside.app/sitemap.xml
