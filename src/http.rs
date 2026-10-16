@@ -18,7 +18,7 @@ pub(crate) fn prewarm(config: &AppConfig) {
     for endpoint in [&config.stt, &config.cleanup.endpoint] {
         let endpoint = endpoint.clone();
         let _ = std::thread::Builder::new()
-            .name("hermes-prewarm".into())
+            .name("typeaside-prewarm".into())
             .spawn(move || {
                 if let Ok(key) = endpoint_key(&endpoint.base_url) {
                     let _ = client()
@@ -41,7 +41,7 @@ pub(crate) fn checked(
     if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
         let body: serde_json::Value = response.json()?;
         if body["error"]["type"] == "limit" {
-            anyhow::bail!("Weekly free limit reached. Upgrade in Hermes.");
+            anyhow::bail!("Weekly free limit reached. Upgrade in TypeAside.");
         }
         anyhow::bail!("Hosted request failed (402)");
     }

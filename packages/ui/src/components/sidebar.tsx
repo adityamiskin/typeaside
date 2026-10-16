@@ -4,19 +4,19 @@ import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
 
-import { useIsMobile } from "@hermes/ui/hooks/use-mobile";
-import { Button } from "@hermes/ui/components/button";
-import { Input } from "@hermes/ui/components/input";
-import { Separator } from "@hermes/ui/components/separator";
+import { useIsMobile } from "@typeaside/ui/hooks/use-mobile";
+import { Button } from "@typeaside/ui/components/button";
+import { Input } from "@typeaside/ui/components/input";
+import { Separator } from "@typeaside/ui/components/separator";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@hermes/ui/components/sheet";
-import { Skeleton } from "@hermes/ui/components/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@hermes/ui/components/tooltip";
+} from "@typeaside/ui/components/sheet";
+import { Skeleton } from "@typeaside/ui/components/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@typeaside/ui/components/tooltip";
 import { PanelLeftIcon } from "lucide-react";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";

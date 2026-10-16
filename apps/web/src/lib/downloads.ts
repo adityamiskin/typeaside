@@ -4,17 +4,17 @@ const release = "/releases/";
 export const downloads = {
   macOS: {
     requirement: "macOS 13+. Apple silicon and Intel.",
-    files: [{ label: "Download for macOS", href: `${release}Hermes.dmg` }],
+    files: [{ label: "Download for macOS", href: `${release}TypeAside.dmg` }],
   },
   Windows: {
     requirement: "Windows 10 and 11.",
-    files: [{ label: "Download for Windows", href: `${release}Hermes-setup.exe` }],
+    files: [{ label: "Download for Windows", href: `${release}TypeAside-setup.exe` }],
   },
   Linux: {
     requirement: "Linux with Wayland.",
     files: [
-      { label: "AppImage", href: `${release}Hermes.AppImage` },
-      { label: ".deb", href: `${release}hermes.deb` },
+      { label: "AppImage", href: `${release}TypeAside.AppImage` },
+      { label: ".deb", href: `${release}typeaside.deb` },
     ],
   },
 };

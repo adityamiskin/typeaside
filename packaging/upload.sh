@@ -2,10 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${VERSION:?}" "${CLOUDFLARE_API_TOKEN:?}" "${CLOUDFLARE_ACCOUNT_ID:?}"
-for file in Hermes.dmg Hermes-setup.exe Hermes.AppImage hermes.deb; do
+for file in TypeAside.dmg TypeAside-setup.exe TypeAside.AppImage typeaside.deb; do
     test -s "dist/$file"
 done
-for file in Hermes.dmg Hermes-setup.exe Hermes.AppImage hermes.deb; do
+for file in TypeAside.dmg TypeAside-setup.exe TypeAside.AppImage typeaside.deb; do
     case "$file" in
         *.dmg) content_type=application/x-apple-diskimage ;;
         *.exe) content_type=application/vnd.microsoft.portable-executable ;;
@@ -22,7 +22,7 @@ import json
 import os
 from pathlib import Path
 
-files = ["Hermes.dmg", "Hermes-setup.exe", "Hermes.AppImage", "hermes.deb"]
+files = ["TypeAside.dmg", "TypeAside-setup.exe", "TypeAside.AppImage", "typeaside.deb"]
 checksums = {}
 for name in files:
     with Path("dist", name).open("rb") as installer:

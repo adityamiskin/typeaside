@@ -10,7 +10,7 @@ import time
 artifacts = Path("smoke-artifacts")
 artifacts.mkdir(exist_ok=True)
 log = artifacts / "demo.log"
-env = dict(os.environ, HERMES_TRACE="1")
+env = dict(os.environ, TYPEASIDE_TRACE="1")
 with log.open("w") as output:
     process = subprocess.Popen(
         [sys.argv[1], "--demo"], stdout=output, stderr=subprocess.STDOUT,
@@ -18,7 +18,7 @@ with log.open("w") as output:
     )
     try:
         deadline = time.monotonic() + 30
-        while "hermes first main frame:" not in log.read_text(errors="replace"):
+        while "typeaside first main frame:" not in log.read_text(errors="replace"):
             if process.poll() is not None:
                 raise RuntimeError(f"demo exited with {process.returncode}")
             if time.monotonic() >= deadline:

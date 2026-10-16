@@ -1,32 +1,32 @@
 ---
 title: Permissions
-description: Give Hermes access to your microphone, keyboard, and text fields.
+description: Give TypeAside access to your microphone, keyboard, and text fields.
 ---
 
 ## macOS
 
-Hermes requests Accessibility, Microphone, and Input Monitoring access. Missing permissions also appear in the app, including during onboarding.
+TypeAside requests Accessibility, Microphone, and Input Monitoring access. Missing permissions also appear in the app, including during onboarding.
 
 1. Open **System Settings → Privacy & Security**.
-2. Enable Hermes under **Accessibility**, **Microphone**, and **Input Monitoring**.
-3. Quit and restart Hermes from Applications.
+2. Enable TypeAside under **Accessibility**, **Microphone**, and **Input Monitoring**.
+3. Quit and restart TypeAside from Applications.
 
-Use the same installed copy of Hermes. Moving or replacing a locally signed build can change its permission identity.
+Use the same installed copy of TypeAside. Moving or replacing a locally signed build can change its permission identity.
 
 ## Linux
 
-Hermes reads global hotkeys through evdev and injects paste shortcuts through uinput. Your user needs read access to the relevant `/dev/input/event*` devices and access to `/dev/uinput`.
+TypeAside reads global hotkeys through evdev and injects paste shortcuts through uinput. Your user needs read access to the relevant `/dev/input/event*` devices and access to `/dev/uinput`.
 
-1. Check the permission error shown by Hermes.
+1. Check the permission error shown by TypeAside.
 2. Configure your distribution's device access rules for evdev and uinput. Group and udev configuration depends on the distribution.
-3. Sign out and back in if you changed group membership, then restart Hermes.
+3. Sign out and back in if you changed group membership, then restart TypeAside.
 
 <Callout type="warn">
   Keyboard device access lets a program observe key presses. Grant it only to software you trust.
 </Callout>
 
-Hermes needs `wl-copy` and `wl-paste` from `wl-clipboard`, plus `timeout` for reading a selection. It uses Wayland clipboard and primary selection protocols. Its Linux overlay uses layer shell. Clipboard and overlay support depend on your compositor. Foreground-app detection on Linux currently uses `niri msg`; other compositors fall back to the Other cleanup category. See [Common issues](/docs/troubleshooting/common-issues).
+TypeAside needs `wl-copy` and `wl-paste` from `wl-clipboard`, plus `timeout` for reading a selection. It uses Wayland clipboard and primary selection protocols. Its Linux overlay uses layer shell. Clipboard and overlay support depend on your compositor. Foreground-app detection on Linux currently uses `niri msg`; other compositors fall back to the Other cleanup category. See [Common issues](/docs/troubleshooting/common-issues).
 
 ## Windows
 
-Hermes uses a global keyboard hook and injected copy/paste shortcuts. Windows prevents an unelevated process from injecting into an elevated app. Try a normal text editor to check whether this boundary is the cause.
+TypeAside uses a global keyboard hook and injected copy/paste shortcuts. Windows prevents an unelevated process from injecting into an elevated app. Try a normal text editor to check whether this boundary is the cause.

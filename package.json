@@ -1,5 +1,5 @@
 {
-  "name": "hermes",
+  "name": "typeaside",
   "private": true,
   "workspaces": {
     "packages": [
@@ -26,21 +26,21 @@
   "scripts": {
     "dev": "vp run -r --parallel dev",
     "dev:web": "vp run --filter web dev",
-    "dev:server": "vp run --filter @hermes/backend dev",
-    "dev:setup": "vp run --filter @hermes/backend dev:setup",
-    "codegen": "vp run --filter @hermes/backend codegen",
+    "dev:server": "vp run --filter @typeaside/backend dev",
+    "dev:setup": "vp run --filter @typeaside/backend dev:setup",
+    "codegen": "vp run --filter @typeaside/backend codegen",
     "build": "vp run -r build",
     "check": "vp check",
     "fix": "vp check --fix",
     "deploy": "vp run --filter web deploy"
   },
   "dependencies": {
-    "@hermes/env": "workspace:*",
+    "@typeaside/env": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261014.1",
-    "@hermes/config": "workspace:*",
+    "@typeaside/config": "workspace:*",
     "@types/node": "^26.6.5",
     "typescript": "catalog:",
     "vite": "catalog:",

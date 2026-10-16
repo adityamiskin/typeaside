@@ -12,11 +12,11 @@
   },
   "iconLibrary": "lucide",
   "aliases": {
-    "components": "@hermes/ui/components",
-    "utils": "@hermes/ui/lib/utils",
-    "hooks": "@hermes/ui/hooks",
-    "lib": "@hermes/ui/lib",
-    "ui": "@hermes/ui/components"
+    "components": "@typeaside/ui/components",
+    "utils": "@typeaside/ui/lib/utils",
+    "hooks": "@typeaside/ui/hooks",
+    "lib": "@typeaside/ui/lib",
+    "ui": "@typeaside/ui/components"
   },
   "menuColor": "default",
   "menuAccent": "subtle",

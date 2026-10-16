@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { buttonVariants } from "@hermes/ui/components/button";
+import { buttonVariants } from "@typeaside/ui/components/button";
 export const Route = createFileRoute("/auth-error")({
   component: () => (
     <main className="container page narrow">

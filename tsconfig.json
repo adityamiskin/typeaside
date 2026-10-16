@@ -1,3 +1,3 @@
 {
-  "extends": "@hermes/config/tsconfig.base.json"
+  "extends": "@typeaside/config/tsconfig.base.json"
 }

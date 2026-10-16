@@ -28,7 +28,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Hermes: just say it" },
+      { title: "TypeAside: just say it" },
       {
         name: "description",
         content:
@@ -55,7 +55,7 @@ function RootDocument() {
       state.location.pathname === "/docs" || state.location.pathname.startsWith("/docs/"),
   });
   return (
-    <html lang="en" className={isDocs ? "hermes-docs" : undefined}>
+    <html lang="en" className={isDocs ? "typeaside-docs" : undefined}>
       <head>
         <HeadContent />
       </head>

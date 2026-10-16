@@ -1,24 +1,24 @@
-use hermes::{
+use std::time::{Duration, Instant, SystemTime};
+use typeaside::{
     config::{AppConfig, Snippet},
     engine::{Dictation, Event, FailedRecording, Mode, Phase},
 };
-use std::time::{Duration, Instant, SystemTime};
 
 pub fn config() -> AppConfig {
     AppConfig {
         transcription: if account().is_some() {
-            hermes::config::Source::Hosted
+            typeaside::config::Source::Hosted
         } else {
-            hermes::config::Source::OwnKey
+            typeaside::config::Source::OwnKey
         },
-        onboarded: std::env::var("HERMES_DEMO_PAGE").as_deref() != Ok("onboarding"),
-        theme: match std::env::var("HERMES_DEMO_THEME").as_deref() {
-            Ok("light") => hermes::config::Theme::Light,
-            Ok("dark") => hermes::config::Theme::Dark,
-            _ => hermes::config::Theme::System,
+        onboarded: std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() != Ok("onboarding"),
+        theme: match std::env::var("TYPEASIDE_DEMO_THEME").as_deref() {
+            Ok("light") => typeaside::config::Theme::Light,
+            Ok("dark") => typeaside::config::Theme::Dark,
+            _ => typeaside::config::Theme::System,
         },
         dictionary: [
-            "Hermes",
+            "TypeAside",
             "niri",
             "GPUI",
             "Priya Raman",
@@ -37,7 +37,7 @@ pub fn config() -> AppConfig {
             ("my calendar link", "https://cal.com/aditya/30min"),
             (
                 "intro blurb",
-                "I'm Aditya, I build Hermes, a voice dictation app for Linux.",
+                "I'm Aditya, I build TypeAside, a voice dictation app for Linux.",
             ),
             ("home address", "221B Baker Street, London"),
         ]
@@ -68,7 +68,7 @@ pub fn history() -> Vec<Dictation> {
 pub fn spawn() -> async_channel::Receiver<Event> {
     let (tx, rx) = async_channel::unbounded();
     std::thread::spawn(move || {
-        if std::env::var("HERMES_DEMO_PAGE").as_deref() == Ok("onboarding") {
+        if std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() == Ok("onboarding") {
             // Keep the onboarding fixture static and avoid creating an overlay window.
             std::thread::park();
             return;
@@ -77,11 +77,14 @@ pub fn spawn() -> async_channel::Receiver<Event> {
         let send = |event| {
             match &event {
                 Event::Phase(phase) => eprintln!(
-                    "hermes demo @{:.3}s: {phase:?}",
+                    "typeaside demo @{:.3}s: {phase:?}",
                     started.elapsed().as_secs_f32()
                 ),
                 Event::Done(_) => {
-                    eprintln!("hermes demo @{:.3}s: Done", started.elapsed().as_secs_f32())
+                    eprintln!(
+                        "typeaside demo @{:.3}s: Done",
+                        started.elapsed().as_secs_f32()
+                    )
                 }
                 Event::Level(_) | Event::Failed(_) => {}
             }
@@ -95,7 +98,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
             return;
         }
         std::thread::sleep(Duration::from_secs(2));
-        if let Ok(visual) = std::env::var("HERMES_DEMO_OVERLAY") {
+        if let Ok(visual) = std::env::var("TYPEASIDE_DEMO_OVERLAY") {
             let event = match visual.as_str() {
                 "command" => Event::Phase(Phase::Listening(Mode::Command)),
                 "processing" => Event::Phase(Phase::Transcribing),
@@ -161,9 +164,9 @@ pub fn spawn() -> async_channel::Receiver<Event> {
     rx
 }
 
-pub fn account() -> Option<hermes::account::Account> {
-    use hermes::account::{Account, Plan, Usage};
-    let value = std::env::var("HERMES_DEMO_ACCOUNT").ok()?;
+pub fn account() -> Option<typeaside::account::Account> {
+    use typeaside::account::{Account, Plan, Usage};
+    let value = std::env::var("TYPEASIDE_DEMO_ACCOUNT").ok()?;
     if !["free", "pro", "limit", "signed-in"].contains(&value.as_str()) {
         return None;
     }
@@ -183,7 +186,7 @@ pub fn account() -> Option<hermes::account::Account> {
 }
 
 pub fn intro_time() -> Option<f32> {
-    std::env::var("HERMES_DEMO_INTRO")
+    std::env::var("TYPEASIDE_DEMO_INTRO")
         .ok()?
         .parse::<f32>()
         .ok()

@@ -1,11 +1,11 @@
 {
-  "extends": "@hermes/config/tsconfig.base.json",
+  "extends": "@typeaside/config/tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": [],
     "paths": {
-      "@hermes/ui/*": ["./src/*"]
+      "@typeaside/ui/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],

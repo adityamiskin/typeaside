@@ -92,7 +92,7 @@ fn add_thunk(samples: &mut [f32], rate: f32, thunk: &Thunk) {
 
 fn spawn(cue: Cue) -> Option<std::thread::JoinHandle<()>> {
     std::thread::Builder::new()
-        .name("hermes-cue".into())
+        .name("typeaside-cue".into())
         .spawn(move || {
             let _ = blocking(cue);
         })

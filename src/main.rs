@@ -7,9 +7,9 @@ fn main() {
     let demo = std::env::args().any(|arg| arg == "--demo");
     let hidden = std::env::args().any(|arg| arg == "--hidden");
     #[cfg(target_os = "linux")]
-    let hidden = hidden && !hermes::update::restarted_for_update();
+    let hidden = hidden && !typeaside::update::restarted_for_update();
     if let Err(error) = ui::run(demo, hidden, started) {
-        eprintln!("hermes: {error:#}");
+        eprintln!("typeaside: {error:#}");
         std::process::exit(1);
     }
 }

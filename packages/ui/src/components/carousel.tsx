@@ -2,7 +2,7 @@ import * as React from "react";
 import { cn } from "cn";
 import useEmblaCarousel, { type UseEmblaCarouselType } from "embla-carousel-react";
 
-import { Button } from "@hermes/ui/components/button";
+import { Button } from "@typeaside/ui/components/button";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 
 type CarouselApi = UseEmblaCarouselType[1];

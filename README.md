@@ -1,4 +1,4 @@
-# Hermes
+# TypeAside
 
 Native voice dictation for macOS, Windows and Linux, with a TanStack Start website and a Convex hosted transcription service.
 
@@ -8,7 +8,7 @@ Native voice dictation for macOS, Windows and Linux, with a TanStack Start websi
 - `apps/web`: marketing, downloads, WorkOS sign-in, account and desktop connection routes.
 - `apps/web/wrangler.jsonc`: Cloudflare Worker configuration.
 - `packages/backend/convex`: identities, Dodo billing, desktop tokens, weekly usage and HTTP proxy.
-- `packages/ui`: shared Base UI shadcn primitives and Hermes Tailwind v4 tokens.
+- `packages/ui`: shared Base UI shadcn primitives and TypeAside Tailwind v4 tokens.
 - `packages/env`, `packages/config`: client environment validation and shared TypeScript configuration.
 
 ## Local development
@@ -96,8 +96,8 @@ Real WorkOS credentials are needed to verify OAuth, signed-in account UI and bro
 
 Bump the version in `Cargo.toml` (and update `Cargo.lock` with `cargo check`) and push to `main`. Then run the **Release** workflow manually from the Actions tab (`gh workflow run release.yml --ref main`). It refuses any ref other than `main`. It builds a universal macOS 13+ DMG, a per-user Windows 10/11 installer, and Linux x86_64 Wayland packages on Ubuntu 22.04.
 
-Configure repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The token needs **Workers R2 Storage: Edit** on that account. Releases upload `Hermes.dmg`, `Hermes-setup.exe`, `Hermes.AppImage`, and `hermes.deb` to `hermes-releases`, plus copies under `v<version>/`. No GitHub Release is created.
+Configure repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The token needs **Workers R2 Storage: Edit** on that account. Releases upload `TypeAside.dmg`, `TypeAside-setup.exe`, `TypeAside.AppImage`, and `typeaside.deb` to `hermes-releases`, plus copies under `v<version>/`. No GitHub Release is created.
 
 Every run publishes to R2 and also keeps the installers as Actions artifacts. CI runs only on pull requests and pushes to `main`, and smoke-tests debug builds; only the Release workflow builds the optimized binaries.
 
-macOS bundles use ad-hoc signing by default. `scripts/bundle-macos.sh` accepts `HERMES_SIGNING_IDENTITY` when a signing identity is installed; notarization is not configured. Windows installers are unsigned. Linux requires a Wayland session and access to the system Secret Service; `.deb` declares its runtime libraries, while the AppImage bundles application libraries and uses the host graphics drivers.
+macOS bundles use ad-hoc signing by default. `scripts/bundle-macos.sh` accepts `TYPEASIDE_SIGNING_IDENTITY` when a signing identity is installed; notarization is not configured. Windows installers are unsigned. Linux requires a Wayland session and access to the system Secret Service; `.deb` declares its runtime libraries, while the AppImage bundles application libraries and uses the host graphics drivers.

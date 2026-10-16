@@ -3171,43 +3171,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "hermes"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "arboard",
- "async-channel",
- "block2 0.6.2",
- "chrono",
- "core-foundation 0.10.1",
- "core-graphics 0.24.0",
- "cpal",
- "directories",
- "enigo",
- "evdev",
- "getrandom 0.3.4",
- "gpui-kit",
- "gpui-pre",
- "gpui-pre-platform",
- "interprocess",
- "keyring",
- "keyring-core",
- "ksni",
- "nix 0.30.1",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
- "objc2-av-foundation",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tray-icon",
- "windows 0.62.2",
- "winreg 0.55.0",
-]
-
-[[package]]
 name = "hermit-abi"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7498,6 +7461,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 dependencies = [
  "core_maths",
+]
+
+[[package]]
+name = "typeaside"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "async-channel",
+ "block2 0.6.2",
+ "chrono",
+ "core-foundation 0.10.1",
+ "core-graphics 0.24.0",
+ "cpal",
+ "directories",
+ "enigo",
+ "evdev",
+ "getrandom 0.3.4",
+ "gpui-kit",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "interprocess",
+ "keyring",
+ "keyring-core",
+ "ksni",
+ "nix 0.30.1",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-av-foundation",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tray-icon",
+ "windows 0.62.2",
+ "winreg 0.55.0",
 ]
 
 [[package]]

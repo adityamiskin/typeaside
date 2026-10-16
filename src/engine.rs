@@ -93,7 +93,7 @@ impl Engine {
         let (tx, rx) = mpsc::channel();
         let commands_tx = tx.clone();
         thread::Builder::new()
-            .name("hermes-commands".into())
+            .name("typeaside-commands".into())
             .spawn(move || {
                 while let Ok(command) = incoming.recv_blocking() {
                     if commands_tx.send(Message::Command(command)).is_err() {
@@ -102,15 +102,17 @@ impl Engine {
                 }
                 let _ = commands_tx.send(Message::Shutdown);
             })?;
-        thread::Builder::new().name("hermes-engine".into()).spawn(
-            move || match AppPaths::discover().and_then(|paths| {
-                paths.ensure()?;
-                Ok(paths)
-            }) {
-                Ok(paths) => run(config, paths, tx, rx, events),
-                Err(error) => report_error(&events, error),
-            },
-        )?;
+        thread::Builder::new()
+            .name("typeaside-engine".into())
+            .spawn(move || {
+                match AppPaths::discover().and_then(|paths| {
+                    paths.ensure()?;
+                    Ok(paths)
+                }) {
+                    Ok(paths) => run(config, paths, tx, rx, events),
+                    Err(error) => report_error(&events, error),
+                }
+            })?;
         Ok((Self { commands }, receiver))
     }
 
@@ -351,15 +353,18 @@ fn run(
                                     dictation.app_id.as_deref(),
                                     config.auto_submit,
                                 )?;
-                                if std::env::var_os("HERMES_TRACE")
+                                if std::env::var_os("TYPEASIDE_TRACE")
                                     .is_some_and(|value| value == "1")
                                 {
-                                    eprintln!("hermes: inject={}ms", started.elapsed().as_millis());
+                                    eprintln!(
+                                        "typeaside: inject={}ms",
+                                        started.elapsed().as_millis()
+                                    );
                                 }
                                 Ok(())
                             })();
                             if let Err(error) = injected {
-                                eprintln!("hermes: paste failed: {error:#}");
+                                eprintln!("typeaside: paste failed: {error:#}");
                                 report_error(&events, "Couldn't paste. Saved to Home.");
                                 if config.sounds {
                                     crate::cues::play(crate::cues::Cue::Error);
@@ -380,7 +385,7 @@ fn run(
                                 Ok(())
                             });
                             if let Err(error) = saved {
-                                eprintln!("hermes: cannot save failed recording: {error:#}");
+                                eprintln!("typeaside: cannot save failed recording: {error:#}");
                             }
                         }
                         let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
@@ -489,7 +494,7 @@ fn run(
                 let pipeline_tx = tx.clone();
                 let (mode, app_id, selection) = context.clone();
                 let spawned = thread::Builder::new()
-                    .name("hermes-transcription".into())
+                    .name("typeaside-transcription".into())
                     .spawn(move || {
                         let tx = pipeline_tx;
                         let result = (|| -> Result<Dictation> {

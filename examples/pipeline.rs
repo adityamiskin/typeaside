@@ -1,16 +1,16 @@
 use anyhow::{Context, Result, bail, ensure};
-use hermes::{
-    config::{AppConfig, Snippet},
-    credentials,
-    engine::Mode,
-    paths::AppPaths,
-    pipeline,
-};
 use std::{
     io::Write,
     path::Path,
     process::{Command, Stdio},
     time::{Duration, Instant},
+};
+use typeaside::{
+    config::{AppConfig, Snippet},
+    credentials,
+    engine::Mode,
+    paths::AppPaths,
+    pipeline,
 };
 
 fn read_wav(path: &Path) -> Result<Vec<f32>> {
@@ -84,7 +84,7 @@ fn fixtures(generate: bool) -> Result<()> {
         ),
     ];
     std::fs::create_dir_all("tests/fixtures")?;
-    std::fs::create_dir_all("/tmp/hermes-perf")?;
+    std::fs::create_dir_all("/tmp/typeaside-perf")?;
     if generate {
         let key = credentials::get_credential("api.openai.com")?
             .context("no OpenAI key in system keyring")?;
@@ -123,7 +123,7 @@ fn fixtures(generate: bool) -> Result<()> {
         }
     }
     let mut report = String::from(
-        "# Hermes real pipeline\n\nRepeat: `cargo run --example pipeline -- --fixtures`\nRegenerate speech: add `--generate-fixtures`. TTS: gpt-4o-mini-tts/alloy. STT: whisper-large-v3-turbo (Groq). LLM: gpt-6-luna (OpenAI). No desktop input or audio device access.\nTranslation case explicitly disables cleanup. Timings include keyring access; no prewarming in this offline-file runner.\n\n| Case | Raw | Output | STT ms | LLM ms | Total ms |\n| --- | --- | --- | ---: | ---: | ---: |\n",
+        "# TypeAside real pipeline\n\nRepeat: `cargo run --example pipeline -- --fixtures`\nRegenerate speech: add `--generate-fixtures`. TTS: gpt-4o-mini-tts/alloy. STT: whisper-large-v3-turbo (Groq). LLM: gpt-6-luna (OpenAI). No desktop input or audio device access.\nTranslation case explicitly disables cleanup. Timings include keyring access; no prewarming in this offline-file runner.\n\n| Case | Raw | Output | STT ms | LLM ms | Total ms |\n| --- | --- | --- | ---: | ---: | ---: |\n",
     );
     for (name, _, translation, selection) in cases {
         let mut config = fixture_config();
@@ -154,7 +154,7 @@ fn fixtures(generate: bool) -> Result<()> {
             output.llm.as_millis(),
             started.elapsed().as_millis()
         ));
-        std::fs::write("/tmp/hermes-perf/pipeline.md", &report)?;
+        std::fs::write("/tmp/typeaside-perf/pipeline.md", &report)?;
         println!(
             "{name}: raw={:?} output={:?} stt={}ms llm={}ms",
             output.raw,
@@ -163,7 +163,7 @@ fn fixtures(generate: bool) -> Result<()> {
             output.llm.as_millis()
         );
     }
-    println!("Artifact: /tmp/hermes-perf/pipeline.md");
+    println!("Artifact: /tmp/typeaside-perf/pipeline.md");
     Ok(())
 }
 

@@ -27,7 +27,7 @@ impl TextInjector {
         };
         Ok(Self {
             keyboard: Enigo::new(&settings)
-                .context("cannot initialize keyboard injection; on macOS grant Hermes Accessibility permission in System Settings")?,
+                .context("cannot initialize keyboard injection; on macOS grant TypeAside Accessibility permission in System Settings")?,
         })
     }
 
@@ -152,7 +152,7 @@ pub(crate) fn primary_selection() -> String {
         result.and_then(|text| restored.map(|()| text))
     }
     copy_selection().unwrap_or_else(|error| {
-        eprintln!("hermes: cannot copy selection: {error:#}");
+        eprintln!("typeaside: cannot copy selection: {error:#}");
         String::new()
     })
 }

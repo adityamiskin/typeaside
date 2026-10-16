@@ -38,7 +38,7 @@ impl TextInjector {
             keys.insert(key);
         }
         let device = VirtualDevice::builder()?
-            .name("Hermes paste keyboard")
+            .name("TypeAside paste keyboard")
             .with_keys(&keys)?
             .build()
             .context("cannot open /dev/uinput")?;

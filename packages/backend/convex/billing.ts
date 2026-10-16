@@ -48,7 +48,7 @@ export const checkout = action({
         customer: user.dodoCustomerId
           ? { customer_id: user.dodoCustomerId }
           : { email: user.email, name: user.name ?? user.email },
-        metadata: { hermes_subject: user.subject },
+        metadata: { typeaside_subject: user.subject },
       },
     });
   },
@@ -84,7 +84,7 @@ export const subscription = internalMutation({
       : existing
         ? await ctx.db.get(existing.userId)
         : null;
-    if (!user) throw new Error("Subscription does not match a Hermes account");
+    if (!user) throw new Error("Subscription does not match a TypeAside account");
     if (user.dodoCustomerId !== args.customerId)
       await ctx.db.patch(user._id, { dodoCustomerId: args.customerId });
     const fields = {

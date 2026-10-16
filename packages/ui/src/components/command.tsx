@@ -8,8 +8,8 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@hermes/ui/components/dialog";
-import { InputGroup, InputGroupAddon } from "@hermes/ui/components/input-group";
+} from "@typeaside/ui/components/dialog";
+import { InputGroup, InputGroupAddon } from "@typeaside/ui/components/input-group";
 import { SearchIcon, CheckIcon } from "lucide-react";
 
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {

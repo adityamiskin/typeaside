@@ -2,7 +2,7 @@ use gpui::{
     App, Div, FontWeight, Global, Hsla, Styled, WindowAppearance, div, prelude::*, px, rgb,
 };
 use gpui_kit::component::{Theme, ThemeMode};
-use hermes::config::Theme as Preference;
+use typeaside::config::Theme as Preference;
 
 pub const MONO: &str = "DejaVu Sans Mono";
 pub const SIDEBAR: f32 = 184.;

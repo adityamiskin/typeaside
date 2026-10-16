@@ -81,7 +81,7 @@ impl HotkeyService {
         let mut devices: Vec<_> = evdev::enumerate()
             .map(|(_, device)| device)
             .filter(|device| {
-                device.name() != Some("Hermes paste keyboard")
+                device.name() != Some("TypeAside paste keyboard")
                     && device.supported_keys().is_some_and(|keys| {
                         keys.contains(KeyCode::KEY_A)
                             && combos.iter().any(|combo| {
@@ -101,7 +101,7 @@ impl HotkeyService {
         }
         let (wake, reader) = UnixStream::pair()?;
         let thread = thread::Builder::new()
-            .name("hermes-hotkeys".into())
+            .name("typeaside-hotkeys".into())
             .spawn(move || {
                 let mut pressed = vec![HashSet::new(); devices.len()];
                 while !devices.is_empty() {

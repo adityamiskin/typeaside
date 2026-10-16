@@ -5,7 +5,7 @@ export const Route = createFileRoute("/docs/$")({
   loader: ({ params }) => loadDocsPage(params._splat?.split("/").filter(Boolean) ?? []),
   head: ({ loaderData }) => ({
     meta: [
-      { title: `${loaderData?.title ?? "Docs"} | Hermes` },
+      { title: `${loaderData?.title ?? "Docs"} | TypeAside` },
       { name: "description", content: loaderData?.description },
     ],
   }),

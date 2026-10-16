@@ -15,7 +15,7 @@ const FEATURES = [
     tint: "#fdf1ef",
     hl: "#f8dcd6",
     t: "It follows your corrections",
-    d: "Change your mind halfway through. Hermes keeps the version you landed on.",
+    d: "Change your mind halfway through. TypeAside keeps the version you landed on.",
     raw: "let's meet tomorrow at [seven, no actually,] three",
     out: "Let's meet tomorrow at three.",
   },

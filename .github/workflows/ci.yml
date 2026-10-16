@@ -31,14 +31,14 @@ jobs:
       - run: cargo build --locked
       - name: Bundle macOS app
         if: runner.os == 'macOS'
-        run: scripts/bundle-macos.sh target/debug/hermes
+        run: scripts/bundle-macos.sh target/debug/typeaside
       - uses: actions/upload-artifact@v4
         with:
-          name: hermes-${{ runner.os }}
+          name: typeaside-${{ runner.os }}
           path: |
-            target/debug/hermes
-            target/debug/hermes.exe
-            target/release/Hermes.app
+            target/debug/typeaside
+            target/debug/typeaside.exe
+            target/release/TypeAside.app
           if-no-files-found: error
   smoke:
     needs: build
@@ -54,7 +54,7 @@ jobs:
           python-version: "3.x"
       - uses: actions/download-artifact@v4
         with:
-          name: hermes-${{ runner.os }}
+          name: typeaside-${{ runner.os }}
           path: smoke-bin
       - name: Linux demo on Weston inside Xvfb
         if: runner.os == 'Linux'
@@ -62,10 +62,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y weston xvfb imagemagick mesa-vulkan-drivers libasound2t64 libwayland-client0 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libxcb-xkb1 libxcb-xfixes0 libxcb-randr0 libx11-xcb1
-          chmod +x smoke-bin/debug/hermes
+          chmod +x smoke-bin/debug/typeaside
           export XDG_RUNTIME_DIR="$(mktemp -d)"
           chmod 700 "$XDG_RUNTIME_DIR"
-          export WAYLAND_DISPLAY=wayland-hermes
+          export WAYLAND_DISPLAY=wayland-typeaside
           xvfb-run -a -s '-screen 0 1280x900x24' bash -euc '
             mkdir -p smoke-artifacts
             weston --backend=x11-backend.so --renderer=pixman --socket="$WAYLAND_DISPLAY" --width=1280 --height=900 --idle-time=0 >smoke-artifacts/weston.log 2>&1 &
@@ -75,16 +75,16 @@ jobs:
               [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
               sleep 0.1
             done
-            python scripts/smoke-demo.py smoke-bin/debug/hermes
+            python scripts/smoke-demo.py smoke-bin/debug/typeaside
           '
       - name: macOS demo
         if: runner.os == 'macOS'
         run: |
-          chmod +x smoke-bin/release/Hermes.app/Contents/MacOS/hermes
-          python scripts/smoke-demo.py smoke-bin/release/Hermes.app/Contents/MacOS/hermes
+          chmod +x smoke-bin/release/TypeAside.app/Contents/MacOS/typeaside
+          python scripts/smoke-demo.py smoke-bin/release/TypeAside.app/Contents/MacOS/typeaside
       - name: Windows demo
         if: runner.os == 'Windows'
-        run: python scripts/smoke-demo.py smoke-bin/debug/hermes.exe
+        run: python scripts/smoke-demo.py smoke-bin/debug/typeaside.exe
       - uses: actions/upload-artifact@v4
         if: always()
         with:

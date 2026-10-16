@@ -1,5 +1,5 @@
 {
-  "name": "@hermes/backend",
+  "name": "@typeaside/backend",
   "version": "1.0.0",
   "description": "",
   "license": "ISC",
@@ -17,7 +17,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@hermes/config": "workspace:*",
+    "@typeaside/config": "workspace:*",
     "@types/node": "^26.6.5",
     "typescript": "catalog:"
   }

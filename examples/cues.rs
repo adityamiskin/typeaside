@@ -1,6 +1,6 @@
 use anyhow::Result;
-use hermes::cues::{self, Cue};
 use std::path::PathBuf;
+use typeaside::cues::{self, Cue};
 
 const RATE: u32 = 48_000;
 
@@ -8,7 +8,7 @@ fn main() -> Result<()> {
     let dir = PathBuf::from(
         std::env::args()
             .nth(1)
-            .unwrap_or("/tmp/hermes-sounds".into()),
+            .unwrap_or("/tmp/typeaside-sounds".into()),
     );
     std::fs::create_dir_all(&dir)?;
     for cue in Cue::ALL {

@@ -1,4 +1,4 @@
-# Hermes backend
+# TypeAside backend
 
 Convex stores WorkOS users, Dodo subscriptions, hashed desktop tokens and weekly word totals. HTTP actions forward audio and cleanup requests to Groq without retaining their content. See the root README for API behavior and local setup.
 

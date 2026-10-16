@@ -17,7 +17,7 @@ fn entry(host: &str) -> Result<Entry> {
         .get_or_init(|| keyring::use_named_store(store_name()).map_err(|error| error.to_string()))
         .clone()
         .map_err(|error| anyhow!("failed to open {} keyring: {error}", store_name()))?;
-    Entry::new("hermes", host).with_context(|| format!("failed to open credential for {host}"))
+    Entry::new("typeaside", host).with_context(|| format!("failed to open credential for {host}"))
 }
 
 pub fn get_credential(host: &str) -> Result<Option<String>> {
@@ -64,7 +64,7 @@ pub(crate) fn endpoint_key(base_url: &str) -> Result<String> {
     {
         return Ok(key.clone());
     }
-    if let Ok(key) = std::env::var("HERMES_API_KEY")
+    if let Ok(key) = std::env::var("TYPEASIDE_API_KEY")
         && !key.trim().is_empty()
     {
         return Ok(key);

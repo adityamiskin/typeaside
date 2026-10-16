@@ -13,8 +13,8 @@
   "iconLibrary": "lucide",
   "aliases": {
     "components": "@/components",
-    "utils": "@hermes/ui/lib/utils",
-    "ui": "@hermes/ui/components",
+    "utils": "@typeaside/ui/lib/utils",
+    "ui": "@typeaside/ui/components",
     "lib": "@/lib",
     "hooks": "@/hooks"
   },

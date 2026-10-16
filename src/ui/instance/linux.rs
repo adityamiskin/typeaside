@@ -33,7 +33,7 @@ pub fn claim(name: &str, show: bool) -> Claim {
 
 pub fn serve(listener: UnixListener, open: async_channel::Sender<crate::ui::tray::Action>) {
     let _ = std::thread::Builder::new()
-        .name("hermes-instance".into())
+        .name("typeaside-instance".into())
         .spawn(move || {
             for mut stream in listener.incoming().flatten() {
                 let mut request = [0; 4];

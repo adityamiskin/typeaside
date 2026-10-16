@@ -28,7 +28,7 @@ function Documentation() {
           title: (
             <span className="docs-logo">
               <Waveform />
-              Hermes
+              TypeAside
             </span>
           ),
           url: "/",

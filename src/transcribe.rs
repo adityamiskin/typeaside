@@ -168,7 +168,7 @@ mod tests {
                 "audio/wav",
                 "name=\"model\"\r\n\r\ntest-model",
                 "name=\"language\"\r\n\r\nen",
-                "name=\"prompt\"\r\n\r\nHermes, Aditya",
+                "name=\"prompt\"\r\n\r\nTypeAside, Aditya",
             ] {
                 assert!(request.contains(field), "missing {field}");
             }
@@ -187,7 +187,7 @@ mod tests {
             model: "test-model".into(),
         };
         config.language = Some("en".into());
-        config.dictionary = vec!["Hermes".into(), "Aditya".into()];
+        config.dictionary = vec!["TypeAside".into(), "Aditya".into()];
         assert_eq!(request(&config, &[0.1; 4800], "test-key")?, "Hello.");
         mock.join()
             .map_err(|_| anyhow::anyhow!("mock panicked"))??;

@@ -32,7 +32,7 @@ impl HotkeyService {
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = stop.clone();
         let (ready, started) = mpsc::sync_channel(1);
-        let thread = thread::Builder::new().name("hermes-hotkeys".into()).spawn(move || {
+        let thread = thread::Builder::new().name("typeaside-hotkeys".into()).spawn(move || {
             let disabled = Cell::new(false);
             let tap = CGEventTap::new(CGEventTapLocation::Session,
                 CGEventTapPlacement::HeadInsertEventTap, CGEventTapOptions::ListenOnly,
@@ -56,8 +56,8 @@ impl HotkeyService {
                     None
                 });
             let Ok(tap) = tap else {
-                eprintln!("hermes: global hotkeys unavailable; enable Accessibility and Input Monitoring in System Settings > Privacy & Security, then restart Hermes");
-                let _ = ready.send(Err("global hotkeys unavailable: grant Hermes Accessibility and Input Monitoring permission in System Settings, then restart Hermes"));
+                eprintln!("typeaside: global hotkeys unavailable; enable Accessibility and Input Monitoring in System Settings > Privacy & Security, then restart TypeAside");
+                let _ = ready.send(Err("global hotkeys unavailable: grant TypeAside Accessibility and Input Monitoring permission in System Settings, then restart TypeAside"));
                 return;
             };
             let Ok(source) = tap.mach_port.create_runloop_source(0) else {

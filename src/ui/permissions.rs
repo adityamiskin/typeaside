@@ -31,7 +31,7 @@ pub fn request() {
         }
     }
     if let Some(message) = notice() {
-        eprintln!("hermes: {message}");
+        eprintln!("typeaside: {message}");
     }
 }
 
@@ -59,7 +59,7 @@ pub fn request_one(index: usize) {
                 let completion = block2::RcBlock::new(|_: objc2::runtime::Bool| {});
                 AVCaptureDevice::requestAccessForMediaType_completionHandler(audio, &completion);
             } else if !statuses()[0] {
-                let _ = hermes::account::open(
+                let _ = typeaside::account::open(
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
                 );
             }
@@ -92,7 +92,7 @@ fn bundled_microphone_description() -> bool {
 pub fn notice() -> Option<String> {
     if !bundled_microphone_description() {
         return Some(
-            "Launch Hermes.app built with scripts/bundle-macos.sh to enable microphone access."
+            "Launch TypeAside.app built with scripts/bundle-macos.sh to enable microphone access."
                 .into(),
         );
     }
@@ -114,7 +114,7 @@ pub fn notice() -> Option<String> {
     .collect::<Vec<_>>();
     (!missing.is_empty()).then(|| {
         format!(
-            "Allow {} for Hermes in System Settings > Privacy & Security, then restart Hermes.",
+            "Allow {} for TypeAside in System Settings > Privacy & Security, then restart TypeAside.",
             missing.join(", ")
         )
     })
