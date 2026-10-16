@@ -13,7 +13,7 @@ for file in TypeAside.dmg TypeAside-setup.exe TypeAside.AppImage typeaside.deb; 
         *.deb) content_type=application/vnd.debian.binary-package ;;
     esac
     for key in "v$VERSION/$file" "$file"; do
-        bunx wrangler@4 r2 object put "hermes-releases/$key" --file "dist/$file" --content-type "$content_type" --remote
+        bunx wrangler@4 r2 object put "typeaside-releases/$key" --file "dist/$file" --content-type "$content_type" --remote
     done
 done
 python3 - <<'MANIFEST'
@@ -30,4 +30,4 @@ for name in files:
 manifest = {"version": os.environ["VERSION"], "files": checksums}
 Path("dist/latest.json").write_text(json.dumps(manifest) + "\n")
 MANIFEST
-bunx wrangler@4 r2 object put hermes-releases/latest.json --file dist/latest.json --content-type application/json --remote
+bunx wrangler@4 r2 object put typeaside-releases/latest.json --file dist/latest.json --content-type application/json --remote
