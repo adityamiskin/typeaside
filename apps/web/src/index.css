@@ -627,6 +627,7 @@ details p {
 footer {
   padding: 72px 0 0;
   overflow: hidden;
+  container-type: inline-size;
 }
 .foot-links {
   display: flex;
@@ -643,7 +644,7 @@ footer {
 }
 .wordmark {
   font-weight: 600;
-  font-size: min(28vw, 340px);
+  font-size: 24.4cqi;
   letter-spacing: -0.07em;
   line-height: 0.78;
   margin: 48px 0 0 -0.04em;
