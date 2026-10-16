@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "hermes",
+  "name": "typeaside",
   "main": "@tanstack/react-start/server-entry",
   "compatibility_date": "2026-10-15",
   "compatibility_flags": ["nodejs_compat"],
@@ -8,7 +8,7 @@
   "routes": [{ "pattern": "typeaside.app", "custom_domain": true }],
   "preview_urls": false,
   "keep_vars": true,
-  "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "hermes-releases" }],
+  "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "typeaside-releases" }],
   "vars": {
     "VITE_CONVEX_URL": "https://doting-rhinoceros-418.convex.cloud",
     "WORKOS_REDIRECT_URI": "https://typeaside.app/api/auth/callback",

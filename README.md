@@ -90,13 +90,13 @@ PATH=$HOME/.cargo/bin:$PATH cargo check
 
 `bun run check` runs Vite+ format, lint and type checks. Rust/vendor files are excluded from the web formatter. `bun run build` builds locally and does not deploy. Deployment uses `bun run deploy` through Wrangler. Workers Builds runs `bun run build:prod` then `bun run deploy` from `apps/web`, on pushes to `main` only. `build:prod` deploys Convex production first (using the `CONVEX_DEPLOY_KEY` build secret), then builds the site, so the backend is never behind the website. Preview builds and preview URLs are disabled. The deployed site uses Convex production, WorkOS Production and Dodo Live mode.
 
-Real WorkOS credentials are needed to verify OAuth, signed-in account UI and browser-to-desktop token handoff. Dodo test credentials, product IDs and a reachable signed webhook endpoint are needed to verify checkout, portal and subscription lifecycle. Groq credentials are needed to verify actual transcription, cleanup and provider responses. Installers are served from the `hermes-releases` R2 bucket through `/releases/<file>`.
+Real WorkOS credentials are needed to verify OAuth, signed-in account UI and browser-to-desktop token handoff. Dodo test credentials, product IDs and a reachable signed webhook endpoint are needed to verify checkout, portal and subscription lifecycle. Groq credentials are needed to verify actual transcription, cleanup and provider responses. Installers are served from the `typeaside-releases` R2 bucket through `/releases/<file>`.
 
 ## Desktop releases
 
 Bump the version in `Cargo.toml` (and update `Cargo.lock` with `cargo check`) and push to `main`. Then run the **Release** workflow manually from the Actions tab (`gh workflow run release.yml --ref main`). It refuses any ref other than `main`. It builds a universal macOS 13+ DMG, a per-user Windows 10/11 installer, and Linux x86_64 Wayland packages on Ubuntu 22.04.
 
-Configure repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The token needs **Workers R2 Storage: Edit** on that account. Releases upload `TypeAside.dmg`, `TypeAside-setup.exe`, `TypeAside.AppImage`, and `typeaside.deb` to `hermes-releases`, plus copies under `v<version>/`. No GitHub Release is created.
+Configure repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The token needs **Workers R2 Storage: Edit** on that account. Releases upload `TypeAside.dmg`, `TypeAside-setup.exe`, `TypeAside.AppImage`, and `typeaside.deb` to `typeaside-releases`, plus copies under `v<version>/`. No GitHub Release is created.
 
 Every run publishes to R2 and also keeps the installers as Actions artifacts. CI runs only on pull requests and pushes to `main`, and smoke-tests debug builds; only the Release workflow builds the optimized binaries.
 
