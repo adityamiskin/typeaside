@@ -7,11 +7,11 @@ use gpui::{
     ClipboardItem, Context, FontFeatures, FontWeight, IntoElement, Styled, div, prelude::*, px,
 };
 use gpui_kit::component::input::Input;
-use hermes::{
+use std::collections::BTreeSet;
+use typeaside::{
     config::{AppCategory, Tone},
     engine::{Command, Dictation},
 };
-use std::collections::BTreeSet;
 
 struct Stats {
     words: usize,
@@ -254,7 +254,7 @@ impl MainWindow {
                                 }
                                 if !s.is_demo {
                                     s.save_error =
-                                        hermes::engine::save_history(&s.paths, &s.history)
+                                        typeaside::engine::save_history(&s.paths, &s.history)
                                             .err()
                                             .map(|e| format!("Could not save history: {e}"));
                                 }

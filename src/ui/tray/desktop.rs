@@ -14,7 +14,7 @@ pub struct TrayHandle {
 
 pub fn spawn(sender: async_channel::Sender<Action>) -> anyhow::Result<TrayHandle> {
     let menu = Menu::new();
-    let open = MenuItem::new("Open Hermes", true, None);
+    let open = MenuItem::new("Open TypeAside", true, None);
     let quit = MenuItem::new("Quit", true, None);
     menu.append_items(&[&open, &quit])?;
     let open_id = open.id().clone();
@@ -39,7 +39,7 @@ pub fn spawn(sender: async_channel::Sender<Action>) -> anyhow::Result<TrayHandle
         }
     }
     let icon = TrayIconBuilder::new()
-        .with_tooltip("Hermes")
+        .with_tooltip("TypeAside")
         .with_menu(Box::new(menu))
         .with_icon(tray_icon::Icon::from_rgba(pixels, 32, 32)?)
         .build()?;

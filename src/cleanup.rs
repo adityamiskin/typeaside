@@ -23,8 +23,8 @@ fn checked_output(raw: &str, output: Result<String>, translation: bool) -> Strin
     let output = match output {
         Ok(output) => output,
         Err(error) => {
-            if std::env::var_os("HERMES_TRACE").is_some_and(|value| value == "1") {
-                eprintln!("hermes: cleanup fallback: {error}");
+            if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+                eprintln!("typeaside: cleanup fallback: {error}");
             }
             return raw.into();
         }

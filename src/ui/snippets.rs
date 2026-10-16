@@ -1,7 +1,7 @@
 use super::{theme::*, window::MainWindow};
 use gpui::{AppContext, Context, Entity, IntoElement, Styled, Window, div, prelude::*, px};
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
-use hermes::config::Snippet;
+use typeaside::config::Snippet;
 pub struct SnippetEditor {
     pub index: Option<usize>,
     pub trigger: Entity<InputState>,

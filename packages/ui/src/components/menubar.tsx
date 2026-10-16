@@ -19,7 +19,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@hermes/ui/components/dropdown-menu";
+} from "@typeaside/ui/components/dropdown-menu";
 import { CheckIcon } from "lucide-react";
 
 function Menubar({ className, ...props }: MenubarPrimitive.Props) {

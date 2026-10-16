@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/privacy")({
-  head: () => ({ meta: [{ title: "Privacy · Hermes" }] }),
+  head: () => ({ meta: [{ title: "Privacy · TypeAside" }] }),
   component: () => (
     <main className="container page legal">
       <h1>Privacy.</h1>
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/privacy")({
       </p>
       <h2>Hosted dictation</h2>
       <p>
-        When you use Free or Pro, Hermes forwards requests to Groq. We keep your account email,
+        When you use Free or Pro, TypeAside forwards requests to Groq. We keep your account email,
         subscription status, device token hashes and daily word totals and an all-time word count to
         provide the service. We do not save the audio or the content of your dictations.
       </p>
@@ -24,8 +24,8 @@ export const Route = createFileRoute("/privacy")({
       <h2>Your own key</h2>
       <p>
         BYOK requests go directly from your computer to your chosen Groq or OpenAI provider. Those
-        requests do not pass through Hermes servers. Your key is stored in your operating system's
-        keychain.
+        requests do not pass through TypeAside servers. Your key is stored in your operating
+        system's keychain.
       </p>
       <h2>Accounts and payments</h2>
       <p>
@@ -42,7 +42,7 @@ export const Route = createFileRoute("/privacy")({
       </p>
       <h2>Contact</h2>
       <p>
-        Hermes is operated by Aditya Miskin in India. Send privacy questions to
+        TypeAside is operated by Aditya Miskin in India. Send privacy questions to
         adityamiskin@gmail.com.
       </p>
     </main>

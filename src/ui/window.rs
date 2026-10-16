@@ -8,7 +8,7 @@ use gpui::{
     Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
-use hermes::{
+use typeaside::{
     config::AppCategory,
     engine::{Command, Phase},
 };
@@ -24,7 +24,7 @@ pub enum Page {
 }
 impl Page {
     pub fn from_demo() -> Self {
-        match std::env::var("HERMES_DEMO_PAGE").as_deref() {
+        match std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() {
             Ok("dictionary") => Self::Dictionary,
             Ok("snippets") => Self::Snippets,
             Ok("style") => Self::Style,
@@ -147,7 +147,7 @@ impl MainWindow {
                 this.hovered_word = Some(3);
             }
             if page == Page::Settings {
-                if std::env::var("HERMES_DEMO_SETTINGS_SCROLL").as_deref() == Ok("bottom") {
+                if std::env::var("TYPEASIDE_DEMO_SETTINGS_SCROLL").as_deref() == Ok("bottom") {
                     cx.spawn(async move |this, cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(150))
@@ -207,8 +207,8 @@ impl MainWindow {
 }
 impl Drop for MainWindow {
     fn drop(&mut self) {
-        if std::env::var("HERMES_TRACE").as_deref() == Ok("1") {
-            eprintln!("hermes main window released");
+        if std::env::var("TYPEASIDE_TRACE").as_deref() == Ok("1") {
+            eprintln!("typeaside main window released");
         }
     }
 }
@@ -221,7 +221,7 @@ impl Render for MainWindow {
                 |_, _, _| (),
                 move |_, _, _, _| {
                     eprintln!(
-                        "hermes first main frame: {:.3} ms",
+                        "typeaside first main frame: {:.3} ms",
                         started.elapsed().as_secs_f64() * 1000.
                     );
                 },
@@ -249,8 +249,8 @@ impl Render for MainWindow {
             .account
             .as_ref()
             .filter(|account| {
-                account.plan == hermes::account::Plan::Free
-                    && state.config.transcription == hermes::config::Source::Hosted
+                account.plan == typeaside::account::Plan::Free
+                    && state.config.transcription == typeaside::config::Source::Hosted
             })
             .map(|account| {
                 let cap = account.usage.cap.unwrap_or(2000);
@@ -303,9 +303,9 @@ impl Render for MainWindow {
                                         }
                                         cx.background_executor()
                                             .spawn(async {
-                                                let _ = hermes::account::open(format!(
+                                                let _ = typeaside::account::open(format!(
                                                     "{}/account",
-                                                    hermes::account::web_url()
+                                                    typeaside::account::web_url()
                                                 ));
                                             })
                                             .detach();
@@ -351,7 +351,7 @@ impl Render for MainWindow {
                     .line_height(px(20.3))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(div().size(px(16.)).rounded(px(4.)).bg(p.blue))
-                    .child("Hermes"),
+                    .child("TypeAside"),
             )
             .children(
                 [
@@ -391,11 +391,11 @@ impl Render for MainWindow {
             .child(div().flex_1())
             .children(state.update.as_ref().map(|release| {
                 let (label, color) = match state.update_status {
-                    hermes::update::Status::Available => {
+                    typeaside::update::Status::Available => {
                         (format!("Update to {}", release.version), p.fg)
                     }
-                    hermes::update::Status::Installing => ("Updating".into(), p.muted),
-                    hermes::update::Status::Failed => ("Update failed".into(), p.red),
+                    typeaside::update::Status::Installing => ("Updating".into(), p.muted),
+                    typeaside::update::Status::Failed => ("Update failed".into(), p.red),
                 };
                 div()
                     .id("install-update")
@@ -408,7 +408,7 @@ impl Render for MainWindow {
                     .gap(px(10.))
                     .text_color(color)
                     .when(
-                        state.update_status != hermes::update::Status::Installing,
+                        state.update_status != typeaside::update::Status::Installing,
                         |row| {
                             row.cursor_pointer()
                                 .hover(|s| s.bg(p.hover))
@@ -452,9 +452,9 @@ impl Render for MainWindow {
                         }
                         cx.background_executor()
                             .spawn(async {
-                                let _ = hermes::account::open(format!(
+                                let _ = typeaside::account::open(format!(
                                     "{}/feedback?version={}&os={}",
-                                    hermes::account::web_url(),
+                                    typeaside::account::web_url(),
                                     env!("CARGO_PKG_VERSION"),
                                     std::env::consts::OS
                                 ));
@@ -609,11 +609,11 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<gpui::AnyWi
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(760.), px(480.))),
             titlebar: Some(gpui::TitlebarOptions {
-                title: Some("Hermes".into()),
+                title: Some("TypeAside".into()),
                 appears_transparent: true,
                 ..Default::default()
             }),
-            app_id: Some("hermes".into()),
+            app_id: Some("typeaside".into()),
             ..Default::default()
         },
         cx,

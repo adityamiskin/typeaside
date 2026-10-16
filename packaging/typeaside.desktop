@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Hermes
-Exec=hermes
-Icon=hermes
+Name=TypeAside
+Exec=typeaside
+Icon=typeaside
 Categories=Utility;
 Terminal=false

@@ -13,7 +13,8 @@ pub struct AppPaths {
 
 impl AppPaths {
     pub fn discover() -> Result<Self> {
-        let dirs = ProjectDirs::from("", "", "hermes").context("cannot resolve app directories")?;
+        let dirs =
+            ProjectDirs::from("", "", "typeaside").context("cannot resolve app directories")?;
         let config_dir = dirs.config_dir().to_path_buf();
         let data_dir = dirs.data_dir().to_path_buf();
         Ok(Self {

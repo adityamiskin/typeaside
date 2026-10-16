@@ -8,11 +8,11 @@ import {
   AuthLoading,
   Unauthenticated,
 } from "convex/react";
-import { api } from "@hermes/backend/convex/_generated/api";
+import { api } from "@typeaside/backend/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
-import { Field, FieldGroup, FieldLabel } from "@hermes/ui/components/field";
-import { Input } from "@hermes/ui/components/input";
-import { Button } from "@hermes/ui/components/button";
+import { Field, FieldGroup, FieldLabel } from "@typeaside/ui/components/field";
+import { Input } from "@typeaside/ui/components/input";
+import { Button } from "@typeaside/ui/components/button";
 import { SignIn } from "../components/site";
 import { BillingToggle, CheckoutButton, type Interval } from "../components/billing";
 import { auth } from "../integrations/auth";
@@ -21,7 +21,7 @@ export const Route = createFileRoute("/account")({
     checkout:
       search.checkout === "monthly" || search.checkout === "yearly" ? search.checkout : undefined,
   }),
-  head: () => ({ meta: [{ title: "Account · Hermes" }] }),
+  head: () => ({ meta: [{ title: "Account · TypeAside" }] }),
   component: Account,
 });
 function Account() {
@@ -375,7 +375,7 @@ function Invoices() {
                   const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
                   const link = document.createElement("a");
                   link.href = url;
-                  link.download = `hermes-invoice-${date}.pdf`;
+                  link.download = `typeaside-invoice-${date}.pdf`;
                   document.body.append(link);
                   link.click();
                   link.remove();

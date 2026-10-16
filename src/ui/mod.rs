@@ -16,14 +16,14 @@ mod tray;
 mod window;
 
 use gpui::{App, AppContext, QuitMode, WindowHandle};
-use hermes::engine::{Command, Dictation, Engine, Event, FailedRecording, Phase};
-use hermes::{config::AppConfig, credentials, paths::AppPaths};
+use typeaside::engine::{Command, Dictation, Engine, Event, FailedRecording, Phase};
+use typeaside::{config::AppConfig, credentials, paths::AppPaths};
 
 pub struct AppState {
-    account: Option<hermes::account::Account>,
+    account: Option<typeaside::account::Account>,
     account_revision: u64,
-    update: Option<hermes::update::Release>,
-    update_status: hermes::update::Status,
+    update: Option<typeaside::update::Release>,
+    update_status: typeaside::update::Status,
     signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     onboarding_own_key: bool,
     config: AppConfig,
@@ -79,9 +79,9 @@ impl AppState {
 pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::Result<()> {
     let paths = AppPaths::discover()?;
     let socket = if is_demo {
-        "hermes-demo.sock"
+        "typeaside-demo.sock"
     } else {
-        "hermes.sock"
+        "typeaside.sock"
     };
     let listener = match instance::claim(socket, !hidden) {
         instance::Claim::Handed => return Ok(()),
@@ -110,21 +110,21 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                 if !is_demo
                     && !cfg!(debug_assertions)
                     && config.launch_at_login
-                    && let Err(error) = hermes::autostart::set_enabled(true)
+                    && let Err(error) = typeaside::autostart::set_enabled(true)
                 {
-                    eprintln!("hermes: cannot register login launch: {error:#}");
+                    eprintln!("typeaside: cannot register login launch: {error:#}");
                 }
                 if is_demo {
-                    match std::env::var("HERMES_THEME").as_deref() {
-                        Ok("light") => config.theme = hermes::config::Theme::Light,
-                        Ok("dark") => config.theme = hermes::config::Theme::Dark,
+                    match std::env::var("TYPEASIDE_THEME").as_deref() {
+                        Ok("light") => config.theme = typeaside::config::Theme::Light,
+                        Ok("dark") => config.theme = typeaside::config::Theme::Dark,
                         _ => {}
                     }
                 }
                 let mut history = if is_demo {
                     demo::history()
                 } else {
-                    hermes::engine::load_history(&load_paths)
+                    typeaside::engine::load_history(&load_paths)
                 };
                 history.sort_by_key(|item| std::cmp::Reverse(item.at));
                 Ok::<_, anyhow::Error>((config, history))
@@ -137,7 +137,7 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                         start_ui(config, paths, history, is_demo, actions, started, cx)
                     }
                     Err(error) => {
-                        eprintln!("hermes: cannot load configuration: {error:#}");
+                        eprintln!("typeaside: cannot load configuration: {error:#}");
                         cx.quit();
                     }
                 });
@@ -176,7 +176,7 @@ fn start_ui(
         account: if is_demo { demo::account() } else { None },
         account_revision: 0,
         update: None,
-        update_status: hermes::update::Status::Available,
+        update_status: typeaside::update::Status::Available,
         signing_in: None,
         onboarding_own_key: false,
         config,
@@ -209,7 +209,7 @@ fn start_ui(
         save_error: None,
         #[cfg(target_os = "macos")]
         permission_notice: if is_demo { None } else { permissions::notice() },
-        trace_started: (std::env::var("HERMES_TRACE").as_deref() == Ok("1")).then_some(started),
+        trace_started: (std::env::var("TYPEASIDE_TRACE").as_deref() == Ok("1")).then_some(started),
         initial_page,
         expanded: None,
         search: String::new(),
@@ -235,9 +235,9 @@ fn start_ui(
         #[cfg(target_os = "linux")]
         let _tray = tray
             .await
-            .inspect_err(|e| eprintln!("hermes: tray unavailable: {e:#}"));
+            .inspect_err(|e| eprintln!("typeaside: tray unavailable: {e:#}"));
         #[cfg(not(target_os = "linux"))]
-        let _tray = tray.inspect_err(|e| eprintln!("hermes: tray unavailable: {e:#}"));
+        let _tray = tray.inspect_err(|e| eprintln!("typeaside: tray unavailable: {e:#}"));
         while let Ok(action) = actions.recv().await {
             cx.update(|cx| match action {
                 tray::Action::Quit => cx.quit(),
@@ -248,7 +248,7 @@ fn start_ui(
                     if !activated {
                         match window::open(tray_state.clone(), cx) {
                             Ok(window) => main_window = Some(window),
-                            Err(e) => eprintln!("hermes: cannot open main window: {e:#}"),
+                            Err(e) => eprintln!("typeaside: cannot open main window: {e:#}"),
                         }
                     }
                 }
@@ -263,7 +263,7 @@ fn start_ui(
             let stt = key_hint(&config.stt.base_url);
             let editing = key_hint(&config.cleanup.endpoint.base_url);
             let mut devices = vec!["System default".to_owned()];
-            if let Ok(inputs) = hermes::audio::list_input_devices() {
+            if let Ok(inputs) = typeaside::audio::list_input_devices() {
                 devices.extend(inputs.into_iter().map(|input| input.name));
             }
             devices.dedup();
@@ -294,7 +294,10 @@ fn start_ui(
                 if config.share_usage {
                     cx.background_executor()
                         .spawn(async move {
-                            hermes::telemetry::send(&config, &hermes::engine::load_history(&paths));
+                            typeaside::telemetry::send(
+                                &config,
+                                &typeaside::engine::load_history(&paths),
+                            );
                         })
                         .await;
                 }
@@ -353,7 +356,7 @@ fn start_ui(
                     });
                 }
                 Event::Done(dictation) => {
-                    if state.read(cx).config.transcription == hermes::config::Source::Hosted {
+                    if state.read(cx).config.transcription == typeaside::config::Source::Hosted {
                         refresh_account(&state, cx);
                     }
                     state.update(cx, |s, cx| {
@@ -374,7 +377,7 @@ fn start_ui(
                 }
                 Event::Phase(phase) => {
                     if matches!(&phase, Phase::Error(error) if error.contains("Weekly free limit reached"))
-                        && state.read(cx).config.transcription == hermes::config::Source::Hosted
+                        && state.read(cx).config.transcription == typeaside::config::Source::Hosted
                     {
                         refresh_account(&state, cx);
                     }
@@ -413,9 +416,9 @@ fn key_hint(endpoint: &str) -> String {
 }
 
 fn trace(stage: &str, started: std::time::Instant) {
-    if std::env::var("HERMES_TRACE").as_deref() == Ok("1") {
+    if std::env::var("TYPEASIDE_TRACE").as_deref() == Ok("1") {
         eprintln!(
-            "hermes startup {stage}: {:.3} ms",
+            "typeaside startup {stage}: {:.3} ms",
             started.elapsed().as_secs_f64() * 1000.
         );
     }
@@ -432,7 +435,7 @@ fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
     let state = state.clone();
     let task = cx
         .background_executor()
-        .spawn(async { hermes::account::me() });
+        .spawn(async { typeaside::account::me() });
     cx.spawn(async move |cx| {
         if let Ok(account) = task.await {
             state.update(cx, |s, cx| {
@@ -454,18 +457,18 @@ fn schedule_updates(state: &gpui::Entity<AppState>, cx: &mut App) {
             cx.background_executor().timer(delay).await;
             let result = cx
                 .background_executor()
-                .spawn(async { hermes::update::check() })
+                .spawn(async { typeaside::update::check() })
                 .await;
             let Some(state) = state.upgrade() else { break };
             match result {
                 Ok(release) => state.update(cx, |s, cx| {
-                    if s.update_status != hermes::update::Status::Installing {
+                    if s.update_status != typeaside::update::Status::Installing {
                         s.update = release;
-                        s.update_status = hermes::update::Status::Available;
+                        s.update_status = typeaside::update::Status::Available;
                         cx.notify();
                     }
                 }),
-                Err(error) => eprintln!("hermes: update check failed: {error:#}"),
+                Err(error) => eprintln!("typeaside: update check failed: {error:#}"),
             }
             delay = std::time::Duration::from_secs(6 * 60 * 60);
         }
@@ -475,13 +478,14 @@ fn schedule_updates(state: &gpui::Entity<AppState>, cx: &mut App) {
 
 fn install_update(state: &gpui::Entity<AppState>, cx: &mut App) {
     let current = state.read(cx);
-    if current.is_demo || current.update_status == hermes::update::Status::Installing {
+    if current.is_demo || current.update_status == typeaside::update::Status::Installing {
         return;
     }
-    if current.update_status == hermes::update::Status::Failed {
+    if current.update_status == typeaside::update::Status::Failed {
         cx.background_executor()
             .spawn(async {
-                let _ = hermes::account::open(format!("{}/download", hermes::account::web_url()));
+                let _ =
+                    typeaside::account::open(format!("{}/download", typeaside::account::web_url()));
             })
             .detach();
         return;
@@ -490,21 +494,21 @@ fn install_update(state: &gpui::Entity<AppState>, cx: &mut App) {
         return;
     };
     state.update(cx, |s, cx| {
-        s.update_status = hermes::update::Status::Installing;
+        s.update_status = typeaside::update::Status::Installing;
         cx.notify();
     });
     let state = state.clone();
     let task = cx
         .background_executor()
-        .spawn(async move { hermes::update::install(&release) });
+        .spawn(async move { typeaside::update::install(&release) });
     cx.spawn(async move |cx| {
         let result = task.await;
         state.update(cx, |s, cx| {
             s.update_status = match result {
-                Ok(()) => hermes::update::Status::Available,
+                Ok(()) => typeaside::update::Status::Available,
                 Err(error) => {
-                    eprintln!("hermes: update failed: {error:#}");
-                    hermes::update::Status::Failed
+                    eprintln!("typeaside: update failed: {error:#}");
+                    typeaside::update::Status::Failed
                 }
             };
             cx.notify();

@@ -1,8 +1,8 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useMutation, Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import { useState } from "react";
-import { api } from "@hermes/backend/convex/_generated/api";
-import { Button } from "@hermes/ui/components/button";
+import { api } from "@typeaside/backend/convex/_generated/api";
+import { Button } from "@typeaside/ui/components/button";
 import { auth } from "../../integrations/auth";
 import { detectOS } from "../../lib/downloads";
 import { SignIn } from "../../components/site";
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/desktop/connect")({
       });
   },
   head: () => ({
-    meta: [{ title: "Connect Hermes" }, { name: "referrer", content: "no-referrer" }],
+    meta: [{ title: "Connect TypeAside" }, { name: "referrer", content: "no-referrer" }],
   }),
   component: Connect,
 });
@@ -39,7 +39,7 @@ function Connect() {
     return (
       <main className="container page narrow">
         <h1>Invalid connection link.</h1>
-        <p className="lead">Open Connect from the Hermes app to try again.</p>
+        <p className="lead">Open Connect from the TypeAside app to try again.</p>
       </main>
     );
   return (
@@ -71,7 +71,7 @@ function ConnectContent({ port, state }: { port: number; state: string }) {
         <p className="lead">Connected. You can close this tab.</p>
       ) : (
         <>
-          <p className="connect-prompt">Connect Hermes on this computer?</p>
+          <p className="connect-prompt">Connect TypeAside on this computer?</p>
           <div className="connect-actions">
             <Button
               disabled={busy}

@@ -9,7 +9,7 @@ use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
     select::{Select, SelectEvent, SelectState},
 };
-use hermes::config::{AppConfig, RecordingMode, Source, Theme};
+use typeaside::config::{AppConfig, RecordingMode, Source, Theme};
 
 const LANGUAGES: [(&str, &str); 12] = [
     ("English", "en"),
@@ -249,9 +249,9 @@ impl MainWindow {
                     s.persist();
                     if matches!(field, Selection::Device) && s.mic_testing {
                         s.command(if !s.config.onboarded {
-                            hermes::engine::Command::MicPreview
+                            typeaside::engine::Command::MicPreview
                         } else {
-                            hermes::engine::Command::MicTest(true)
+                            typeaside::engine::Command::MicTest(true)
                         });
                     }
                     cx.notify();
@@ -279,9 +279,9 @@ impl MainWindow {
             s.config.stt.base_url.clone()
         };
         let task = cx.background_executor().spawn(async move {
-            let host = hermes::credentials::endpoint_host(&endpoint)?;
+            let host = typeaside::credentials::endpoint_host(&endpoint)?;
             if !demo {
-                hermes::credentials::save_credential(&host, &key)?;
+                typeaside::credentials::save_credential(&host, &key)?;
             }
             Ok::<_, anyhow::Error>(host)
         });
@@ -297,14 +297,14 @@ impl MainWindow {
             let result = task.await;
             state.update(cx, |s, cx| {
                 if let Ok(host) = result {
-                    if hermes::credentials::endpoint_host(&s.config.stt.base_url)
+                    if typeaside::credentials::endpoint_host(&s.config.stt.base_url)
                         .ok()
                         .as_ref()
                         == Some(&host)
                     {
                         s.key_hint = "Saved in keyring".into();
                     }
-                    if hermes::credentials::endpoint_host(&s.config.cleanup.endpoint.base_url)
+                    if typeaside::credentials::endpoint_host(&s.config.cleanup.endpoint.base_url)
                         .ok()
                         .as_ref()
                         == Some(&host)
@@ -421,7 +421,7 @@ impl MainWindow {
                             }
                             Toggle::Login => {
                                 if !s.is_demo
-                                    && let Err(e) = hermes::autostart::set_enabled(!on)
+                                    && let Err(e) = typeaside::autostart::set_enabled(!on)
                                 {
                                     s.save_error =
                                         Some(format!("Could not change login launch: {e}"));
@@ -454,7 +454,7 @@ impl MainWindow {
             if demo {
                 return Err(anyhow::anyhow!("Sign in is unavailable in demo mode"));
             }
-            hermes::account::sign_in(&task_cancel)
+            typeaside::account::sign_in(&task_cancel)
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -513,7 +513,7 @@ impl MainWindow {
                     })
                     .unwrap_or_default();
                 format!("Weekly limit reached, resets {resets}")
-            } else if account.plan == hermes::account::Plan::Pro {
+            } else if account.plan == typeaside::account::Plan::Pro {
                 "Pro".into()
             } else {
                 format!(
@@ -538,9 +538,9 @@ impl MainWindow {
                             }
                             cx.background_executor()
                                 .spawn(async {
-                                    let _ = hermes::account::open(format!(
+                                    let _ = typeaside::account::open(format!(
                                         "{}/account",
-                                        hermes::account::web_url()
+                                        typeaside::account::web_url()
                                     ));
                                 })
                                 .detach();
@@ -555,7 +555,7 @@ impl MainWindow {
                             let demo = this.state.read(cx).is_demo;
                             let task = cx.background_executor().spawn(async move {
                                 if !demo {
-                                    hermes::account::sign_out(&mut config)?;
+                                    typeaside::account::sign_out(&mut config)?;
                                 }
                                 Ok::<_, anyhow::Error>(config.transcription)
                             });
@@ -619,7 +619,7 @@ impl MainWindow {
         );
         let source = segmented(
             [
-                (Source::Hosted, "Hermes account"),
+                (Source::Hosted, "TypeAside account"),
                 (Source::OwnKey, "Own key"),
             ],
             c.transcription,
@@ -787,22 +787,22 @@ impl MainWindow {
                                 let status = self.state.read(cx).update_status;
                                 button(
                                     match status {
-                                        hermes::update::Status::Available => "Update",
-                                        hermes::update::Status::Installing => "Updating",
-                                        hermes::update::Status::Failed => "Update failed",
+                                        typeaside::update::Status::Available => "Update",
+                                        typeaside::update::Status::Installing => "Updating",
+                                        typeaside::update::Status::Failed => "Update failed",
                                     },
                                     true,
                                     p,
                                 )
                                 .id("version-update")
-                                .when(status == hermes::update::Status::Installing, |button| {
+                                .when(status == typeaside::update::Status::Installing, |button| {
                                     button.text_color(p.muted)
                                 })
-                                .when(status == hermes::update::Status::Failed, |button| {
+                                .when(status == typeaside::update::Status::Failed, |button| {
                                     button.text_color(p.red)
                                 })
                                 .when(
-                                    status != hermes::update::Status::Installing,
+                                    status != typeaside::update::Status::Installing,
                                     |button| {
                                         button.on_click(cx.listener(|this, _, _, cx| {
                                             super::install_update(&this.state, cx)
@@ -817,7 +817,7 @@ impl MainWindow {
                                         let folder = this.state.read(cx).paths.config_dir.clone();
                                         cx.background_executor()
                                             .spawn(async move {
-                                                let _ = hermes::account::open(folder);
+                                                let _ = typeaside::account::open(folder);
                                             })
                                             .detach();
                                     })),

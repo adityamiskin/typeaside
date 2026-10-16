@@ -1,6 +1,6 @@
 use super::{home::tone_label, theme::*, window::MainWindow};
 use gpui::{Context, IntoElement, Styled, div, prelude::*, px};
-use hermes::config::{AppCategory, Tone};
+use typeaside::config::{AppCategory, Tone};
 const EXAMPLES: [[&str; 3]; 4] = [
     [
         "Would you like to meet for lunch tomorrow at noon?",

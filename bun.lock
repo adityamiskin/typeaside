@@ -3,14 +3,14 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "hermes",
+      "name": "typeaside",
       "dependencies": {
-        "@hermes/env": "workspace:*",
+        "@typeaside/env": "workspace:*",
         "zod": "catalog:",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^5.20261014.1",
-        "@hermes/config": "workspace:*",
+        "@typeaside/config": "workspace:*",
         "@types/node": "^26.6.5",
         "typescript": "catalog:",
         "vite": "catalog:",
@@ -22,14 +22,14 @@
       "dependencies": {
         "@convex-dev/react-query": "^0.1.0",
         "@fontsource-variable/hanken-grotesk": "^5.3.0",
-        "@hermes/backend": "workspace:*",
-        "@hermes/env": "workspace:*",
-        "@hermes/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "@tanstack/react-query": "^5.104.2",
         "@tanstack/react-router": "^1.170.44",
         "@tanstack/react-router-ssr-query": "^1.167.3",
         "@tanstack/react-start": "^1.169.2",
+        "@typeaside/backend": "workspace:*",
+        "@typeaside/env": "workspace:*",
+        "@typeaside/ui": "workspace:*",
         "@workos/authkit-tanstack-react-start": "catalog:",
         "convex": "catalog:",
         "fumadocs-core": "^16.17.3",
@@ -44,7 +44,7 @@
       },
       "devDependencies": {
         "@cloudflare/vite-plugin": "^1.64.0",
-        "@hermes/config": "workspace:*",
+        "@typeaside/config": "workspace:*",
         "@types/mdx": "^2.0.14",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
@@ -56,7 +56,7 @@
       },
     },
     "packages/backend": {
-      "name": "@hermes/backend",
+      "name": "@typeaside/backend",
       "version": "1.0.0",
       "dependencies": {
         "@convex-dev/rate-limiter": "^0.4.2",
@@ -65,30 +65,30 @@
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@hermes/config": "workspace:*",
+        "@typeaside/config": "workspace:*",
         "@types/node": "^26.6.5",
         "typescript": "catalog:",
       },
     },
     "packages/config": {
-      "name": "@hermes/config",
+      "name": "@typeaside/config",
       "version": "0.0.0",
     },
     "packages/env": {
-      "name": "@hermes/env",
+      "name": "@typeaside/env",
       "version": "0.0.0",
       "dependencies": {
         "@t3-oss/env-core": "^0.13.11",
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@hermes/config": "workspace:*",
+        "@typeaside/config": "workspace:*",
         "@types/node": "^26.6.5",
         "typescript": "catalog:",
       },
     },
     "packages/ui": {
-      "name": "@hermes/ui",
+      "name": "@typeaside/ui",
       "version": "0.0.0",
       "dependencies": {
         "@base-ui/react": "^1.9.0",
@@ -113,8 +113,8 @@
         "tw-animate-css": "^1.4.0",
       },
       "devDependencies": {
-        "@hermes/config": "workspace:*",
         "@tailwindcss/postcss": "^4.3.3",
+        "@typeaside/config": "workspace:*",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
         "tailwindcss": "catalog:",
@@ -312,14 +312,6 @@
     "@fumadocs/tailwind": ["@fumadocs/tailwind@0.1.3", "", { "peerDependencies": { "tailwindcss": "^4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-gDgLbTnY5b+nogCg2y/pP7GsaQS4Zt/0vftJAu07Wy7Wsb3/lwd9GwoGqccCnPElTFwMG+pPwrmHXBPexEfE8A=="],
 
     "@fumari/image-size": ["@fumari/image-size@0.1.1", "", {}, "sha512-iaiV2wyzJ4mW358NX4CX3yGit+WjKYzpaQ+rldK9BjL/5jFpeV6ruWnZVq7MEyMn3Gd0DLi8g/79NZAAQaGscw=="],
-
-    "@hermes/backend": ["@hermes/backend@workspace:packages/backend"],
-
-    "@hermes/config": ["@hermes/config@workspace:packages/config"],
-
-    "@hermes/env": ["@hermes/env@workspace:packages/env"],
-
-    "@hermes/ui": ["@hermes/ui@workspace:packages/ui"],
 
     "@hono/node-server": ["@hono/node-server@1.19.17", "", { "peerDependencies": { "hono": "^4" } }, "sha512-dSneS5qhiauZWGDCeK4o695Xd9nUNjviSZCMQrj10eetr8Uln1ucn6bbphOM6UynAMMtNIzZNSpL9vnASJwrPQ=="],
 
@@ -696,6 +688,14 @@
     "@testing-library/user-event": ["@testing-library/user-event@14.6.8", "", { "peerDependencies": { "@testing-library/dom": ">=7.21.4" } }, "sha512-vgSSqnANMnkcYR/vUNDbwS7aM3OErRLNUG8vCVVlj4oc6cKffUrccX7UAS5AmJQQNZTSibi9z5GvvRZ0aYgUCQ=="],
 
     "@ts-morph/common": ["@ts-morph/common@0.27.0", "", { "dependencies": { "fast-glob": "^3.3.3", "minimatch": "^10.0.1", "path-browserify": "^1.0.1" } }, "sha512-Wf29UqxWDpc+i61k3oIOzcUfQt79PIT9y/MWfAGlrkjg6lBC1hwDECLXPVJAhWjiGbfBCxZd65F/LIZF3+jeJQ=="],
+
+    "@typeaside/backend": ["@typeaside/backend@workspace:packages/backend"],
+
+    "@typeaside/config": ["@typeaside/config@workspace:packages/config"],
+
+    "@typeaside/env": ["@typeaside/env@workspace:packages/env"],
+
+    "@typeaside/ui": ["@typeaside/ui@workspace:packages/ui"],
 
     "@types/aria-query": ["@types/aria-query@5.0.4", "", {}, "sha512-rfT93uj5s0PRL7EzccGMs3brplhcrghnDoV26NqKhCAS1hVo+WdNsPvE/yb6ilfr5hi2MEk6d5EWJTKdxg8jVw=="],
 

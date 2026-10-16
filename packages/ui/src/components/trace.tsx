@@ -5,7 +5,7 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@hermes/ui/components/collapsible";
+} from "@typeaside/ui/components/collapsible";
 import { ChevronRightIcon } from "lucide-react";
 
 function Trace({ className, ...props }: React.ComponentProps<"div">) {

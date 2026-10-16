@@ -66,36 +66,35 @@ impl HotkeyService {
     pub fn start(config: &AppConfig, emit: impl Fn(HotkeyEvent) + Send + 'static) -> Result<Self> {
         let state = State::new(config, emit)?;
         let (ready, started) = mpsc::sync_channel(1);
-        let thread =
-            thread::Builder::new()
-                .name("hermes-hotkeys".into())
-                .spawn(move || unsafe {
-                    let held = MODIFIERS.iter().enumerate().fold(0, |bits, (index, key)| {
-                        if GetAsyncKeyState(i32::from(*key)) < 0 {
-                            bits | (1 << index)
-                        } else {
-                            bits
-                        }
-                    });
-                    PHYSICAL_MODIFIERS.store(held, Ordering::Relaxed);
-                    STATE.with_borrow_mut(|slot| *slot = Some(state));
-                    let mut message = MSG::default();
-                    let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
-                    let hook = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), None, 0) {
-                        Ok(hook) => hook,
-                        Err(error) => {
-                            let _ = ready.send(Err(error.to_string()));
-                            return;
-                        }
-                    };
-                    let _ = ready.send(Ok(GetCurrentThreadId()));
-                    while GetMessageW(&mut message, None, 0, 0).0 > 0 {
-                        let _ = TranslateMessage(&message);
-                        DispatchMessageW(&message);
+        let thread = thread::Builder::new()
+            .name("typeaside-hotkeys".into())
+            .spawn(move || unsafe {
+                let held = MODIFIERS.iter().enumerate().fold(0, |bits, (index, key)| {
+                    if GetAsyncKeyState(i32::from(*key)) < 0 {
+                        bits | (1 << index)
+                    } else {
+                        bits
                     }
-                    let _ = UnhookWindowsHookEx(hook);
-                    STATE.with_borrow_mut(|slot| *slot = None);
-                })?;
+                });
+                PHYSICAL_MODIFIERS.store(held, Ordering::Relaxed);
+                STATE.with_borrow_mut(|slot| *slot = Some(state));
+                let mut message = MSG::default();
+                let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
+                let hook = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), None, 0) {
+                    Ok(hook) => hook,
+                    Err(error) => {
+                        let _ = ready.send(Err(error.to_string()));
+                        return;
+                    }
+                };
+                let _ = ready.send(Ok(GetCurrentThreadId()));
+                while GetMessageW(&mut message, None, 0, 0).0 > 0 {
+                    let _ = TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                let _ = UnhookWindowsHookEx(hook);
+                STATE.with_borrow_mut(|slot| *slot = None);
+            })?;
         let thread_id = started
             .recv()
             .context("hotkey thread exited during startup")?

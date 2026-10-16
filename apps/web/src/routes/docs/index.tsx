@@ -5,7 +5,7 @@ export const Route = createFileRoute("/docs/")({
   loader: () => loadDocsPage([]),
   head: ({ loaderData }) => ({
     meta: [
-      { title: `${loaderData?.title ?? "Docs"} | Hermes` },
+      { title: `${loaderData?.title ?? "Docs"} | TypeAside` },
       { name: "description", content: loaderData?.description },
     ],
   }),

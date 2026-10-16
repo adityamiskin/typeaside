@@ -6,8 +6,8 @@ use gpui::{
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div,
     fill, font, point, prelude::*, px, size,
 };
-use hermes::engine::Phase;
 use std::time::{Duration, Instant};
+use typeaside::engine::Phase;
 
 #[derive(Clone, PartialEq)]
 enum Visual {
@@ -73,7 +73,7 @@ impl Overlay {
     pub fn phase(&mut self, phase: Phase, window: &mut Window, cx: &mut Context<Self>) {
         let next = match phase {
             Phase::Listening(mode) => {
-                self.command = mode == hermes::engine::Mode::Command;
+                self.command = mode == typeaside::engine::Mode::Command;
                 cx.notify();
                 Visual::Listening
             }
@@ -229,20 +229,21 @@ impl Render for Overlay {
             Visual::Cancel => "cancel",
             Visual::Exit => "exit",
         };
-        let trace =
-            if self.traced != Some(kind) && std::env::var("HERMES_TRACE").as_deref() == Ok("1") {
-                self.traced = Some(kind);
-                Some(
-                    canvas(
-                        |_, _, _| (),
-                        move |_, _, _, _| eprintln!("hermes overlay frame: {kind}"),
-                    )
-                    .absolute()
-                    .size(px(1.)),
+        let trace = if self.traced != Some(kind)
+            && std::env::var("TYPEASIDE_TRACE").as_deref() == Ok("1")
+        {
+            self.traced = Some(kind);
+            Some(
+                canvas(
+                    |_, _, _| (),
+                    move |_, _, _, _| eprintln!("typeaside overlay frame: {kind}"),
                 )
-            } else {
-                None
-            };
+                .absolute()
+                .size(px(1.)),
+            )
+        } else {
+            None
+        };
 
         let scale = self.scale.value;
         let width = self.width.value * scale;
@@ -425,7 +426,7 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
         WindowOptions {
             titlebar: None,
             focus: false,
-            app_id: Some("hermes-overlay".into()),
+            app_id: Some("typeaside-overlay".into()),
             window_background: WindowBackgroundAppearance::Transparent,
             #[cfg(target_os = "linux")]
             window_bounds: Some(WindowBounds::Windowed(Bounds::new(
@@ -449,7 +450,7 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
             is_minimizable: false,
             #[cfg(target_os = "linux")]
             kind: WindowKind::LayerShell(LayerShellOptions {
-                namespace: "hermes-overlay".into(),
+                namespace: "typeaside-overlay".into(),
                 layer: Layer::Overlay,
                 anchor: Anchor::BOTTOM,
                 keyboard_interactivity: KeyboardInteractivity::None,

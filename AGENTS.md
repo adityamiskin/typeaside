@@ -15,13 +15,13 @@ Bun monorepo:
 
 - Use Bun commands: `bun install`, `bun run dev`, `bun run build`, `bun run check`.
 - Do not introduce another backend, auth provider, deployment target, formatter, or linter.
-- Use shadcn primitives from `@hermes/ui/components/*` before adding custom UI.
+- Use shadcn primitives from `@typeaside/ui/components/*` before adding custom UI.
 - This shadcn setup uses Base UI. Use exported class helpers like `buttonVariants` for link-styled buttons instead of Radix `asChild`.
 - Keep deployment on Cloudflare through Wrangler.
 - Worker bindings are declared in `apps/web/wrangler.jsonc`. Read them with `import { env } from "cloudflare:workers"` inside request handlers, not at module scope.
 - Do not put secrets in public `VITE_` variables.
 
-- Keep Convex functions in `packages/backend/convex` and import APIs from `@hermes/backend/convex/_generated/api`.
+- Keep Convex functions in `packages/backend/convex` and import APIs from `@typeaside/backend/convex/_generated/api`.
 - Run `bun run codegen` after adding or renaming Convex functions.
 
 ## Environment

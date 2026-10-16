@@ -5,19 +5,19 @@ pub enum Action {
     Open,
     Quit,
 }
-struct HermesTray {
+struct TypeAsideTray {
     sender: async_channel::Sender<Action>,
 }
 
-impl Tray for HermesTray {
+impl Tray for TypeAsideTray {
     fn id(&self) -> String {
-        "hermes".into()
+        "typeaside".into()
     }
     fn title(&self) -> String {
-        "Hermes".into()
+        "TypeAside".into()
     }
     fn icon_name(&self) -> String {
-        "hermes".into()
+        "typeaside".into()
     }
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
         let mut pixels = vec![0; 32 * 32 * 4];
@@ -41,7 +41,7 @@ impl Tray for HermesTray {
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         vec![
             StandardItem {
-                label: "Open Hermes".into(),
+                label: "Open TypeAside".into(),
                 activate: Box::new(|this: &mut Self| {
                     let _ = this.sender.try_send(Action::Open);
                 }),
@@ -61,10 +61,10 @@ impl Tray for HermesTray {
 }
 
 pub struct TrayHandle {
-    _handle: Handle<HermesTray>,
+    _handle: Handle<TypeAsideTray>,
 }
 
 pub fn spawn(sender: async_channel::Sender<Action>) -> anyhow::Result<TrayHandle> {
-    let handle = HermesTray { sender }.spawn()?;
+    let handle = TypeAsideTray { sender }.spawn()?;
     Ok(TrayHandle { _handle: handle })
 }

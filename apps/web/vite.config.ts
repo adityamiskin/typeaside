@@ -24,9 +24,9 @@ export default defineConfig(({ mode }) => {
             OnceExit(root, { result }) {
               const file = result.opts.from?.split("?")[0];
               const scope = file?.endsWith("/src/styles/docs.css")
-                ? "html.hermes-docs"
+                ? "html.typeaside-docs"
                 : file?.endsWith("/src/index.css")
-                  ? "html:not(.hermes-docs)"
+                  ? "html:not(.typeaside-docs)"
                   : undefined;
               if (!scope) return;
               root.walkRules((rule) => {

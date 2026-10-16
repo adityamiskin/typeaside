@@ -12,8 +12,8 @@ pub fn set_enabled(enabled: bool) -> Result<()> {
     )?;
     if enabled {
         let exe = std::env::current_exe()?;
-        key.set_value("Hermes", &format!("\"{}\" --hidden", exe.display()))?;
-    } else if let Err(error) = key.delete_value("Hermes")
+        key.set_value("typeaside", &format!("\"{}\" --hidden", exe.display()))?;
+    } else if let Err(error) = key.delete_value("typeaside")
         && error.kind() != std::io::ErrorKind::NotFound
     {
         return Err(error.into());

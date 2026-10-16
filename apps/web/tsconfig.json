@@ -22,7 +22,7 @@
     "paths": {
       "collections/*": ["./.source/*"],
       "@/*": ["./src/*"],
-      "@hermes/ui/*": ["../../packages/ui/src/*"]
+      "@typeaside/ui/*": ["../../packages/ui/src/*"]
     }
   }
 }

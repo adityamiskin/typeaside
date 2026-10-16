@@ -12,9 +12,9 @@ use std::{
 };
 
 pub fn hosted_url() -> String {
-    std::env::var("HERMES_API_URL")
+    std::env::var("TYPEASIDE_API_URL")
         .unwrap_or_else(|_| {
-            option_env!("HERMES_API_URL")
+            option_env!("TYPEASIDE_API_URL")
                 .unwrap_or("https://doting-rhinoceros-418.convex.site")
                 .into()
         })
@@ -22,10 +22,10 @@ pub fn hosted_url() -> String {
         .into()
 }
 pub fn web_url() -> String {
-    std::env::var("HERMES_WEB_URL")
+    std::env::var("TYPEASIDE_WEB_URL")
         .unwrap_or_else(|_| {
-            option_env!("HERMES_WEB_URL")
-                .unwrap_or("https://hermes.adityamiskin98.workers.dev")
+            option_env!("TYPEASIDE_WEB_URL")
+                .unwrap_or("https://typeaside.app")
                 .into()
         })
         .trim_end_matches('/')
@@ -149,7 +149,7 @@ fn receive_callback(
     bail!("Sign in timed out")
 }
 
-const CONNECTED_PAGE: &str = "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f9f9f8;color:#16171a;font-family:Inter,system-ui,sans-serif}</style><p>Hermes is connected. You can close this tab.</p>";
+const CONNECTED_PAGE: &str = "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f9f9f8;color:#16171a;font-family:Inter,system-ui,sans-serif}</style><p>TypeAside is connected. You can close this tab.</p>";
 
 fn callback_token(request_line: &str, state: &str) -> Option<String> {
     let target = request_line
@@ -265,7 +265,7 @@ mod wrong_state_malformed_token_other_paths_valid_callback_and_timeout {
             ])
             .output()?;
         assert!(response.status.success());
-        assert!(String::from_utf8(response.stdout)?.contains("Hermes is connected."));
+        assert!(String::from_utf8(response.stdout)?.contains("TypeAside is connected."));
         assert_eq!(
             worker.join().expect("listener thread")?,
             format!("hm_{}", "b".repeat(43))

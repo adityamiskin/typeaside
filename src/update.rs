@@ -73,11 +73,11 @@ pub fn check() -> Result<Option<Release>> {
         .error_for_status()?
         .text()?;
     let file = if cfg!(target_os = "macos") {
-        "Hermes.dmg"
+        "TypeAside.dmg"
     } else if cfg!(target_os = "windows") {
-        "Hermes-setup.exe"
+        "TypeAside-setup.exe"
     } else {
-        "Hermes.AppImage"
+        "TypeAside.AppImage"
     };
     parse_manifest(&body, env!("CARGO_PKG_VERSION"), file)
 }
@@ -107,7 +107,7 @@ impl TemporaryDirectory {
         getrandom::fill(&mut random)
             .map_err(|_| anyhow::anyhow!("Could not create update directory"))?;
         let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
-        let path = parent.join(format!(".hermes-update-{suffix}"));
+        let path = parent.join(format!(".typeaside-update-{suffix}"));
         fs::create_dir(&path)?;
         Ok(Self(path))
     }
@@ -173,7 +173,7 @@ pub fn install(release: &Release) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o755))?;
         fs::rename(&installer, &destination)?;
-        if std::env::var_os("HERMES_SERVICE").is_some() {
+        if std::env::var_os("TYPEASIDE_SERVICE").is_some() {
             // The service's cgroup dies with this process, taking a relaunch script with it.
             // systemd restarts the new binary instead; the marker reopens its window.
             fs::write(restart_marker(), b"")?;
@@ -196,10 +196,10 @@ pub fn install(release: &Release) -> Result<()> {
 fn restart_marker() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map_or_else(std::env::temp_dir, PathBuf::from)
-        .join("hermes-updated")
+        .join("typeaside-updated")
 }
 
-/// True once after systemd restarts hermes into an update the user asked for.
+/// True once after systemd restarts typeaside into an update the user asked for.
 #[cfg(target_os = "linux")]
 pub fn restarted_for_update() -> bool {
     fs::remove_file(restart_marker()).is_ok()
@@ -218,7 +218,7 @@ fn relaunch(destination: &Path, old_bundle: Option<&Path>) -> Result<()> {
         .args([
             "-c",
             script,
-            "hermes-update",
+            "typeaside-update",
             &std::process::id().to_string(),
         ])
         .arg(destination)
@@ -258,9 +258,9 @@ fn install_bundle(installer: &Path, destination: &Path, directory: &Path) -> Res
             .success(),
         "Could not mount update"
     );
-    let staged = directory.join("Hermes.app");
+    let staged = directory.join("TypeAside.app");
     let copied = Command::new("ditto")
-        .arg(mount.join("Hermes.app"))
+        .arg(mount.join("TypeAside.app"))
         .arg(&staged)
         .status();
     let detached = Command::new("hdiutil").arg("detach").arg(&mount).status();
@@ -291,22 +291,22 @@ mod tests {
             "{}",
             r#"{"version":"0.no.0","files":{}}"#,
             r#"{"version":"0.3.0","files":{}}"#,
-            r#"{"version":"0.3.0","files":{"Hermes.AppImage":"invalid"}}"#,
+            r#"{"version":"0.3.0","files":{"TypeAside.AppImage":"invalid"}}"#,
         ] {
-            assert!(parse_manifest(manifest, "0.2.0", "Hermes.AppImage").is_err());
+            assert!(parse_manifest(manifest, "0.2.0", "TypeAside.AppImage").is_err());
         }
         assert!(version("0.3.0.1").is_err());
         let manifest = serde_json::json!({
             "version": "0.10.0",
-            "files": {"Hermes.AppImage": "a".repeat(64)},
+            "files": {"TypeAside.AppImage": "a".repeat(64)},
         })
         .to_string();
         assert!(
-            parse_manifest(&manifest, "0.10.0", "Hermes.AppImage")
+            parse_manifest(&manifest, "0.10.0", "TypeAside.AppImage")
                 .unwrap()
                 .is_none()
         );
-        let release = parse_manifest(&manifest, "0.9.9", "Hermes.AppImage")
+        let release = parse_manifest(&manifest, "0.9.9", "TypeAside.AppImage")
             .unwrap()
             .unwrap();
         assert_eq!(release.version, "0.10.0");

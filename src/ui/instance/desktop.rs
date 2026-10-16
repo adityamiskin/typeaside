@@ -19,7 +19,7 @@ pub fn claim(name: &str, show: bool) -> Claim {
     #[cfg(target_os = "macos")]
     let path = {
         use std::os::unix::fs::DirBuilderExt;
-        let Some(dirs) = directories::ProjectDirs::from("", "", "hermes") else {
+        let Some(dirs) = directories::ProjectDirs::from("", "", "typeaside") else {
             return Claim::Primary(None);
         };
         if std::fs::DirBuilder::new()
@@ -35,7 +35,7 @@ pub fn claim(name: &str, show: bool) -> Claim {
     #[cfg(target_os = "windows")]
     // Pipe names are machine-wide, so scope them to the user.
     let path = format!(
-        "hermes-{}-{name}",
+        "typeaside-{}-{name}",
         std::env::var("USERNAME").unwrap_or_default()
     );
     #[cfg(target_os = "macos")]
@@ -72,7 +72,7 @@ pub fn claim(name: &str, show: bool) -> Claim {
 
 pub fn serve(listener: UnixListener, open: async_channel::Sender<crate::ui::tray::Action>) {
     let _ = std::thread::Builder::new()
-        .name("hermes-instance".into())
+        .name("typeaside-instance".into())
         .spawn(move || {
             for mut stream in listener.incoming().flatten() {
                 let mut request = [0; 4];

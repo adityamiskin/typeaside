@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { buttonVariants } from "@hermes/ui/components/button";
+import { buttonVariants } from "@typeaside/ui/components/button";
 import { downloads, useOS } from "../lib/downloads";
 export const Route = createFileRoute("/download")({
-  head: () => ({ meta: [{ title: "Download Hermes" }] }),
+  head: () => ({ meta: [{ title: "Download TypeAside" }] }),
   component: Download,
 });
 function Download() {
@@ -13,7 +13,7 @@ function Download() {
   return (
     <main className="container page">
       <h1>Make room for your voice.</h1>
-      <p className="lead">Hermes for your computer. Free to start.</p>
+      <p className="lead">TypeAside for your computer. Free to start.</p>
       <div className="download-list">
         {systems.map((system) => (
           <section className="download-row" key={system}>

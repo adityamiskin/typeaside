@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-const UNIT: &str = "hermes.service";
+const UNIT: &str = "typeaside.service";
 
 fn remove(path: &Path) -> Result<()> {
     match std::fs::remove_file(path) {
@@ -10,7 +10,7 @@ fn remove(path: &Path) -> Result<()> {
     }
 }
 
-/// A systemd user service tied to the graphical session, so a crash restarts hermes and the
+/// A systemd user service tied to the graphical session, so a crash restarts typeaside and the
 /// hotkey keeps working with no window open. Enabling is a symlink, which needs no running
 /// systemctl and takes effect at the next login.
 pub fn set_enabled(enabled: bool) -> Result<()> {
@@ -20,12 +20,12 @@ pub fn set_enabled(enabled: bool) -> Result<()> {
         .to_owned();
     let units = config.join("systemd/user");
     let wants = units.join("graphical-session.target.wants").join(UNIT);
-    remove(&config.join("autostart/hermes.desktop"))?;
+    remove(&config.join("autostart/typeaside.desktop"))?;
     remove(&wants)?;
     if !enabled {
         return remove(&units.join(UNIT));
     }
-    // Inside an AppImage, current_exe is a mount that disappears when hermes exits.
+    // Inside an AppImage, current_exe is a mount that disappears when typeaside exits.
     let exe = std::env::var_os("APPIMAGE")
         .filter(|path| !path.is_empty())
         .map_or_else(std::env::current_exe, |path| Ok(PathBuf::from(path)))?;
@@ -34,8 +34,8 @@ pub fn set_enabled(enabled: bool) -> Result<()> {
     std::fs::write(
         units.join(UNIT),
         format!(
-            "[Unit]\nDescription=Hermes voice dictation\nPartOf=graphical-session.target\nAfter=graphical-session.target\n\n\
-             [Service]\nExecStart=\"{}\" --hidden\nEnvironment=HERMES_SERVICE=1\nRestart=on-failure\nRestartSec=1\n\n\
+            "[Unit]\nDescription=TypeAside voice dictation\nPartOf=graphical-session.target\nAfter=graphical-session.target\n\n\
+             [Service]\nExecStart=\"{}\" --hidden\nEnvironment=TYPEASIDE_SERVICE=1\nRestart=on-failure\nRestartSec=1\n\n\
              [Install]\nWantedBy=graphical-session.target\n",
             exe.replace('\\', "\\\\")
                 .replace('"', "\\\"")

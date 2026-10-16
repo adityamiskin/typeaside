@@ -2,7 +2,7 @@ import { ConvexQueryClient } from "@convex-dev/react-query";
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
-import { env } from "@hermes/env/web";
+import { env } from "@typeaside/env/web";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 
 import { auth } from "./integrations/auth";

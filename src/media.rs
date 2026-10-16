@@ -73,7 +73,7 @@ impl ListeningEffects {
         }
         let (stop, receiver) = mpsc::channel();
         let thread = thread::Builder::new()
-            .name("hermes-listening-effects".into())
+            .name("typeaside-listening-effects".into())
             .spawn(move || {
                 static SERIAL: Mutex<()> = Mutex::new(());
                 let _serial = SERIAL.lock().unwrap_or_else(|poison| poison.into_inner());

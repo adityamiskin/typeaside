@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useAction } from "convex/react";
 import { useRouteContext } from "@tanstack/react-router";
-import { api } from "@hermes/backend/convex/_generated/api";
-import { Button, buttonVariants } from "@hermes/ui/components/button";
+import { api } from "@typeaside/backend/convex/_generated/api";
+import { Button, buttonVariants } from "@typeaside/ui/components/button";
 import { auth } from "../integrations/auth";
 export type Interval = "monthly" | "yearly";
 export function BillingToggle({

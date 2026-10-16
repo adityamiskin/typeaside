@@ -11,11 +11,11 @@ export const Route = createFileRoute("/")({ component: Landing });
 const faqs = [
   [
     "Where does my voice go?",
-    "Audio goes to the transcription service you choose, Hermes or your own provider, and Hermes doesn't keep it. Your history stays on your computer.",
+    "Audio goes to the transcription service you choose, TypeAside or your own provider, and TypeAside doesn't keep it. Your history stays on your computer.",
   ],
   [
     "Which apps does it work in?",
-    "Any app with a text field. Hermes types where your cursor is, the same way you would.",
+    "Any app with a text field. TypeAside types where your cursor is, the same way you would.",
   ],
   [
     "What counts toward the free limit?",
@@ -35,8 +35,8 @@ function Landing() {
         <header className="hero">
           <h1>Just say it.</h1>
           <p className="sub">
-            Hold a key and talk the way you normally would. Hermes writes it up cleanly, in whatever
-            app you're typing in.
+            Hold a key and talk the way you normally would. TypeAside writes it up cleanly, in
+            whatever app you're typing in.
           </p>
           <DownloadButton />
           <p className="avail">Free to start. Linux, macOS and Windows.</p>
@@ -48,8 +48,8 @@ function Landing() {
         <div className="wrap">
           <h2>Talk like you talk.</h2>
           <p className="lead">
-            Nobody speaks in finished sentences. Hermes keeps what you meant and quietly drops the
-            rest.
+            Nobody speaks in finished sentences. TypeAside keeps what you meant and quietly drops
+            the rest.
           </p>
           <LandingFeatures />
           <h2 className="bento-head">Made for how you work.</h2>

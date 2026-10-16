@@ -17,8 +17,8 @@ on macOS and Windows; start/stop sounds still play.
 ## macOS installation
 
 Run `scripts/bundle-macos.sh` on macOS, then move
-`target/release/Hermes.app` to Applications and launch that copy.
-Set `HERMES_SIGNING_IDENTITY` to a signing identity for a distributed build;
+`target/release/TypeAside.app` to Applications and launch that copy.
+Set `TYPEASIDE_SIGNING_IDENTITY` to a signing identity for a distributed build;
 local builds use an ad-hoc signature. Build and launch from a stable location
 so macOS can retain the app's permission identity.
 
@@ -26,9 +26,9 @@ The bundle includes `NSMicrophoneUsageDescription`. Real-mode startup checks
 Accessibility and requests it using `AXIsProcessTrustedWithOptions`, and
 requests microphone access through AVFoundation and Input Monitoring through
 CoreGraphics. Missing permissions are also
-shown above the main content, including onboarding. Enable Hermes under System
+shown above the main content, including onboarding. Enable TypeAside under System
 Settings > Privacy & Security > Accessibility and Microphone, and Input
-Monitoring, then restart Hermes. `--demo` never requests
+Monitoring, then restart TypeAside. `--demo` never requests
 these permissions or starts recording, global hotkeys, or text injection.
 
 ## Shortcuts and clipboard
@@ -50,13 +50,13 @@ target app to consume the clipboard, and leaves newer clipboard text untouched.
 Windows temporarily releases held hotkey modifiers for injected shortcuts and
 restores only those still physically held. Self-injected events are excluded
 from hotkey detection. Windows input injection follows the OS integrity boundary;
-an unelevated Hermes cannot paste into an elevated application.
+an unelevated TypeAside cannot paste into an elevated application.
 
 ## Verification
 
 `.github/workflows/ci.yml` builds, tests and runs Clippy with warnings denied on
 Ubuntu, macOS and Windows. A separate smoke matrix downloads each native build,
-launches only `--demo` with `HERMES_TRACE=1`, requires `hermes first main frame:`
+launches only `--demo` with `TYPEASIDE_TRACE=1`, requires `typeaside first main frame:`
 within 30 seconds, takes a screenshot where supported, and terminates the demo.
 Linux uses Weston nested in Xvfb and Mesa software Vulkan; macOS launches the
 bundled executable. Logs and available screenshots are uploaded even on failure.

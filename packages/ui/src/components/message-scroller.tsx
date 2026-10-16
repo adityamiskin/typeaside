@@ -7,7 +7,7 @@ import {
 } from "@shadcn/react/message-scroller";
 import { cn } from "cn";
 
-import { Button } from "@hermes/ui/components/button";
+import { Button } from "@typeaside/ui/components/button";
 import { ArrowDownIcon } from "lucide-react";
 
 function MessageScrollerProvider(

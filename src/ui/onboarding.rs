@@ -6,13 +6,13 @@ use super::{
 };
 use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, img, prelude::*, px};
 use gpui_kit::component::{Sizable, input::Input, select::Select};
-use hermes::{
-    config::{RecordingMode, Source},
-    engine::{Command, Phase},
-};
 #[cfg(target_os = "macos")]
 use std::time::Duration;
 use std::{sync::atomic::Ordering, time::Instant};
+use typeaside::{
+    config::{RecordingMode, Source},
+    engine::{Command, Phase},
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -28,7 +28,7 @@ impl Step {
         if !demo {
             return Self::Welcome;
         }
-        match std::env::var("HERMES_DEMO_STEP").as_deref() {
+        match std::env::var("TYPEASIDE_DEMO_STEP").as_deref() {
             Ok("1") => Self::Account,
             Ok("2") => Self::Permissions,
             Ok("3") => Self::Microphone,
@@ -60,7 +60,7 @@ pub struct Onboarding {
 impl Onboarding {
     pub fn visible_steps(demo: bool) -> Vec<Step> {
         let mut steps = vec![Step::Welcome, Step::Account];
-        let permissions = demo && std::env::var("HERMES_DEMO_STEP").as_deref() == Ok("2");
+        let permissions = demo && std::env::var("TYPEASIDE_DEMO_STEP").as_deref() == Ok("2");
         #[cfg(target_os = "macos")]
         let permissions = permissions || !super::permissions::statuses().into_iter().all(|s| s);
         if permissions {
@@ -161,15 +161,15 @@ impl MainWindow {
             self.onboarding.intro_time = super::demo::intro_time();
             self.state.update(cx, |s, _| {
                 s.onboarding_own_key =
-                    std::env::var("HERMES_DEMO_ACCOUNT").as_deref() != Ok("signed-in");
+                    std::env::var("TYPEASIDE_DEMO_ACCOUNT").as_deref() != Ok("signed-in");
                 s.config.transcription = if s.onboarding_own_key {
                     Source::OwnKey
                 } else {
                     Source::Hosted
                 };
                 if s.onboarding_step == Step::Practice {
-                    if std::env::var("HERMES_DEMO_PRACTICE").as_deref() == Ok("listening") {
-                        s.phase = Phase::Listening(hermes::engine::Mode::Dictate);
+                    if std::env::var("TYPEASIDE_DEMO_PRACTICE").as_deref() == Ok("listening") {
+                        s.phase = Phase::Listening(typeaside::engine::Mode::Dictate);
                     } else {
                         s.onboarding_transcript =
                             Some("Let's meet at 3 and bring the deck.".into());
@@ -504,7 +504,7 @@ impl MainWindow {
                 )
                 .child(
                     sub(
-                        "Hold a key, speak naturally, and Hermes types clean text into any app.",
+                        "Hold a key, speak naturally, and TypeAside types clean text into any app.",
                         p,
                     )
                     .mt(px(12.))
@@ -540,7 +540,7 @@ impl MainWindow {
                 let own = s.onboarding_own_key;
                 let waiting = s.signing_in.is_some();
                 let email = s.account.as_ref().map(|a| a.email.clone());
-                col.child(title("How should Hermes listen?", p))
+                col.child(title("How should TypeAside listen?", p))
                     .child(sub("You can change this anytime in Settings.", p))
                     .child(
                         div()
@@ -559,7 +559,7 @@ impl MainWindow {
                                         .unwrap_or_else(|| "Free · 2,000 words a week".into())
                                 };
                                 div()
-                                    .id(if key { "own-key" } else { "hermes-account" })
+                                    .id(if key { "own-key" } else { "typeaside-account" })
                                     .w(px(212.))
                                     .h(px(132.))
                                     .p(px(18.))
@@ -585,7 +585,7 @@ impl MainWindow {
                                             if key {
                                                 "Your own key"
                                             } else {
-                                                "Hermes account"
+                                                "TypeAside account"
                                             },
                                             14.,
                                             p.fg,
@@ -676,7 +676,7 @@ impl MainWindow {
             Step::Permissions => {
                 let statuses = self.permission_status(cx);
                 col.child(title("A few permissions", p))
-                    .child(sub("Hermes listens only while you hold your key.", p))
+                    .child(sub("TypeAside listens only while you hold your key.", p))
                     .child(
                         div()
                             .w_full()
@@ -948,7 +948,10 @@ impl MainWindow {
                         ),
                 )
                 .child(title("You're all set.", p).mt(px(24.)))
-                .child(sub("Hermes stays in your menu bar. Use it in any app.", p))
+                .child(sub(
+                    "TypeAside stays in your menu bar. Use it in any app.",
+                    p,
+                ))
                 .child(
                     div().w(px(360.)).mt(px(28.)).children(
                         [

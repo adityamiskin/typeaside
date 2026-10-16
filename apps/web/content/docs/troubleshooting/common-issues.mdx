@@ -5,9 +5,9 @@ description: Check keyboard access, paste, and microphone input.
 
 ## Hotkey does not fire
 
-1. Confirm Hermes is running and check **Settings → Shortcuts**.
+1. Confirm TypeAside is running and check **Settings → Shortcuts**.
 2. Record a key present on your keyboard. Avoid shortcuts reserved by your desktop or another app.
-3. On macOS, enable Accessibility and Input Monitoring, then restart Hermes.
+3. On macOS, enable Accessibility and Input Monitoring, then restart TypeAside.
 4. On Linux, check read access to the relevant evdev devices. Unsupported native key names can also prevent hotkey startup.
 
 ## Nothing is pasted
@@ -15,13 +15,13 @@ description: Check keyboard access, paste, and microphone input.
 1. Try a normal text editor with an editable field focused.
 2. Keep it focused until processing finishes.
 3. On macOS, check Accessibility access. On Linux, check uinput access and compositor clipboard support.
-4. On Windows, try a non-elevated app. An unelevated Hermes cannot inject into an elevated app.
+4. On Windows, try a non-elevated app. An unelevated TypeAside cannot inject into an elevated app.
 
 Use **Paste last** to retry your latest successful dictation.
 
 ## Text lands in the wrong app or clipboard
 
-Hermes pastes into the app focused when the result is ready. Switching windows during processing can change the destination. Keep the target focused and avoid copying other content until insertion finishes.
+TypeAside pastes into the app focused when the result is ready. Switching windows during processing can change the destination. Keep the target focused and avoid copying other content until insertion finishes.
 
 On Linux, voice editing reads the Wayland primary selection, which can differ from the regular clipboard. Check that your target app exposes the selection there. Foreground-app detection and clipboard support vary by compositor.
 
@@ -30,11 +30,11 @@ On Linux, voice editing reads the Wayland primary selection, which can differ fr
 1. Check that your operating system can see the microphone and that it is not muted.
 2. Open **Settings → Microphone → Input** and choose the device or **System default**.
 3. Use **Test** and speak to check the input.
-4. On macOS, check Microphone permission and restart Hermes after granting it.
+4. On macOS, check Microphone permission and restart TypeAside after granting it.
 
 ## Transcription or cleanup fails
 
-Check your connection and the error shown by Hermes. For hosted transcription, check your [account allowance](/docs/account/plans). For BYOK, check the endpoint, model, saved key, and provider availability. A cleanup request failure falls back to the transcript; a voice editing failure reports an error.
+Check your connection and the error shown by TypeAside. For hosted transcription, check your [account allowance](/docs/account/plans). For BYOK, check the endpoint, model, saved key, and provider availability. A cleanup request failure falls back to the transcript; a voice editing failure reports an error.
 
 <Cards>
   <Card title="Permissions" href="/docs/permissions">

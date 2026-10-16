@@ -3,12 +3,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useConvexAuth, useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import type { FunctionArgs } from "convex/server";
-import { api } from "@hermes/backend/convex/_generated/api";
-import { Button } from "@hermes/ui/components/button";
-import { Field, FieldGroup } from "@hermes/ui/components/field";
-import { Input } from "@hermes/ui/components/input";
-import { Label } from "@hermes/ui/components/label";
-import { Textarea } from "@hermes/ui/components/textarea";
+import { api } from "@typeaside/backend/convex/_generated/api";
+import { Button } from "@typeaside/ui/components/button";
+import { Field, FieldGroup } from "@typeaside/ui/components/field";
+import { Input } from "@typeaside/ui/components/input";
+import { Label } from "@typeaside/ui/components/label";
+import { Textarea } from "@typeaside/ui/components/textarea";
 
 export const Route = createFileRoute("/feedback")({
   validateSearch: (
@@ -25,7 +25,7 @@ export const Route = createFileRoute("/feedback")({
         ? search.os
         : undefined,
   }),
-  head: () => ({ meta: [{ title: "Feedback · Hermes" }] }),
+  head: () => ({ meta: [{ title: "Feedback · TypeAside" }] }),
   component: Feedback,
 });
 

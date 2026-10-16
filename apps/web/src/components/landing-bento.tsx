@@ -65,7 +65,7 @@ export function LandingBento() {
         </div>
         <div className="bento-copy glass">
           <h3>100+ languages</h3>
-          <p>Speak the language you think in. Hermes can also translate as you go.</p>
+          <p>Speak the language you think in. TypeAside can also translate as you go.</p>
         </div>
       </div>
       <div

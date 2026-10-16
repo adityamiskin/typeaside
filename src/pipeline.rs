@@ -35,9 +35,9 @@ pub fn run(
         snippets::expand(&cleanup::cleanup(config, &raw, app_id), &config.snippets)
     };
     let llm = started.elapsed();
-    if std::env::var_os("HERMES_TRACE").is_some_and(|value| value == "1") {
+    if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
         eprintln!(
-            "hermes: stt={}ms llm={}ms",
+            "typeaside: stt={}ms llm={}ms",
             stt.as_millis(),
             llm.as_millis()
         );
