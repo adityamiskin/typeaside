@@ -61,14 +61,11 @@ impl MainWindow {
             Tone::Casual => 1,
             Tone::VeryCasual => 2,
         };
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .child(header("Style", p))
-            .child(
-                div()
-                    .px(px(INSET))
+        page(
+            FORM_WIDTH,
+            header("Style"),
+            div().id("style-scroll").child(
+                column(FORM_WIDTH)
                     .pt(px(8.))
                     .children(
                         ROWS.into_iter()
@@ -181,6 +178,8 @@ impl MainWindow {
                             )
                             .child(div().flex_1().child(EXAMPLES[selected][tone_index])),
                     ),
-            )
+            ),
+            p,
+        )
     }
 }

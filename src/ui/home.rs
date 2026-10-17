@@ -107,8 +107,6 @@ impl MainWindow {
             .gap(px(40.))
             .pt(px(18.))
             .pb(px(16.))
-            .border_b_1()
-            .border_color(p.divider)
             .children(values.into_iter().map(|(v, label)| {
                 div()
                     .child(
@@ -460,31 +458,31 @@ impl MainWindow {
                     .into_any_element(),
             );
         }
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .font_features(FontFeatures(vec![("tnum".into(), 1)].into()))
-            .child(
-                header("Home", p).child(div().flex_1()).child(
-                    Input::new(&self.search_input)
-                        .w(px(240.))
-                        .min_h(px(30.))
-                        .max_h(px(30.))
-                        .text_size(px(13.))
-                        .bg(p.bg),
-                ),
-            )
-            .child(
-                div()
-                    .id("history-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px(px(INSET))
-                    .child(stats)
-                    .children(rows),
-            )
+        page(
+            LIST_WIDTH,
+            header("Home").child(div().flex_1()).child(
+                Input::new(&self.search_input)
+                    .w(px(240.))
+                    .min_h(px(30.))
+                    .max_h(px(30.))
+                    .text_size(px(13.))
+                    .bg(p.bg),
+            ),
+            div()
+                .id("history-scroll")
+                .child(
+                    div()
+                        .w_full()
+                        .flex()
+                        .justify_center()
+                        .border_b_1()
+                        .border_color(p.divider)
+                        .child(column(LIST_WIDTH).child(stats)),
+                )
+                .child(column(LIST_WIDTH).children(rows)),
+            p,
+        )
+        .font_features(FontFeatures(vec![("tnum".into(), 1)].into()))
     }
 }
 fn number(n: usize) -> String {

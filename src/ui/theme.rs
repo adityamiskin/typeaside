@@ -1,5 +1,6 @@
 use gpui::{
-    App, Div, FontWeight, Global, Hsla, Styled, WindowAppearance, div, prelude::*, px, rgb,
+    AnyElement, App, Div, FontWeight, Global, Hsla, SharedString, Stateful, Styled,
+    WindowAppearance, div, prelude::*, px, rgb,
 };
 use gpui_kit::component::{Theme, ThemeMode};
 use typeaside::config::Theme as Preference;
@@ -7,11 +8,10 @@ use typeaside::config::Theme as Preference;
 pub const MONO: &str = "DejaVu Sans Mono";
 pub const SIDEBAR: f32 = 240.;
 pub const INSET: f32 = 24.;
-/// Wide windows center pages instead of stretching rows across the screen.
-pub const CONTENT_WIDTH: f32 = 880.;
+pub const FORM_WIDTH: f32 = 720.;
+pub const LIST_WIDTH: f32 = 880.;
 pub const CONTROL: f32 = 30.;
 pub const RADIUS: f32 = 6.;
-pub const LABEL: f32 = 200.;
 pub const PILL_HEIGHT: f32 = 36.;
 pub const LISTEN_WIDTH: f32 = 120.;
 pub const COMMAND_WIDTH: f32 = 148.;
@@ -34,6 +34,7 @@ pub struct Palette {
     pub faint: Hsla,
     pub divider: Hsla,
     pub row: Hsla,
+    pub panel: Hsla,
     pub border: Hsla,
     pub hover: Hsla,
     pub selected: Hsla,
@@ -64,6 +65,7 @@ impl Palette {
             faint: fg.opacity(0.36),
             divider: rgb(0x242528).into(),
             row: rgb(0x1c1d20).into(),
+            panel: rgb(0x18191b).into(),
             border: rgb(0x2f3034).into(),
             hover: rgb(0x1b1c1f).into(),
             selected: rgb(0x26272b).into(),
@@ -92,6 +94,7 @@ impl Palette {
             faint: rgb(0xa3a6ad).into(),
             divider: rgb(0xe9e9e7).into(),
             row: rgb(0xf1f1ef).into(),
+            panel: rgb(0xffffff).into(),
             border: rgb(0xe2e2df).into(),
             hover: rgb(0xefefed).into(),
             selected: rgb(0xffffff).into(),
@@ -171,16 +174,41 @@ pub fn init(preference: Preference, cx: &mut App) {
     gpui_kit::init(cx);
     apply(preference, cx.window_appearance(), cx);
 }
-pub fn header(title: &'static str, p: Palette) -> Div {
+/// Pane-wide header rule and scroll area around a centered column, so wide windows
+/// center content without cutting rules or the scroll area short.
+pub fn page(width: f32, header: Div, body: Stateful<Div>, p: Palette) -> Div {
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .flex()
+                .justify_center()
+                .px(px(INSET))
+                .border_b_1()
+                .border_color(p.divider)
+                .child(header.w_full().max_w(px(width))),
+        )
+        .child(
+            body.flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .items_center(),
+        )
+}
+pub fn column(width: f32) -> Div {
+    div().w_full().max_w(px(width + 2. * INSET)).px(px(INSET))
+}
+pub fn header(title: &'static str) -> Div {
     div()
         .flex()
         .items_center()
         .gap(px(16.))
-        .px(px(INSET))
         .pt(px(18.))
         .pb(px(14.))
-        .border_b_1()
-        .border_color(p.divider)
         .child(
             div()
                 .text_size(px(15.))
@@ -189,23 +217,89 @@ pub fn header(title: &'static str, p: Palette) -> Div {
                 .child(title),
         )
 }
-pub fn section(title: &'static str) -> Div {
+/// A titled, bordered group of settings rows separated by hairlines.
+pub fn panel(title: &'static str, rows: impl IntoIterator<Item = Setting>, p: Palette) -> Div {
     div()
-        .pt(px(18.))
-        .pb(px(6.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(title)
+        .child(
+            div()
+                .pt(px(18.))
+                .pb(px(8.))
+                .text_size(px(12.))
+                .line_height(px(17.4))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(p.muted)
+                .child(title),
+        )
+        .child(
+            div()
+                .border_1()
+                .border_color(p.border)
+                .rounded(px(8.))
+                .bg(p.panel)
+                .children(rows.into_iter().enumerate().map(|(i, row)| {
+                    div()
+                        .when(i > 0, |cell| cell.border_t_1().border_color(p.divider))
+                        .child(row)
+                })),
+        )
 }
-pub fn form_row(label: &'static str, control: impl IntoElement, p: Palette) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(16.))
-        .min_h(px(38.))
-        .border_b_1()
-        .border_color(p.row)
-        .child(div().w(px(LABEL)).flex_shrink_0().child(label))
-        .child(div().flex_1().min_w_0().child(control))
+/// A settings row: label and optional description on the left, its children as controls on the right.
+#[derive(IntoElement)]
+pub struct Setting {
+    label: SharedString,
+    description: Option<AnyElement>,
+    controls: Vec<AnyElement>,
+}
+impl Setting {
+    pub fn new(label: impl Into<SharedString>) -> Self {
+        Self {
+            label: label.into(),
+            description: None,
+            controls: Vec::new(),
+        }
+    }
+    pub fn description(mut self, description: impl IntoElement) -> Self {
+        self.description = Some(description.into_any_element());
+        self
+    }
+}
+impl ParentElement for Setting {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.controls.extend(elements);
+    }
+}
+impl RenderOnce for Setting {
+    fn render(self, _: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
+        let p = palette(cx);
+        div()
+            .flex()
+            .items_center()
+            .gap(px(16.))
+            .min_h(px(44.))
+            .px(px(14.))
+            .py(px(7.))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().font_weight(FontWeight::MEDIUM).child(self.label))
+                    .children(self.description.map(|description| {
+                        div()
+                            .text_size(px(12.))
+                            .line_height(px(17.4))
+                            .text_color(p.muted)
+                            .child(description)
+                    })),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .flex_shrink_0()
+                    .children(self.controls),
+            )
+    }
 }
 pub fn button(label: &'static str, primary: bool, p: Palette) -> Div {
     div()

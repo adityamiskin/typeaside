@@ -84,27 +84,18 @@ impl MainWindow {
                     .into_any_element(),
             );
         }
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .child(
-                header("Snippets", p).child(div().flex_1()).child(
-                    button("New snippet", true, p)
-                        .id("new-snippet")
-                        .on_click(cx.listener(|this, _, w, cx| this.edit_snippet(None, w, cx))),
-                ),
-            )
-            .child(
-                div()
-                    .id("snippets-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px(px(INSET))
-                    .pt(px(8.))
-                    .children(rows),
-            )
+        page(
+            LIST_WIDTH,
+            header("Snippets").child(div().flex_1()).child(
+                button("New snippet", true, p)
+                    .id("new-snippet")
+                    .on_click(cx.listener(|this, _, w, cx| this.edit_snippet(None, w, cx))),
+            ),
+            div()
+                .id("snippets-scroll")
+                .child(column(LIST_WIDTH).pt(px(8.)).children(rows)),
+            p,
+        )
     }
     fn snippet_form(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
