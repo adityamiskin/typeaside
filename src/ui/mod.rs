@@ -384,7 +384,7 @@ fn start_ui(
                     let mut learned = Vec::new();
                     state.update(cx, |s, cx| {
                         if !s.config.auto_learn { return; }
-                        let words = typeaside::corrections::candidates(&inserted, &edited, s.config.known_words());
+                        let words = typeaside::corrections::learned(&inserted, &edited, s.config.known_words());
                         if words.is_empty() { return; }
                         for word in &words {
                             s.config.add_word(word.clone());

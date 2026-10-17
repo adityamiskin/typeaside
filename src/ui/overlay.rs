@@ -7,7 +7,7 @@ use gpui::{
     fill, font, point, prelude::*, px, size,
 };
 use std::time::{Duration, Instant};
-use typeaside::engine::Phase;
+use typeaside::engine::{Command, Phase};
 
 #[derive(Clone, PartialEq)]
 enum Visual {
@@ -16,7 +16,7 @@ enum Visual {
     Success,
     Cancel,
     Error(String),
-    Notice(&'static str, String),
+    Notice(&'static str, String, Vec<String>),
     Exit,
 }
 
@@ -36,6 +36,7 @@ pub struct Overlay {
     positions: [Spring; BARS],
     levels: [f32; BARS],
     quiet: bool,
+    clickable: Option<bool>,
 }
 
 impl Overlay {
@@ -57,6 +58,7 @@ impl Overlay {
             positions: std::array::from_fn(|i| Spring::new((i as f32 - BAR_CENTER) * 5.)),
             levels: [0.15; BARS],
             quiet: false,
+            clickable: None,
         }
     }
 
@@ -99,22 +101,69 @@ impl Overlay {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        self.notice("Copied", &preview, |s| format!("“{s}”"), window, cx);
+        self.notice("Copied", &preview, &[], |s| format!("“{s}”"), window, cx);
     }
 
     pub fn learned(&mut self, words: &[String], window: &mut Window, cx: &mut Context<Self>) {
-        self.notice("Learned", &words.join(", "), str::to_owned, window, cx);
+        self.notice(
+            "Learned",
+            &words.join(", "),
+            words,
+            str::to_owned,
+            window,
+            cx,
+        );
+    }
+
+    fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Visual::Notice(_, _, words) = &self.phase else {
+            return;
+        };
+        if words.is_empty() {
+            return;
+        }
+        let words = words.clone();
+        let saved = self.state.update(cx, |s, cx| {
+            let previous = s.config.clone();
+            for word in &words {
+                s.config.remove_word(word);
+            }
+            s.save_error = s
+                .config
+                .save(&s.paths)
+                .err()
+                .map(|error| format!("Could not undo learned words: {error}"));
+            if s.save_error.is_some() {
+                s.config = previous;
+                cx.notify();
+                return false;
+            }
+            let _ = s.sync.try_send(());
+            s.command(Command::Unlearn(words));
+            cx.notify();
+            true
+        });
+        if saved {
+            self.set(Visual::Exit, window, cx);
+        }
     }
 
     fn notice(
         &mut self,
         label: &'static str,
         text: &str,
+        words: &[String],
         wrap: impl Fn(&str) -> String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let available = SURFACE_WIDTH - 48. - 46. - COPIED_GAP - text_width(label, window, cx);
+        let action_width = if words.is_empty() {
+            0.
+        } else {
+            text_width("Undo", window, cx) + COPIED_GAP
+        };
+        let available =
+            SURFACE_WIDTH - 48. - 46. - COPIED_GAP - text_width(label, window, cx) - action_width;
         let mut shown = wrap(text);
         if text_width(&shown, window, cx) > available {
             let ends = text.char_indices().map(|(i, _)| i).collect::<Vec<_>>();
@@ -124,7 +173,7 @@ impl Overlay {
             let end = ends[ends.partition_point(|&end| fits(end)).saturating_sub(1)];
             shown = wrap(&format!("{}…", &text[..end]));
         }
-        self.set(Visual::Notice(label, shown), window, cx);
+        self.set(Visual::Notice(label, shown, words.to_vec()), window, cx);
     }
 
     fn set(&mut self, phase: Visual, window: &mut Window, cx: &mut Context<Self>) {
@@ -135,8 +184,18 @@ impl Overlay {
         self.phase_at = Instant::now();
         let text = match &self.phase {
             Visual::Error(message) => Some(text_width(message, window, cx)),
-            Visual::Notice(label, text) => {
-                Some(text_width(label, window, cx) + COPIED_GAP + text_width(text, window, cx))
+            Visual::Notice(label, text, words) => {
+                let action_width = if words.is_empty() {
+                    0.
+                } else {
+                    text_width("Undo", window, cx) + COPIED_GAP
+                };
+                Some(
+                    text_width(label, window, cx)
+                        + COPIED_GAP
+                        + text_width(text, window, cx)
+                        + action_width,
+                )
             }
             _ => None,
         };
@@ -149,6 +208,7 @@ impl Overlay {
             Visual::Success => Some(CHECK_TIME + SUCCESS_HOLD),
             Visual::Cancel => Some(CANCEL_TIME),
             Visual::Error(_) => Some(ERROR_HOLD),
+            Visual::Notice(_, _, ref words) if !words.is_empty() => Some(LEARNED_HOLD),
             Visual::Notice(..) => Some(COPIED_HOLD),
             _ => None,
         };
@@ -288,6 +348,22 @@ impl Render for Overlay {
         } else {
             0.
         };
+        let clickable = matches!(&self.phase, Visual::Notice(_, _, words) if !words.is_empty());
+        // Each region change commits the surface, so only send it when Undo appears or goes.
+        #[cfg(target_os = "linux")]
+        if self.clickable != Some(clickable) {
+            self.clickable = Some(clickable);
+            let target = self.width.target;
+            let region = Bounds::new(
+                point(
+                    px((SURFACE_WIDTH - target) / 2.),
+                    px(SURFACE_HEIGHT - SHADOW_SPACE - PILL_HEIGHT),
+                ),
+                size(px(target), px(PILL_HEIGHT)),
+            );
+            let regions = [region];
+            window.set_input_region(Some(if clickable { &regions[..] } else { &[] }));
+        }
         let mut pill = div()
             .absolute()
             .left(px((SURFACE_WIDTH - width) / 2. + shake))
@@ -310,44 +386,56 @@ impl Render for Overlay {
             .items_center()
             .justify_center()
             .overflow_hidden();
-        if let Visual::Error(message) | Visual::Notice(_, message) = &self.phase {
+        if let Visual::Error(message) | Visual::Notice(_, message, _) = &self.phase {
             let label = match self.phase {
-                Visual::Notice(label, _) => Some(label),
+                Visual::Notice(label, _, _) => Some(label),
                 _ => None,
             };
             let notice = label.is_some();
             let text_progress = (elapsed / ERROR_TEXT_TIME).min(1.);
-            pill = pill.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .px(px(14.))
-                    .child(
-                        div()
-                            .size(px(6. * self.dot.value.max(0.)))
-                            .flex_shrink_0()
-                            .rounded_full()
-                            .bg(if notice { p.blue } else { p.red }),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .left(px(6. * (1. - text_progress)))
-                            .opacity(text_progress)
-                            .text_color(p.fg)
-                            .text_size(px(13.))
-                            .flex()
-                            .gap(px(COPIED_GAP))
-                            .whitespace_nowrap()
-                            .children(label)
-                            .child(
-                                div()
-                                    .when(notice, |el| el.text_color(p.muted))
-                                    .child(message.clone()),
-                            ),
-                    ),
-            );
+            pill =
+                pill.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .px(px(14.))
+                        .child(
+                            div()
+                                .size(px(6. * self.dot.value.max(0.)))
+                                .flex_shrink_0()
+                                .rounded_full()
+                                .bg(if notice { p.blue } else { p.red }),
+                        )
+                        .child(
+                            div()
+                                .relative()
+                                .left(px(6. * (1. - text_progress)))
+                                .opacity(text_progress)
+                                .text_color(p.fg)
+                                .text_size(px(13.))
+                                .flex()
+                                .gap(px(COPIED_GAP))
+                                .whitespace_nowrap()
+                                .children(label)
+                                .child(
+                                    div()
+                                        .when(notice, |el| el.text_color(p.muted))
+                                        .child(message.clone()),
+                                )
+                                .when(clickable, |el| {
+                                    el.child(
+                                        div()
+                                            .id("undo-learned")
+                                            .cursor_pointer()
+                                            .child("Undo")
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.undo(window, cx)
+                                            })),
+                                    )
+                                }),
+                        ),
+                );
         } else {
             if command {
                 pill = pill.child(

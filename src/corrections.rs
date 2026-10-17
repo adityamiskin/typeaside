@@ -9,6 +9,164 @@ pub fn candidates<'a>(
 ) -> Vec<String> {
     let old = old.split_whitespace().collect::<Vec<_>>();
     let new = new.split_whitespace().collect::<Vec<_>>();
+    let mut seen = known
+        .into_iter()
+        .map(|word| word.to_lowercase())
+        .collect::<HashSet<_>>();
+    let mut result = Vec::new();
+    for (before, after) in diff(&old, &new) {
+        if before.is_empty() || after.is_empty() {
+            continue;
+        }
+        let replaced = old[before].join(" ").to_lowercase();
+        for phrase in phrases(&new[after]) {
+            if !replaced.contains(&phrase.to_lowercase()) && seen.insert(phrase.to_lowercase()) {
+                result.push(phrase);
+            }
+        }
+    }
+    result
+}
+
+pub fn learned<'a>(
+    inserted: &str,
+    edited: &str,
+    known: impl IntoIterator<Item = &'a String>,
+) -> Vec<String> {
+    let old = inserted.split_whitespace().collect::<Vec<_>>();
+    let new = edited.split_whitespace().collect::<Vec<_>>();
+    let hunks = diff(&old, &new);
+    let short = old.len().max(new.len()) <= 3;
+    let changed = hunks
+        .iter()
+        .map(|(a, b)| a.len().max(b.len()))
+        .sum::<usize>();
+    if hunks.len() > 3
+        || (!short && changed * 5 > old.len().max(new.len()) * 2)
+        || hunks.iter().any(|(a, b)| a.len() > 3 || b.len() > 3)
+    {
+        return Vec::new();
+    }
+    let mut seen = known
+        .into_iter()
+        .map(|word| word.to_lowercase())
+        .collect::<HashSet<_>>();
+    let mut result = Vec::new();
+    for (before, after) in hunks {
+        if before.is_empty() || after.is_empty() {
+            continue;
+        }
+        if !short && before.start == 0 && before.end == old.len() {
+            continue;
+        }
+        let old_words = &old[before];
+        let new_words = &new[after];
+        let similar = if old_words.len() == new_words.len() {
+            old_words
+                .iter()
+                .zip(new_words)
+                .all(|(a, b)| vocabulary_fix(a, b))
+        } else {
+            vocabulary_fix(&old_words.join(" "), &new_words.join(" "))
+        };
+        if !similar {
+            continue;
+        }
+        for phrase in phrases(new_words) {
+            if seen.insert(phrase.to_lowercase()) {
+                result.push(phrase);
+            }
+        }
+    }
+    result
+}
+
+fn phrases(words: &[&str]) -> Vec<String> {
+    let words = words
+        .iter()
+        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()))
+        .collect::<Vec<_>>();
+    let mut phrases = Vec::new();
+    let mut k = 0;
+    while k < words.len() {
+        let start = k;
+        k += 1;
+        if capitalized(words[start]) {
+            while k < words.len() && capitalized(words[k]) {
+                k += 1;
+            }
+        }
+        let phrase = words[start..k]
+            .iter()
+            .filter(|word| word.chars().count() >= 2)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if term_like(&phrase) {
+            phrases.push(phrase);
+        }
+    }
+    phrases
+}
+
+fn distinctive(text: &str) -> bool {
+    text.chars().any(|c| c.is_ascii_digit())
+        || text
+            .split_whitespace()
+            .any(|word| word.chars().skip(1).any(char::is_uppercase))
+}
+
+fn vocabulary_fix(old: &str, new: &str) -> bool {
+    if new.split_whitespace().any(|word| {
+        word.rsplit_once(['\'', '’']).is_some_and(|(_, suffix)| {
+            matches!(
+                suffix.to_lowercase().as_str(),
+                "t" | "s" | "m" | "d" | "ll" | "re" | "ve"
+            )
+        })
+    }) {
+        return false;
+    }
+    let letters = |text: &str| {
+        text.chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+    };
+    let old_letters = letters(old);
+    let new_letters = letters(new);
+    if old.split_whitespace().count() == new.split_whitespace().count()
+        && old_letters.to_lowercase() == new_letters.to_lowercase()
+        && (old_letters == new_letters || !distinctive(new))
+    {
+        return false;
+    }
+    let normalize = |text: &str| {
+        text.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<Vec<_>>()
+    };
+    let old = normalize(old);
+    let new = normalize(new);
+    if old.is_empty() || new.is_empty() {
+        return false;
+    }
+    let mut distances = (0..=new.len()).collect::<Vec<_>>();
+    for (i, a) in old.iter().enumerate() {
+        let mut diagonal = distances[0];
+        distances[0] = i + 1;
+        for (j, b) in new.iter().enumerate() {
+            let previous = distances[j + 1];
+            distances[j + 1] = (diagonal + usize::from(a != b))
+                .min(distances[j] + 1)
+                .min(previous + 1);
+            diagonal = previous;
+        }
+    }
+    distances[new.len()] * 2 <= old.len().max(new.len())
+}
+
+fn diff(old: &[&str], new: &[&str]) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
     let mut lcs = vec![vec![0; new.len() + 1]; old.len() + 1];
     for i in (0..old.len()).rev() {
         for j in (0..new.len()).rev() {
@@ -19,11 +177,7 @@ pub fn candidates<'a>(
             };
         }
     }
-    let mut seen = known
-        .into_iter()
-        .map(|word| word.to_lowercase())
-        .collect::<HashSet<_>>();
-    let mut result = Vec::new();
+    let mut hunks = Vec::new();
     let (mut i, mut j) = (0, 0);
     while i < old.len() || j < new.len() {
         if i < old.len() && j < new.len() && old[i] == new[j] {
@@ -42,38 +196,9 @@ pub fn candidates<'a>(
                 j += 1;
             }
         }
-        if i == start_i || j == start_j {
-            continue;
-        }
-        let replaced = old[start_i..i].join(" ").to_lowercase();
-        let words = new[start_j..j]
-            .iter()
-            .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()))
-            .collect::<Vec<_>>();
-        let mut k = 0;
-        while k < words.len() {
-            let start = k;
-            k += 1;
-            if capitalized(words[start]) {
-                while k < words.len() && capitalized(words[k]) {
-                    k += 1;
-                }
-            }
-            let phrase = words[start..k]
-                .iter()
-                .filter(|word| word.chars().count() >= 2)
-                .copied()
-                .collect::<Vec<_>>()
-                .join(" ");
-            if term_like(&phrase)
-                && !replaced.contains(&phrase.to_lowercase())
-                && seen.insert(phrase.to_lowercase())
-            {
-                result.push(phrase);
-            }
-        }
+        hunks.push((start_i..i, start_j..j));
     }
-    result
+    hunks
 }
 
 fn capitalized(word: &str) -> bool {
@@ -126,6 +251,85 @@ pub fn save(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_vocabulary_fixes() {
+        let cases: &[(&str, &str, &[&str], &[&str])] = &[
+            ("the app is ready", "The app is ready", &[], &[]),
+            ("use convex today", "use Convex today", &[], &[]),
+            ("it is great today", "it is Excellent today", &[], &[]),
+            ("we cant ship today", "we can't ship today", &[], &[]),
+            ("we can ship today", "we Can't ship today", &[], &[]),
+            ("use this today", "use GitHub this today", &[], &[]),
+            ("use old words today", "use words today", &[], &[]),
+            (
+                "please use conveks for the database today",
+                "please use Convex for the database today",
+                &[],
+                &["Convex"],
+            ),
+            ("use github today", "use GitHub today", &[], &["GitHub"]),
+            ("github", "GitHub", &[], &["GitHub"]),
+            (
+                "use hugging face here today",
+                "use HuggingFace here today",
+                &[],
+                &["HuggingFace"],
+            ),
+            (
+                "use type aside here today",
+                "use TypeAside here today",
+                &[],
+                &["TypeAside"],
+            ),
+            ("use gpt4 today", "use GPT5 today", &[], &["GPT5"]),
+            ("use conveks today", "use Convex today", &["CONVEX"], &[]),
+            ("use github today", "use github.com today", &[], &[]),
+            ("hello", "Hello", &[], &[]),
+            ("great", "Excellent", &[], &[]),
+            (
+                "use conveks today please",
+                "try Convex tomorrow thanks",
+                &[],
+                &[],
+            ),
+            (
+                "one two three four five",
+                "One Two Three Four Five",
+                &[],
+                &[],
+            ),
+            (
+                "a github b github c github d github e",
+                "a GitHub b GitHub c GitHub d GitHub e",
+                &[],
+                &[],
+            ),
+            (
+                "use github and conveks for the app today",
+                "use GitHub and Convex for the app today",
+                &[],
+                &["GitHub", "Convex"],
+            ),
+            (
+                "use huggingface here today please",
+                "use Hugging Face here today please",
+                &[],
+                &["Hugging Face"],
+            ),
+            ("same text", "same text", &[], &[]),
+            ("", "GitHub", &[], &[]),
+            ("GitHub", "", &[], &[]),
+            ("use ordinary today", "use ordinarily today", &[], &[]),
+        ];
+        for (old, new, known, expected) in cases {
+            let known = known
+                .iter()
+                .map(|word| (*word).to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(learned(old, new, &known), *expected, "{old:?} -> {new:?}");
+        }
+    }
 
     #[test]
     fn removed_words_are_not_suggested_until_added_again() {
