@@ -7,11 +7,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub fn focused_app_id() -> Option<String> {
-    focused_window()?.get("app_id")?.as_str().map(str::to_owned)
+pub fn focused_app() -> Option<super::FocusedApp> {
+    focused_window().flatten()
 }
 
-fn focused_window() -> Option<serde_json::Value> {
+pub fn has_focused_window() -> bool {
+    focused_window().is_none_or(|window| window.is_some())
+}
+
+/// `None` when niri can't be asked, `Some(None)` when no window has focus.
+fn focused_window() -> Option<Option<super::FocusedApp>> {
     let output = Command::new("niri")
         .args(["msg", "--json", "focused-window"])
         .output()
@@ -20,10 +25,6 @@ fn focused_window() -> Option<serde_json::Value> {
         return None;
     }
     serde_json::from_slice(&output.stdout).ok()
-}
-
-pub fn has_focused_window() -> bool {
-    focused_window().is_none_or(|window| !window.is_null())
 }
 
 pub struct TextInjector {

@@ -7,7 +7,7 @@ use crate::{
     config::RecordingMode,
     hotkeys::{HotkeyEvent, HotkeyService},
     paths::AppPaths,
-    text_injector::{TextInjector, focused_app_id},
+    text_injector::{TextInjector, focused_app},
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,7 @@ pub struct Dictation {
     pub at: SystemTime,
     pub raw: String,
     pub cleaned: String,
-    /// niri app_id captured when recording started.
+    /// App ID captured when recording started.
     pub app_id: Option<String>,
     pub audio_ms: u32,
     pub latency_ms: u32,
@@ -384,7 +384,7 @@ fn run(
         match command {
             Command::Start if recorder.is_none() && busy.is_none() => {
                 monitor = None;
-                let app_id = focused_app_id();
+                let app = focused_app();
                 let selection = if start_mode == Mode::Command {
                     crate::text_injector::primary_selection()
                 } else {
@@ -394,7 +394,7 @@ fn run(
                 match AudioRecorder::start(&config) {
                     Ok(capture) => {
                         recorder = Some(capture);
-                        context = (start_mode, app_id, selection);
+                        context = (start_mode, app, selection);
                         effects =
                             crate::media::ListeningEffects::start(config.sounds, config.duck_media);
                         phase(&events, Phase::Listening(start_mode));
@@ -473,7 +473,7 @@ fn run(
                 phase(&events, Phase::Transcribing);
                 let pipeline_config = config.clone();
                 let pipeline_tx = tx.clone();
-                let (mode, app_id, selection) = context.clone();
+                let (mode, app, selection) = context.clone();
                 let spawned = thread::Builder::new()
                     .name("typeaside-transcription".into())
                     .spawn(move || {
@@ -483,7 +483,7 @@ fn run(
                             let output = crate::pipeline::run(
                                 &pipeline_config,
                                 &audio,
-                                app_id.as_deref(),
+                                app.as_ref(),
                                 mode,
                                 &selection,
                                 || {
@@ -494,7 +494,7 @@ fn run(
                                 at: SystemTime::now(),
                                 raw: output.raw,
                                 cleaned: output.text,
-                                app_id,
+                                app_id: app.and_then(|app| app.id),
                                 audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX)) as u32,
                                 latency_ms: started.elapsed().as_millis().min(u128::from(u32::MAX))
                                     as u32,
@@ -534,7 +534,7 @@ fn run(
                     deliver(
                         &mut injector,
                         text,
-                        focused_app_id().as_deref(),
+                        focused_app().and_then(|app| app.id).as_deref(),
                         &config,
                         &events,
                     );
