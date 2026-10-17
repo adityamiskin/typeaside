@@ -67,6 +67,7 @@ pub struct SettingsInputs {
     pub translation: Entity<SelectState<Vec<String>>>,
     stt_models: ModelList,
     cleanup_models: ModelList,
+    customize: bool,
     devices: Vec<String>,
     stt_hint: String,
     editing_hint: String,
@@ -144,6 +145,7 @@ impl SettingsInputs {
             translation,
             stt_models,
             cleanup_models,
+            customize: false,
             devices: devices.to_vec(),
             stt_hint: String::new(),
             editing_hint: String::new(),
@@ -803,6 +805,8 @@ impl MainWindow {
         let testing = s.mic_testing;
         let level = s.level;
         let model = s.model;
+        // Account users get transcription and editing handled for them; the knobs sit behind Customize.
+        let managed = s.account.is_some() && c.transcription == Source::Hosted;
         let theme = segmented(
             [
                 (Theme::System, "System"),
@@ -864,6 +868,83 @@ impl MainWindow {
             p,
             cx,
             |this, value, _, cx| this.state.update(cx, |s, _| s.config.transcription = value),
+        );
+        let mut advanced = Some(
+            div()
+                .child(section("Transcription"))
+                .child(form_row("Source", div().flex().child(source), p))
+                .when(c.transcription == Source::Local, |col| {
+                    col.child(form_row(
+                        "",
+                        div().text_size(px(12.)).text_color(p.muted).child(
+                            "Audio never leaves this computer. Cleanup and translation are off.",
+                        ),
+                        p,
+                    ))
+                })
+                .when(typeaside::local::AVAILABLE, |col| {
+                    col.child(form_row(
+                        "On-device model",
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(if model == Status::Failed {
+                                        p.red
+                                    } else {
+                                        p.muted
+                                    })
+                                    .child(model_text),
+                            )
+                            .child(button(model_label, false, p).id("model-action").on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    if !this.state.read(cx).is_demo {
+                                        model_action(this, cx);
+                                    }
+                                }),
+                            )),
+                        p,
+                    ))
+                })
+                .when(c.transcription == Source::OwnKey, |col| {
+                    col.child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
+                        .child(form_row(
+                            "Model",
+                            model_field(&self.settings.stt_models, &self.settings.model, p),
+                            p,
+                        ))
+                        .child(form_row("API key", input(&self.settings.key, p), p))
+                })
+                .child(section("Editing"))
+                .child(form_row(
+                    "AI editing",
+                    self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx),
+                    p,
+                ))
+                .when(c.transcription == Source::OwnKey, |col| {
+                    col.child(form_row(
+                        "Endpoint",
+                        input(&self.settings.cleanup_endpoint, p),
+                        p,
+                    ))
+                    .child(form_row(
+                        "Model",
+                        model_field(
+                            &self.settings.cleanup_models,
+                            &self.settings.cleanup_model,
+                            p,
+                        ),
+                        p,
+                    ))
+                    .child(form_row(
+                        "API key",
+                        input(&self.settings.cleanup_key, p),
+                        p,
+                    ))
+                }),
         );
         div()
             .size_full()
@@ -948,73 +1029,8 @@ impl MainWindow {
                         select(&self.settings.translation, p),
                         p,
                     ))
-                    .child(section("Transcription"))
-                    .child(form_row("Source", div().flex().child(source), p))
-                    .when(c.transcription == Source::Local, |col| {
-                        col.child(form_row(
-                            "",
-                            div().text_size(px(12.)).text_color(p.muted).child(
-                                "Audio never leaves this computer. Cleanup and translation are off.",
-                            ),
-                            p,
-                        ))
-                    })
-                    .when(typeaside::local::AVAILABLE, |col| {
-                        col.child(form_row(
-                            "On-device model",
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .text_color(if model == Status::Failed { p.red } else { p.muted })
-                                        .child(model_text),
-                                )
-                                .child(
-                                    button(model_label, false, p).id("model-action").on_click(
-                                        cx.listener(move |this, _, _, cx| {
-                                            if !this.state.read(cx).is_demo {
-                                                model_action(this, cx);
-                                            }
-                                        }),
-                                    ),
-                                ),
-                            p,
-                        ))
-                    })
-                    .when(c.transcription == Source::OwnKey, |col| {
-                        col.child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
-                            .child(form_row(
-                                "Model",
-                                model_field(&self.settings.stt_models, &self.settings.model, p),
-                                p,
-                            ))
-                            .child(form_row("API key", input(&self.settings.key, p), p))
-                    })
-                    .child(section("Editing"))
-                    .child(form_row(
-                        "AI editing",
-                        self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx),
-                        p,
-                    ))
-                    .when(c.transcription == Source::OwnKey, |col| {
-                        col.child(form_row(
-                            "Endpoint",
-                            input(&self.settings.cleanup_endpoint, p),
-                            p,
-                        ))
-                        .child(form_row(
-                            "Model",
-                            model_field(&self.settings.cleanup_models, &self.settings.cleanup_model, p),
-                            p,
-                        ))
-                        .child(form_row(
-                            "API key",
-                            input(&self.settings.cleanup_key, p),
-                            p,
-                        ))
+                    .when(!managed, |col| {
+                        col.child(advanced.take().unwrap_or_else(div))
                     })
                     .child(section("Behavior"))
                     .child(form_row(
@@ -1042,6 +1058,44 @@ impl MainWindow {
                         self.toggle("share-usage", c.share_usage, Toggle::ShareUsage, cx),
                         p,
                     ))
+                    .when(managed, |col| {
+                        col.child(section("Advanced"))
+                            .child(form_row(
+                                "Transcription",
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .child(
+                                        div()
+                                            .text_size(px(12.))
+                                            .text_color(p.muted)
+                                            .child("Handled by your TypeAside account"),
+                                    )
+                                    .child(
+                                        button(
+                                            if self.settings.customize {
+                                                "Done"
+                                            } else {
+                                                "Customize"
+                                            },
+                                            false,
+                                            p,
+                                        )
+                                        .id("customize")
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| {
+                                                this.settings.customize = !this.settings.customize;
+                                                cx.notify();
+                                            }),
+                                        ),
+                                    ),
+                                p,
+                            ))
+                            .when(self.settings.customize, |col| {
+                                col.child(advanced.take().unwrap_or_else(div))
+                            })
+                    })
                     .child(section("About"))
                     .child(form_row(
                         "Version",
