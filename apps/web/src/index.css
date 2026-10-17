@@ -740,6 +740,240 @@ footer {
   display: flex;
   gap: 12px;
 }
+.steps {
+  text-align: center;
+}
+.steps > .lead {
+  margin-inline: auto;
+}
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
+  max-width: 1080px;
+  margin: 56px auto 0;
+  padding: 0;
+  list-style: none;
+}
+.steps-item {
+  min-width: 0;
+  animation: steps-enter 600ms var(--ease) both;
+  animation-delay: calc(var(--step) * 80ms);
+}
+.steps-number {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--white);
+  font-size: 14px;
+  font-weight: 600;
+}
+.steps .steps-panel {
+  aspect-ratio: 4 / 3;
+  height: auto;
+  padding: 0;
+}
+.steps-window {
+  width: 70%;
+  padding: 16px;
+  border-radius: 12px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 20px 40px -24px rgb(30 50 90 / 0.4);
+}
+.steps-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.steps-title svg,
+.steps-file svg,
+.steps-search svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.steps-dots {
+  display: flex;
+  gap: 4px;
+}
+.steps-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.steps-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  padding: 10px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 11px;
+}
+.steps-file span {
+  overflow-wrap: anywhere;
+}
+.steps-file .steps-pointer {
+  position: absolute;
+  right: -5px;
+  bottom: -8px;
+  width: 22px;
+  height: 22px;
+  fill: var(--white);
+}
+.steps-applications {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.steps-applications > div {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  font-size: 10px;
+}
+.steps-applications svg {
+  width: 32px;
+  height: 32px;
+}
+.steps-applications > svg {
+  width: 18px;
+}
+.steps-window p {
+  color: var(--muted);
+  font-size: 11px;
+}
+.steps-mini-button {
+  display: block;
+  width: fit-content;
+  margin: 12px 0 0 auto;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--white);
+  font-weight: 500;
+  font-size: 11px;
+}
+.steps-outline {
+  background: transparent;
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.steps-more {
+  text-decoration: underline;
+}
+.steps-search,
+.steps-launcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.steps-search {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+}
+.steps-launcher {
+  margin-top: 12px;
+}
+.steps-launcher svg {
+  width: 28px;
+  height: 28px;
+}
+.steps-terminal {
+  background: #16171a;
+  color: var(--white);
+  border-radius: 10px;
+  font: 12px/1.6 monospace;
+  overflow-wrap: anywhere;
+}
+.steps-terminal > span:first-child {
+  color: var(--faint);
+}
+.steps-signout {
+  display: block;
+  margin-top: 12px;
+  font-size: 11px;
+}
+.steps .steps-caption {
+  max-width: 300px;
+  margin: 20px auto 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.steps-caption strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.steps-command {
+  color: var(--text);
+}
+.steps-command code {
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.steps .steps-copy {
+  display: inline-flex;
+  vertical-align: middle;
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  margin-left: 3px;
+  border-radius: 4px;
+  box-shadow: none;
+  transform: none;
+}
+.steps .steps-note {
+  margin-top: 28px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.steps .steps-help {
+  margin-top: 40px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.steps-help a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: var(--text);
+}
+@keyframes steps-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (max-width: 819px) {
+  .steps-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+    max-width: 420px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .steps-item {
+    animation: none;
+  }
+}
 .legal {
   max-width: 768px;
 }
