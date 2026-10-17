@@ -15,7 +15,7 @@ fn sync(config: &mut AppConfig, label: &str) -> Result<()> {
     println!("{label}: {}", serde_json::to_string(&result)?);
     config.settings_sync = Some(SyncState {
         updated_at: result.updated_at,
-        hash: result.fields.hash(),
+        base: result.fields.clone(),
     });
     result.fields.apply(config);
     let root = std::path::PathBuf::from(std::env::var("TYPEASIDE_SYNC_ARTIFACTS")?);
@@ -54,14 +54,14 @@ fn main() -> Result<()> {
         ],
         ..AppConfig::default()
     };
-    sync(&mut b, "b-first-union")?;
+    sync(&mut b, "b-first-merge")?;
     ensure!(
         b.dictionary == ["TypeAside", "Bun"]
-            && b.snippets[0].text == "remote"
+            && b.snippets[0].text == "local"
             && b.snippets.len() == 2
             && b.styles.work == Tone::Formal
     );
-    sync(&mut a, "a-pull-union")?;
+    sync(&mut a, "a-pull-merge")?;
     a.dictionary.push("Convex".into());
     std::thread::sleep(std::time::Duration::from_millis(5));
     sync(&mut a, "a-edit")?;
@@ -92,7 +92,9 @@ fn main() -> Result<()> {
         .send()?
         .error_for_status()?;
     sync(&mut b, "b-stale-converged")?;
-    ensure!(b.dictionary == newer.fields.dictionary);
+    let mut expected = newer.fields.dictionary.clone();
+    expected.push("stale-local".into());
+    ensure!(b.dictionary == expected);
     for (name, payload) in [
         ("body-oversize", "x".repeat(256 * 1024 + 1)),
         (
@@ -112,7 +114,7 @@ fn main() -> Result<()> {
         ensure!(status.as_u16() == 400);
     }
     println!(
-        "PASS: two-device pull, first union, stale rejection and convergence, size validation"
+        "PASS: two-device pull, first merge, stale rejection and convergence, size validation"
     );
     Ok(())
 }

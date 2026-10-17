@@ -28,6 +28,7 @@ export const pingFields = {
 
 export const settingsFields = {
   dictionary: v.array(v.string()),
+  removedWords: v.array(v.string()),
   snippets: v.array(v.object({ trigger: v.string(), text: v.string() })),
   styles: v.record(
     v.string(),

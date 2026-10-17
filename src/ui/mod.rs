@@ -534,7 +534,7 @@ fn schedule_settings_sync(
                 }
                 let synced = Some(SyncState {
                     updated_at: remote.updated_at,
-                    hash: remote.fields.hash(),
+                    base: remote.fields.clone(),
                 });
                 if s.config.settings_sync == synced && remote.fields == fields {
                     return;
