@@ -246,6 +246,7 @@ pub fn key_label(value: &str) -> String {
             "LEFTSHIFT" => "Shift",
             "LEFTCTRL" => "Ctrl",
             "ESCAPE" => "Escape",
+            "FN" => "Fn",
             other => other,
         })
         .collect::<Vec<_>>()

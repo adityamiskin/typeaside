@@ -281,6 +281,8 @@ fn start_ui(
     })
     .detach();
     if !is_demo {
+        #[cfg(target_os = "macos")]
+        permissions::watch(&state, cx);
         update::schedule(&state, cx);
         schedule_settings_sync(&state, sync_rx, cx);
         let config = state.read(cx).config.clone();

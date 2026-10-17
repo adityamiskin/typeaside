@@ -253,7 +253,12 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            hotkey: "RIGHTCTRL".into(),
+            hotkey: if cfg!(target_os = "macos") {
+                "FN"
+            } else {
+                "RIGHTCTRL"
+            }
+            .into(),
             mode: RecordingMode::Hold,
             cancel_hotkey: Some("ESCAPE".into()),
             input_device: None,

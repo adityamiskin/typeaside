@@ -976,7 +976,14 @@ impl MainWindow {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(10.))
+                                    .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
+                                    .children(fn_key_hint(&c.hotkey, p)),
+                            )
                             .child(mode),
                         p,
                     ))
@@ -1164,6 +1171,23 @@ pub fn meter(level: f32, bars: usize, height: f32, p: Palette) -> impl IntoEleme
                 .bg(p.accent)
         }))
 }
+fn fn_key_hint(hotkey: &str, p: Palette) -> Option<gpui::Div> {
+    if !hotkey.split('+').any(|key| key == "FN") {
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    if !super::permissions::fn_key_claimed() {
+        return None;
+    }
+    Some(
+        div()
+            .text_size(px(12.))
+            .line_height(px(17.4))
+            .text_color(p.muted)
+            .child("Set Keyboard > \"Press Globe key to\" to Do Nothing"),
+    )
+}
+
 pub fn shortcut_combo(k: &gpui::Keystroke) -> String {
     let key = match k.key.as_str() {
         "escape" => "ESCAPE",

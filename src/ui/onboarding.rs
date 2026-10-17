@@ -6,8 +6,6 @@ use super::{
 };
 use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, img, prelude::*, px};
 use gpui_kit::component::{Sizable, input::Input, select::Select};
-#[cfg(target_os = "macos")]
-use std::time::Duration;
 use std::{sync::atomic::Ordering, time::Instant};
 use typeaside::{
     config::{RecordingMode, Source},
@@ -50,12 +48,6 @@ pub struct Onboarding {
     frame: Instant,
     result: Spring,
     had_result: bool,
-    #[cfg(target_os = "macos")]
-    polling: bool,
-    #[cfg(target_os = "macos")]
-    reloaded: bool,
-    #[cfg(target_os = "macos")]
-    grants: [bool; 3],
 }
 impl Onboarding {
     pub fn visible_steps(demo: bool) -> Vec<Step> {
@@ -84,12 +76,6 @@ impl Onboarding {
             frame: Instant::now(),
             result: Spring::new(0.),
             had_result: false,
-            #[cfg(target_os = "macos")]
-            polling: false,
-            #[cfg(target_os = "macos")]
-            reloaded: false,
-            #[cfg(target_os = "macos")]
-            grants: super::permissions::statuses(),
         }
     }
 }
@@ -202,44 +188,6 @@ impl MainWindow {
             });
             cx.notify();
         });
-        #[cfg(target_os = "macos")]
-        if step == Step::Permissions && !self.onboarding.polling && !self.state.read(cx).is_demo {
-            self.onboarding.polling = true;
-            cx.spawn(async move |this, cx| {
-                loop {
-                    cx.background_executor().timer(Duration::from_secs(1)).await;
-                    let keep = this
-                        .update(cx, |this, cx| {
-                            if this.state.read(cx).onboarding_step != Step::Permissions {
-                                this.onboarding.polling = false;
-                                return false;
-                            }
-                            let grants = super::permissions::statuses();
-                            if grants != this.onboarding.grants {
-                                this.onboarding.grants = grants;
-                                this.state.update(cx, |s, _| {
-                                    s.permission_notice = super::permissions::notice()
-                                });
-                                cx.notify();
-                            }
-                            let granted = grants.into_iter().all(|s| s);
-                            if granted && !this.onboarding.reloaded {
-                                this.onboarding.reloaded = true;
-                                this.state.update(cx, |s, _| {
-                                    s.command(Command::Reload(Box::new(s.config.clone())))
-                                });
-                                this.onboarding.polling = false;
-                            }
-                            !granted
-                        })
-                        .unwrap_or(false);
-                    if !keep {
-                        break;
-                    }
-                }
-            })
-            .detach();
-        }
         cx.notify();
     }
     fn onboarding_ready(&self, cx: &Context<Self>) -> bool {
@@ -259,9 +207,9 @@ impl MainWindow {
             _ => true,
         }
     }
-    fn permission_status(&self, cx: &Context<Self>) -> [bool; 3] {
+    fn permission_status(&self, cx: &Context<Self>) -> [bool; 2] {
         if self.state.read(cx).is_demo {
-            return [true, false, false];
+            return [true, false];
         }
         #[cfg(target_os = "macos")]
         {
@@ -269,7 +217,7 @@ impl MainWindow {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            [true; 3]
+            [true; 2]
         }
     }
     pub fn skip_intro(&mut self, cx: &mut Context<Self>) -> bool {
@@ -692,13 +640,8 @@ impl MainWindow {
                                     ),
                                     (
                                         "Accessibility",
-                                        "To paste text where your cursor is.",
+                                        "To notice your shortcut and paste where your cursor is.",
                                         "icons/accessibility.svg",
-                                    ),
-                                    (
-                                        "Input Monitoring",
-                                        "To notice your shortcut in any app.",
-                                        "icons/keyboard.svg",
                                     ),
                                 ]
                                 .into_iter()
