@@ -9,7 +9,14 @@ use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
     select::{Select, SelectEvent, SelectState},
 };
-use typeaside::config::{AppConfig, RecordingMode, Source, Theme};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use typeaside::{
+    config::{AppConfig, RecordingMode, Source, Theme},
+    local::Status,
+};
 
 const LANGUAGES: [(&str, &str); 12] = [
     ("English", "en"),
@@ -603,12 +610,91 @@ impl MainWindow {
                 )
         }
     }
+    fn download_model(&mut self, cx: &mut Context<Self>) {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (progress_tx, progress_rx) = async_channel::unbounded();
+        let task = cx.background_executor().spawn({
+            let cancel = cancel.clone();
+            async move {
+                typeaside::local::download(&cancel, move |percent| {
+                    let _ = progress_tx.try_send(percent);
+                })
+            }
+        });
+        self.state.update(cx, |s, cx| {
+            s.model = Status::Downloading(0);
+            s.model_cancel = Some(cancel);
+            cx.notify();
+        });
+        let state = self.state.clone();
+        cx.spawn(async move |_, cx| {
+            while let Ok(percent) = progress_rx.recv().await {
+                state.update(cx, |s, cx| {
+                    s.model = Status::Downloading(percent);
+                    cx.notify();
+                });
+            }
+            let result = task.await;
+            state.update(cx, |s, cx| {
+                let cancelled = s
+                    .model_cancel
+                    .take()
+                    .is_some_and(|cancel| cancel.load(Ordering::Relaxed));
+                s.model = match result {
+                    Ok(()) => Status::Installed,
+                    Err(_) if cancelled => Status::NotInstalled,
+                    Err(error) => {
+                        eprintln!("typeaside model download: {error:#}");
+                        Status::Failed
+                    }
+                };
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn cancel_model(&mut self, cx: &mut Context<Self>) {
+        if let Some(cancel) = &self.state.read(cx).model_cancel {
+            cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn remove_model(&mut self, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async { typeaside::local::remove() });
+        cx.spawn(async move |_, cx| {
+            let result = task.await;
+            state.update(cx, |s, cx| {
+                match result {
+                    Ok(()) => {
+                        s.model = Status::NotInstalled;
+                        if s.config.transcription == Source::Local {
+                            s.config.transcription = if s.account.is_some() {
+                                Source::Hosted
+                            } else {
+                                Source::OwnKey
+                            };
+                            s.persist();
+                        }
+                    }
+                    Err(error) => s.save_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub fn settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let s = self.state.read(cx);
         let c = s.config.clone();
         let testing = s.mic_testing;
         let level = s.level;
+        let model = s.model;
         let theme = segmented(
             [
                 (Theme::System, "System"),
@@ -633,11 +719,39 @@ impl MainWindow {
             cx,
             |this, value, _, cx| this.state.update(cx, |s, _| s.config.mode = value),
         );
+        let (model_text, model_label, model_action): (_, _, fn(&mut Self, &mut Context<Self>)) =
+            match model {
+                Status::NotInstalled => (
+                    format!(
+                        "Parakeet v3, 25 languages, {} MB",
+                        typeaside::local::download_size_mb()
+                    ),
+                    "Download",
+                    Self::download_model,
+                ),
+                Status::Downloading(percent) => (
+                    format!("Downloading {percent}%"),
+                    "Cancel",
+                    Self::cancel_model,
+                ),
+                Status::Installed => (
+                    "Installed, works offline".into(),
+                    "Remove",
+                    Self::remove_model,
+                ),
+                Status::Failed => (
+                    "Download failed, check your connection".into(),
+                    "Retry",
+                    Self::download_model,
+                ),
+            };
         let source = segmented(
             [
                 (Source::Hosted, "TypeAside account"),
                 (Source::OwnKey, "Own key"),
-            ],
+            ]
+            .into_iter()
+            .chain((model == Status::Installed).then_some((Source::Local, "On device"))),
             c.transcription,
             p,
             cx,
@@ -728,6 +842,40 @@ impl MainWindow {
                     ))
                     .child(section("Transcription"))
                     .child(form_row("Source", div().flex().child(source), p))
+                    .when(c.transcription == Source::Local, |col| {
+                        col.child(form_row(
+                            "",
+                            div().text_size(px(12.)).text_color(p.muted).child(
+                                "Audio never leaves this computer. Cleanup and translation are off.",
+                            ),
+                            p,
+                        ))
+                    })
+                    .when(typeaside::local::AVAILABLE, |col| {
+                        col.child(form_row(
+                            "On-device model",
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(if model == Status::Failed { p.red } else { p.muted })
+                                        .child(model_text),
+                                )
+                                .child(
+                                    button(model_label, false, p).id("model-action").on_click(
+                                        cx.listener(move |this, _, _, cx| {
+                                            if !this.state.read(cx).is_demo {
+                                                model_action(this, cx);
+                                            }
+                                        }),
+                                    ),
+                                ),
+                            p,
+                        ))
+                    })
                     .when(c.transcription == Source::OwnKey, |col| {
                         col.child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
                             .child(form_row("Model", input(&self.settings.model, p), p))
@@ -931,8 +1079,8 @@ pub(super) fn grouped(value: u64) -> String {
         })
 }
 
-fn segmented<T: Copy + PartialEq + 'static, const N: usize>(
-    options: [(T, &'static str); N],
+fn segmented<T: Copy + PartialEq + 'static>(
+    options: impl IntoIterator<Item = (T, &'static str)>,
     current: T,
     p: Palette,
     cx: &mut Context<MainWindow>,
@@ -945,7 +1093,7 @@ fn segmented<T: Copy + PartialEq + 'static, const N: usize>(
         .border_color(p.border)
         .rounded(px(6.))
         .overflow_hidden()
-        .children(options.map(|(value, label)| {
+        .children(options.into_iter().map(|(value, label)| {
             let on = current == value;
             div()
                 .id(label)

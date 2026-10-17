@@ -210,6 +210,7 @@ impl Default for Cleanup {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
+    Local,
     Hosted,
     #[default]
     OwnKey,

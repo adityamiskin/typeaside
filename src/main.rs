@@ -1,6 +1,13 @@
 mod ui;
 
 fn main() {
+    if std::env::args().any(|arg| arg == "--local-worker") {
+        if let Err(error) = typeaside::local::worker_main() {
+            eprintln!("typeaside local: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let started = std::time::Instant::now();
     #[cfg(target_os = "linux")]
     prefer_integrated_gpu();

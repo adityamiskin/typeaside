@@ -6,7 +6,9 @@ use typeaside::{
 
 pub fn config() -> AppConfig {
     AppConfig {
-        transcription: if account().is_some() {
+        transcription: if std::env::var("TYPEASIDE_DEMO_MODEL").as_deref() == Ok("installed") {
+            typeaside::config::Source::Local
+        } else if account().is_some() {
             typeaside::config::Source::Hosted
         } else {
             typeaside::config::Source::OwnKey
@@ -70,11 +72,22 @@ pub fn history() -> Vec<Dictation> {
     items
 }
 
+pub fn model() -> typeaside::local::Status {
+    use typeaside::local::Status;
+    match std::env::var("TYPEASIDE_DEMO_MODEL").as_deref() {
+        Ok("downloading") => Status::Downloading(42),
+        Ok("installed") => Status::Installed,
+        Ok("failed") => Status::Failed,
+        _ => Status::NotInstalled,
+    }
+}
+
 pub fn spawn() -> async_channel::Receiver<Event> {
     let (tx, rx) = async_channel::unbounded();
     std::thread::spawn(move || {
         if std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() == Ok("onboarding")
             || std::env::var_os("TYPEASIDE_DEMO_EDIT").is_some()
+            || std::env::var_os("TYPEASIDE_DEMO_MODEL").is_some()
         {
             // Keep interactive fixtures static and avoid creating an overlay window.
             std::thread::park();
