@@ -4,15 +4,41 @@ use super::{
 };
 use chrono::{DateTime, Local};
 use gpui::{
-    ClipboardItem, Context, FontFeatures, FontWeight, IntoElement, Styled, div, prelude::*, px,
+    Anchor, App, ClipboardItem, Context, DismissEvent, ElementId, Focusable, FontFeatures,
+    FontWeight, IntoElement, Styled, Window, div, prelude::*, px,
 };
-use gpui_kit::component::input::Input;
+use gpui_kit::component::{
+    Icon, Sizable, WindowExt,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
+    dialog::DialogEntrance,
+    input::Input,
+    menu::{PopupMenu, PopupMenuItem},
+    popover::Popover,
+    tooltip::Tooltip,
+};
 use std::collections::BTreeSet;
 use typeaside::{
     account,
     config::{AppCategory, Tone},
     engine::{Command, Dictation, Mode, Phase},
 };
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum HistoryTab {
+    #[default]
+    All,
+    Dictations,
+    AskAnything,
+}
+impl HistoryTab {
+    fn includes(self, mode: Mode) -> bool {
+        match self {
+            Self::All => true,
+            Self::Dictations => mode != Mode::Command,
+            Self::AskAnything => mode == Mode::Command,
+        }
+    }
+}
 
 struct Stats {
     words: usize,
@@ -79,6 +105,189 @@ impl MainWindow {
         if !state.is_demo && state.file_transcribing.is_none() && state.phase == Phase::Idle {
             state.command(Command::TranscribeFile(path));
         }
+    }
+    fn history_menu(
+        &self,
+        index: usize,
+        timestamp: std::time::SystemTime,
+        raw: String,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let main = cx.entity().downgrade();
+        let on_open = main.clone();
+        let demo = self.state.read(cx).is_demo
+            && index == 0
+            && std::env::var_os("TYPEASIDE_DEMO_MENU").is_some();
+        Popover::new(("history-menu", index))
+            .appearance(false)
+            .anchor(Anchor::TopRight)
+            .default_open(demo)
+            .trigger(history_button(
+                ("more", index),
+                "icons/ellipsis.svg",
+                "More",
+                false,
+                cx,
+            ))
+            .on_open_change(move |open, _, cx| {
+                let _ = on_open.update(cx, |this, cx| {
+                    this.menu_history = open.then_some(timestamp);
+                    cx.notify();
+                });
+            })
+            .content(move |_, window, cx| {
+                let main = main.clone();
+                let raw = raw.clone();
+                let menu_state = window.use_keyed_state(
+                    gpui::SharedString::from(format!("history-popup:{timestamp:?}")),
+                    cx,
+                    |_, _| None::<gpui::Entity<PopupMenu>>,
+                );
+                if let Some(menu) = menu_state.read(cx).clone() {
+                    menu
+                } else {
+                    let copy = main.clone();
+                    let menu = PopupMenu::build(window, cx, move |menu, _, _| {
+                        menu.min_w(px(150.))
+                            .item(
+                                PopupMenuItem::element(|_, cx| {
+                                    menu_label("Copy raw", "icons/file-text.svg", palette(cx).fg)
+                                })
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(raw.clone()));
+                                    let _ = copy
+                                        .update(cx, |this, cx| this.show_toast("Copied raw", cx));
+                                }),
+                            )
+                            .separator()
+                            .item(
+                                PopupMenuItem::element(|_, cx| {
+                                    menu_label("Delete", "icons/trash.svg", palette(cx).red)
+                                })
+                                .on_click(move |_, window, cx| {
+                                    let main = main.clone();
+                                    window.defer(cx, move |window, cx| {
+                                        let _ = main.update(cx, |this, cx| {
+                                            this.confirm_removal(Some(timestamp), window, cx);
+                                        });
+                                    });
+                                }),
+                            )
+                    });
+                    menu.focus_handle(cx).focus(window, cx);
+                    menu_state.update(cx, |state, _| *state = Some(menu.clone()));
+                    let popover = cx.entity().downgrade();
+                    let menu_state = menu_state.downgrade();
+                    window
+                        .subscribe(&menu, cx, move |_, _: &DismissEvent, window, cx| {
+                            let _ = popover.update(cx, |state, cx| state.dismiss(window, cx));
+                            let _ = menu_state.update(cx, |state, _| *state = None);
+                        })
+                        .detach();
+                    menu
+                }
+            })
+    }
+    pub fn confirm_removal(
+        &mut self,
+        timestamp: Option<std::time::SystemTime>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let state = self.state.read(cx);
+        let text = if let Some(at) = timestamp {
+            let Some(item) = state.history.iter().find(|item| item.at == at) else {
+                return;
+            };
+            item.cleaned.clone()
+        } else {
+            if state.failed.is_none() {
+                return;
+            }
+            "Recording didn't transcribe".into()
+        };
+        let failed_at = state.failed.as_ref().map(|failed| failed.at);
+        let main = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, window, cx| {
+            let p = palette(cx);
+            let main = main.clone();
+            dialog
+                .title(if timestamp.is_some() {
+                    "Delete this transcript?"
+                } else {
+                    "Discard this recording?"
+                })
+                .w(px(380.))
+                .margin_top((window.viewport_size().height / 2. - px(90.)).max(px(16.)))
+                .entrance(DialogEntrance::None)
+                .close_button(false)
+                .bg(p.pill)
+                .text_color(p.fg)
+                .border_color(p.pill_border)
+                .rounded(px(8.))
+                .on_ok(|_, _, _| false)
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .text_color(p.muted)
+                        .line_clamp(2)
+                        .child(text.clone()),
+                )
+                .footer(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(px(8.))
+                        .child(
+                            Button::new("cancel-removal")
+                                .secondary()
+                                .label("Cancel")
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            Button::new("confirm-removal")
+                                .label(if timestamp.is_some() {
+                                    "Delete"
+                                } else {
+                                    "Discard"
+                                })
+                                .danger()
+                                .on_click(move |_, window, cx| {
+                                    let _ = main.update(cx, |this, cx| {
+                                        if let Some(at) = timestamp {
+                                            let index = this
+                                                .state
+                                                .read(cx)
+                                                .history
+                                                .iter()
+                                                .position(|item| item.at == at);
+                                            if let Some(index) = index {
+                                                this.delete_history(index, cx);
+                                            }
+                                        } else if this
+                                            .state
+                                            .read(cx)
+                                            .failed
+                                            .as_ref()
+                                            .map(|failed| failed.at)
+                                            == failed_at
+                                        {
+                                            this.state.update(cx, |s, cx| {
+                                                if s.is_demo {
+                                                    s.failed = None;
+                                                } else {
+                                                    s.command(Command::DiscardFailed);
+                                                }
+                                                cx.notify();
+                                            });
+                                            this.show_toast("Discarded", cx);
+                                        }
+                                    });
+                                    window.close_dialog(cx);
+                                }),
+                        ),
+                )
+        });
     }
     pub fn home(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
@@ -195,38 +404,30 @@ impl MainWindow {
         if let Some(failed) = &state.failed {
             let at: DateTime<Local> = failed.at.into();
             let seconds = failed.audio_ms / 1000;
-            let actions =
-                if failed.retrying {
-                    div().text_color(p.muted).child("Retrying")
-                } else {
-                    div()
-                        .flex()
-                        .gap(px(8.))
-                        .child(
-                            button("Retry", true, p)
-                                .id("retry-failed")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.state.update(cx, |s, cx| {
-                                        if !s.is_demo {
-                                            s.command(Command::RetryFailed);
-                                        }
-                                        cx.notify();
-                                    });
-                                })),
-                        )
-                        .child(button("Discard", false, p).id("discard-failed").on_click(
-                            cx.listener(|this, _, _, cx| {
+            let actions = if failed.retrying {
+                div().text_color(p.muted).child("Retrying")
+            } else {
+                div()
+                    .flex()
+                    .gap(px(2.))
+                    .child(
+                        history_button("retry-failed", "icons/rotate-cw.svg", "Retry", false, cx)
+                            .on_click(cx.listener(|this, _, _, cx| {
                                 this.state.update(cx, |s, cx| {
-                                    if s.is_demo {
-                                        s.failed = None;
-                                    } else {
-                                        s.command(Command::DiscardFailed);
+                                    if !s.is_demo {
+                                        s.command(Command::RetryFailed);
                                     }
                                     cx.notify();
                                 });
-                            }),
-                        ))
-                };
+                            })),
+                    )
+                    .child(
+                        history_button("discard-failed", "icons/trash.svg", "Discard", false, cx)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_removal(None, window, cx);
+                            })),
+                    )
+            };
             rows.push(
                 div()
                     .flex()
@@ -248,18 +449,59 @@ impl MainWindow {
                                 "{}:{:02} · {}",
                                 seconds / 60,
                                 seconds % 60,
-                                at.format("%H:%M")
+                                at.format(super::clock::time_format())
                             ))),
                     )
                     .child(actions)
                     .into_any_element(),
             );
         }
+        rows.push(
+            div()
+                .flex()
+                .pt(px(12.))
+                .child(
+                    div().flex().bg(p.hover).rounded(px(8.)).p(px(3.)).children(
+                        [
+                            (HistoryTab::All, "All"),
+                            (HistoryTab::Dictations, "Dictations"),
+                            (HistoryTab::AskAnything, "Ask anything"),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (tab, label))| {
+                            div()
+                                .id(("history-tab", index))
+                                .cursor_pointer()
+                                .px(px(10.))
+                                .py(px(4.))
+                                .rounded(px(6.))
+                                .text_size(px(12.))
+                                .text_color(if self.history_tab == tab {
+                                    p.fg
+                                } else {
+                                    p.muted
+                                })
+                                .when(self.history_tab == tab, |tab| tab.bg(p.bg))
+                                .hover(|tab| tab.text_color(p.fg))
+                                .child(label)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.history_tab = tab;
+                                    this.hovered_history = None;
+                                    cx.notify();
+                                }))
+                        }),
+                    ),
+                )
+                .into_any_element(),
+        );
         let mut previous = None;
         let today = Local::now().date_naive();
         let query = state.search.to_lowercase();
         for (index, item) in state.history.iter().enumerate().filter(|(_, d)| {
-            d.cleaned.to_lowercase().contains(&query) || d.raw.to_lowercase().contains(&query)
+            self.history_tab.includes(d.mode)
+                && (d.cleaned.to_lowercase().contains(&query)
+                    || d.raw.to_lowercase().contains(&query))
         }) {
             let at: DateTime<Local> = item.at.into();
             let day = at.date_naive();
@@ -283,79 +525,46 @@ impl MainWindow {
                 );
                 previous = Some(day);
             }
-            let hovered = self.hovered_history == Some(index);
+            let hovered = self.hovered_history == Some(index) || self.menu_history == Some(item.at);
             let text = item.cleaned.clone();
             let raw = item.raw.clone();
             let timestamp = item.at;
-            let editing = self
-                .correction_editor
-                .as_ref()
-                .is_some_and(|editor| editor.at == timestamp);
-            let notice = self
-                .learned_notice
-                .as_ref()
-                .filter(|(at, _, _)| *at == timestamp);
+            let expanded = state.expanded == Some(timestamp);
             let actions = div()
                 .flex()
-                .gap(px(14.))
-                .text_size(px(12.))
-                .line_height(px(19.))
+                .flex_shrink_0()
+                .items_center()
+                .gap(px(2.))
+                .mt(px(-4.5))
+                .mb(px(-4.5))
                 .child(
-                    div()
-                        .id(("edit", index))
-                        .cursor_pointer()
-                        .child("Edit")
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.edit_history(timestamp, window, cx)
-                        })),
+                    history_button(("copy", index), "icons/copy.svg", "Copy", false, cx).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                            this.show_toast("Copied", cx);
+                        }),
+                    ),
                 )
                 .child(
-                    div()
-                        .id(("copy", index))
-                        .cursor_pointer()
-                        .child("Copy")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))
-                        })),
+                    history_button(
+                        ("details", index),
+                        "icons/info.svg",
+                        if expanded { "Hide details" } else { "Details" },
+                        expanded,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.state.update(cx, |s, cx| {
+                            s.expanded = if s.expanded == Some(timestamp) {
+                                None
+                            } else {
+                                Some(timestamp)
+                            };
+                            cx.notify();
+                        });
+                    })),
                 )
-                .child(
-                    div()
-                        .id(("details", index))
-                        .cursor_pointer()
-                        .child("Details")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.update(cx, |s, cx| {
-                                s.expanded = if s.expanded == Some(timestamp) {
-                                    None
-                                } else {
-                                    Some(timestamp)
-                                };
-                                cx.notify();
-                            });
-                        })),
-                )
-                .child(
-                    div()
-                        .id(("delete", index))
-                        .text_color(p.red)
-                        .cursor_pointer()
-                        .child("Delete")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.update(cx, |s, cx| {
-                                s.history.retain(|d| d.at != timestamp);
-                                if s.expanded == Some(timestamp) {
-                                    s.expanded = None;
-                                }
-                                if !s.is_demo {
-                                    s.save_error =
-                                        typeaside::engine::save_history(&s.paths, &s.history)
-                                            .err()
-                                            .map(|e| format!("Could not save history: {e}"));
-                                }
-                                cx.notify();
-                            });
-                        })),
-                );
+                .child(self.history_menu(index, timestamp, raw, cx));
             rows.push(
                 div()
                     .id(("history", index))
@@ -378,34 +587,26 @@ impl MainWindow {
                     }))
                     .child(
                         div()
-                            .w(px(52.))
+                            .w(px(if super::clock::time_format() == "%H:%M" {
+                                52.
+                            } else {
+                                72.
+                            }))
                             .flex_shrink_0()
                             .font_family(MONO)
                             .text_size(px(12.))
                             .line_height(px(19.))
                             .text_color(p.muted)
-                            .child(at.format("%H:%M").to_string()),
+                            .child(at.format(super::clock::time_format()).to_string()),
                     )
-                    .child(if editing {
-                        self.correction_form(cx).into_any_element()
-                    } else {
+                    .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .line_clamp(2)
-                            .child(item.cleaned.clone())
-                            .into_any_element()
-                    })
-                    .child(if editing {
-                        div().into_any_element()
-                    } else if let Some((_, _, message)) = notice {
-                        div()
-                            .text_size(px(12.))
-                            .line_height(px(19.))
-                            .text_color(p.muted)
-                            .child(message.clone())
-                            .into_any_element()
-                    } else if hovered {
+                            .child(item.cleaned.clone()),
+                    )
+                    .child(if hovered {
                         actions.into_any_element()
                     } else {
                         div()
@@ -458,37 +659,35 @@ impl MainWindow {
                     );
                 }
                 details = details.child(
-                    div()
-                        .ml(px(80.))
-                        .flex()
-                        .gap(px(14.))
-                        .child(
-                            div()
-                                .id(("copy-raw", index))
-                                .cursor_pointer()
-                                .child("Copy raw")
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(raw.clone()))
-                                })),
-                        )
-                        .child(
-                            div()
-                                .id(("add-unknown", index))
-                                .cursor_pointer()
-                                .child("Add word to dictionary")
-                                .on_click(cx.listener(|this, _, w, cx| {
-                                    this.set_page(Page::Dictionary, w, cx);
-                                    this.word_input.update(cx, |input, cx| {
-                                        input.set_value("", w, cx);
-                                        input.focus(w, cx);
-                                    });
-                                })),
-                        ),
+                    div().ml(px(80.)).flex().gap(px(14.)).child(
+                        div()
+                            .id(("add-unknown", index))
+                            .cursor_pointer()
+                            .child("Add word to dictionary")
+                            .on_click(cx.listener(|this, _, w, cx| {
+                                this.set_page(Page::Dictionary, w, cx);
+                                this.word_input.update(cx, |input, cx| {
+                                    input.set_value("", w, cx);
+                                    input.focus(w, cx);
+                                });
+                            })),
+                    ),
                 );
                 rows.push(details.into_any_element());
             }
         }
-        if state.history.is_empty() {
+        if self.history_tab != HistoryTab::All && previous.is_none() {
+            rows.push(
+                div()
+                    .pt(px(18.))
+                    .text_color(p.muted)
+                    .child(match self.history_tab {
+                        HistoryTab::Dictations => "No dictations yet",
+                        _ => "Nothing asked yet",
+                    })
+                    .into_any_element(),
+            );
+        } else if state.history.is_empty() {
             rows.push(
                 div()
                     .pt(px(18.))
@@ -501,7 +700,7 @@ impl MainWindow {
                     .child("and speak.")
                     .into_any_element(),
             );
-        } else if rows.is_empty() {
+        } else if previous.is_none() {
             rows.push(
                 div()
                     .pt(px(18.))
@@ -572,4 +771,50 @@ fn friendly_app(app: Option<&str>) -> &str {
         Some(other) => other,
         None => "",
     }
+}
+
+fn history_button(
+    id: impl Into<ElementId>,
+    icon: &'static str,
+    tooltip: &'static str,
+    active: bool,
+    cx: &App,
+) -> Button {
+    let p = palette(cx);
+    let id = id.into();
+    Button::new(id.clone())
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .foreground(if active { p.fg } else { p.muted })
+                .hover(p.border)
+                .active(p.border),
+        )
+        .with_size(px(28.))
+        .rounded(px(6.))
+        .size(px(28.))
+        .p_0()
+        .accessibility_label(tooltip)
+        .child(
+            div()
+                .id(id)
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .hover(|style| style.text_color(p.fg))
+                .tooltip(move |window, cx| {
+                    Tooltip::new(tooltip).text_size(px(12.)).build(window, cx)
+                })
+                .child(Icon::default().path(icon).size(px(15.))),
+        )
+}
+
+fn menu_label(label: &'static str, icon: &'static str, color: gpui::Hsla) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .text_color(color)
+        .child(Icon::default().path(icon).size(px(14.)).flex_shrink_0())
+        .child(label)
 }
