@@ -1,17 +1,19 @@
 use crate::config::{AppConfig, Snippet, Styles};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncState {
     pub updated_at: u64,
-    pub hash: String,
+    pub base: Fields,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Fields {
     pub dictionary: Vec<String>,
+    pub removed_words: Vec<String>,
     pub snippets: Vec<Snippet>,
     pub styles: Styles,
 }
@@ -20,20 +22,15 @@ impl Fields {
     pub fn from_config(config: &AppConfig) -> Self {
         Self {
             dictionary: config.dictionary.clone(),
+            removed_words: config.removed_words.clone(),
             snippets: config.snippets.clone(),
             styles: config.styles,
         }
     }
 
-    pub fn hash(&self) -> String {
-        format!(
-            "{:x}",
-            Sha256::digest(serde_json::to_vec(self).expect("settings serialize"))
-        )
-    }
-
     pub fn apply(self, config: &mut AppConfig) {
         config.dictionary = self.dictionary;
+        config.removed_words = self.removed_words;
         config.snippets = self.snippets;
         config.styles = self.styles;
     }
@@ -52,24 +49,82 @@ struct Response {
     settings: Option<Settings>,
 }
 
-pub fn merge(local: Fields, mut remote: Fields) -> Fields {
-    let mut words = std::collections::HashSet::new();
-    remote
-        .dictionary
-        .retain(|word| words.insert(word.to_lowercase()));
-    for word in local.dictionary {
-        if words.insert(word.to_lowercase()) {
-            remote.dictionary.push(word);
+fn word_keys(words: &[String]) -> HashSet<String> {
+    words.iter().map(|word| word.to_lowercase()).collect()
+}
+
+fn merge_words(base: &[String], local: Vec<String>, mut remote: Vec<String>) -> Vec<String> {
+    let base = word_keys(base);
+    let local_keys = word_keys(&local);
+    let mut seen = HashSet::new();
+    remote.retain(|word| {
+        let key = word.to_lowercase();
+        (!base.contains(&key) || local_keys.contains(&key)) && seen.insert(key)
+    });
+    for word in local {
+        let key = word.to_lowercase();
+        if !base.contains(&key) && seen.insert(key) {
+            remote.push(word);
         }
     }
-    let mut triggers = std::collections::HashSet::new();
     remote
+}
+
+pub fn merge(base: &Fields, local: Fields, mut remote: Fields) -> Fields {
+    let dictionary_adds: HashSet<_> = word_keys(&local.dictionary)
+        .difference(&word_keys(&base.dictionary))
+        .cloned()
+        .collect();
+    let removed_adds: HashSet<_> = word_keys(&local.removed_words)
+        .difference(&word_keys(&base.removed_words))
+        .cloned()
+        .collect();
+    remote.dictionary = merge_words(&base.dictionary, local.dictionary, remote.dictionary);
+    remote.removed_words = merge_words(
+        &base.removed_words,
+        local.removed_words,
+        remote.removed_words,
+    );
+    remote
+        .removed_words
+        .retain(|word| !dictionary_adds.contains(&word.to_lowercase()));
+    let removed = word_keys(&remote.removed_words);
+    remote.dictionary.retain(|word| {
+        let key = word.to_lowercase();
+        !removed_adds.contains(&key) && !removed.contains(&key)
+    });
+
+    let base_snippets: HashMap<_, _> = base
         .snippets
-        .retain(|snippet| triggers.insert(snippet.trigger.clone()));
+        .iter()
+        .map(|snippet| (snippet.trigger.as_str(), snippet.text.as_str()))
+        .collect();
+    let local_triggers: HashSet<_> = local
+        .snippets
+        .iter()
+        .map(|snippet| snippet.trigger.as_str())
+        .collect();
+    let mut seen = HashSet::new();
+    remote.snippets.retain(|snippet| {
+        (!base_snippets.contains_key(snippet.trigger.as_str())
+            || local_triggers.contains(snippet.trigger.as_str()))
+            && seen.insert(snippet.trigger.clone())
+    });
     for snippet in local.snippets {
-        if triggers.insert(snippet.trigger.clone()) {
-            remote.snippets.push(snippet);
+        if base_snippets.get(snippet.trigger.as_str()).copied() != Some(snippet.text.as_str()) {
+            if let Some(stored) = remote
+                .snippets
+                .iter_mut()
+                .find(|stored| stored.trigger == snippet.trigger)
+            {
+                *stored = snippet;
+            } else {
+                remote.snippets.push(snippet);
+            }
         }
+    }
+    if local.styles != base.styles {
+        remote.styles = local.styles;
     }
     remote
 }
@@ -84,35 +139,32 @@ pub fn synchronize(config: &AppConfig, url: &str, token: &str) -> Result<Setting
         .json::<Response>()?
         .settings;
     let local = Fields::from_config(config);
-    let dirty = config
-        .settings_sync
-        .as_ref()
-        .is_none_or(|state| state.hash != local.hash());
-    if let Some(remote) = &remote
-        && !dirty
-    {
-        let known = config
-            .settings_sync
-            .as_ref()
-            .expect("clean settings have sync state");
-        return Ok(if remote.updated_at > known.updated_at {
-            remote.clone()
+    let remote_updated_at = remote.as_ref().map(|remote| remote.updated_at);
+    let fields = if let Some(remote) = remote {
+        let base = config.settings_sync.as_ref().map(|state| &state.base);
+        if base == Some(&local) {
+            return Ok(remote);
+        }
+        let initial_base;
+        let base = if let Some(base) = base {
+            base
         } else {
-            Settings {
-                fields: local,
-                updated_at: known.updated_at,
-            }
-        });
-    }
-    let fields = if config.settings_sync.is_none() {
-        remote.map_or(local.clone(), |remote| merge(local, remote.fields))
+            // A stale device's first sync must respect words removed on another device.
+            initial_base = Fields {
+                dictionary: remote.fields.removed_words.clone(),
+                ..Fields::default()
+            };
+            &initial_base
+        };
+        merge(base, local, remote.fields)
     } else {
         local
     };
-    let updated_at = std::time::SystemTime::now()
+    let now_ms: u64 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis()
         .try_into()?;
+    let updated_at = remote_updated_at.map_or(now_ms, |updated_at| now_ms.max(updated_at + 1));
     client
         .put(format!("{url}/v1/settings"))
         .bearer_auth(token)
@@ -129,9 +181,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn merge_preserves_words_and_remote_conflicts() {
-        let fields = |words: &[&str], snippets: &[(&str, &str)], styles| Fields {
+    fn merge_applies_local_changes_to_remote() {
+        let fields = |words: &[&str], removed: &[&str], snippets: &[(&str, &str)], styles| Fields {
             dictionary: words.iter().map(|word| (*word).into()).collect(),
+            removed_words: removed.iter().map(|word| (*word).into()).collect(),
             snippets: snippets
                 .iter()
                 .map(|(trigger, text)| Snippet {
@@ -141,34 +194,101 @@ mod tests {
                 .collect(),
             styles,
         };
-        let local = fields(
-            &["HELLO", "Rust", "rust", "世界"],
-            &[("sig", "local"), ("new", "retained")],
-            Styles::default(),
-        );
-        let remote_styles = Styles {
+        let defaults = Styles::default();
+        let changed = Styles {
             work: crate::config::Tone::Formal,
-            ..Styles::default()
+            ..defaults
         };
-        let remote = fields(
-            &["Hello", "hello", "Convex"],
-            &[("sig", "remote"), ("sig", "duplicate")],
-            remote_styles,
-        );
-        let merged = merge(local, remote);
-        assert_eq!(merged.dictionary, ["Hello", "Convex", "Rust", "世界"]);
-        assert_eq!(
-            merged
-                .snippets
-                .iter()
-                .map(|s| (s.trigger.as_str(), s.text.as_str()))
-                .collect::<Vec<_>>(),
-            [("sig", "remote"), ("new", "retained")]
-        );
-        assert_eq!(merged.styles, remote_styles);
-        assert_eq!(
-            merge(merged.clone(), fields(&[], &[], Styles::default())).dictionary,
-            merged.dictionary
-        );
+        let cases = [
+            (
+                "local removal survives remote edits",
+                fields(&["Rust"], &[], &[], defaults),
+                fields(&[], &["rust"], &[], defaults),
+                fields(&["RUST", "Convex"], &[], &[], defaults),
+                fields(&["Convex"], &["rust"], &[], defaults),
+            ),
+            (
+                "remote removal survives unchanged local word",
+                fields(&["Rust"], &[], &[], defaults),
+                fields(&["Rust", "Bun"], &[], &[], defaults),
+                fields(&["Convex"], &["rust"], &[], defaults),
+                fields(&["Convex", "Bun"], &["rust"], &[], defaults),
+            ),
+            (
+                "concurrent adds preserve order and dedupe ignoring case",
+                Fields::default(),
+                fields(
+                    &["HELLO", "Rust", "rust", "世界"],
+                    &["OLD", "old"],
+                    &[],
+                    defaults,
+                ),
+                fields(
+                    &["Hello", "hello", "Convex"],
+                    &["Old", "old"],
+                    &[],
+                    defaults,
+                ),
+                fields(
+                    &["Hello", "Convex", "Rust", "世界"],
+                    &["Old"],
+                    &[],
+                    defaults,
+                ),
+            ),
+            (
+                "first sync base suppresses stale dictionary words removed remotely",
+                fields(&["rust"], &[], &[], defaults),
+                fields(&["RUST", "Bun"], &[], &[], defaults),
+                fields(&["Convex"], &["rust"], &[], defaults),
+                fields(&["Convex", "Bun"], &["rust"], &[], defaults),
+            ),
+            (
+                "explicit re-add overrides remote removal",
+                fields(&[], &["Rust"], &[], defaults),
+                fields(&["RUST"], &[], &[], defaults),
+                fields(&[], &["Rust", "Old"], &[], defaults),
+                fields(&["RUST"], &["Old"], &[], defaults),
+            ),
+            (
+                "otherwise dictionary loses remote overlap",
+                Fields::default(),
+                Fields::default(),
+                fields(&["Rust"], &["RUST"], &[], defaults),
+                fields(&[], &["RUST"], &[], defaults),
+            ),
+            (
+                "snippet edit beats remote delete and local delete beats remote edit",
+                fields(
+                    &[],
+                    &[],
+                    &[("edit", "before"), ("delete", "before")],
+                    defaults,
+                ),
+                fields(&[], &[], &[("edit", "after"), ("add", "local")], defaults),
+                fields(
+                    &[],
+                    &[],
+                    &[("delete", "remote edit"), ("remote", "retained")],
+                    changed,
+                ),
+                fields(
+                    &[],
+                    &[],
+                    &[("remote", "retained"), ("edit", "after"), ("add", "local")],
+                    changed,
+                ),
+            ),
+            (
+                "unchanged snippet adopts remote edit and local styles override",
+                fields(&[], &[], &[("sig", "before")], defaults),
+                fields(&[], &[], &[("sig", "before")], changed),
+                fields(&[], &[], &[("sig", "after")], defaults),
+                fields(&[], &[], &[("sig", "after")], changed),
+            ),
+        ];
+        for (name, base, local, remote, expected) in cases {
+            assert_eq!(merge(&base, local, remote), expected, "{name}");
+        }
     }
 }

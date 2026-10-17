@@ -6,6 +6,7 @@ import { rateLimiter } from "./rateLimits";
 
 export const settingsInput = z.strictObject({
   dictionary: z.array(z.string().max(100)).max(2000),
+  removedWords: z.array(z.string().max(100)).max(2000),
   snippets: z
     .array(z.strictObject({ trigger: z.string().max(100), text: z.string().max(4000) }))
     .max(500),
