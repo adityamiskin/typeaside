@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ImageResponse } from "workers-og";
 import regularFont from "../../../assets/hanken-grotesk-400.ttf?inline";
 import semiboldFont from "../../../assets/hanken-grotesk-600.ttf?inline";
-import { Waveform } from "../../../components/site";
+import { Logo } from "../../../components/site";
 import { parseShareSearch, shareContent } from "../../../lib/share";
 
 function fontData(dataUrl: string) {
@@ -49,7 +49,7 @@ export const Route = createFileRoute("/api/og/share")({
                 fontWeight: 600,
               }}
             >
-              <Waveform size={40} />
+              <Logo size={40} />
               <span>TypeAside</span>
             </div>
             <div

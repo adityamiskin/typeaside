@@ -3,7 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { useFumadocsLoader } from "fumadocs-core/source/client";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { RootProvider } from "fumadocs-ui/provider/tanstack";
-import { Waveform } from "../components/site";
+import { Logo } from "../components/site";
 import { source } from "../lib/docs-source";
 import docsCss from "../styles/docs.css?url";
 
@@ -27,7 +27,7 @@ function Documentation() {
         nav={{
           title: (
             <span className="docs-logo">
-              <Waveform />
+              <Logo />
               TypeAside
             </span>
           ),

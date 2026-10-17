@@ -33,6 +33,14 @@ export function Waveform({ size }: { size?: number } = {}) {
     </svg>
   );
 }
+export function Logo({ size }: { size?: number } = {}) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M4.5 11a9 9 0 0 1 18 0Z" />
+      <path d="M1.5 13a9 9 0 0 0 18 0Z" />
+    </svg>
+  );
+}
 export function Header() {
   const { viewer } = useRouteContext({ from: "__root__" });
   const accountLink = {
@@ -43,7 +51,7 @@ export function Header() {
     <header className="site-header wrap">
       <nav className="nav" aria-label="Main navigation">
         <a href="/" className="logo">
-          <Waveform />
+          <Logo />
           TypeAside
         </a>
         {links.map((link) => (
