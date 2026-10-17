@@ -7,7 +7,7 @@ use gpui::{
     fill, font, point, prelude::*, px, size,
 };
 use std::time::{Duration, Instant};
-use typeaside::engine::{Command, Phase};
+use typeaside::engine::{Command, Mode, Phase};
 
 #[derive(Clone, PartialEq)]
 enum Visual {
@@ -22,7 +22,7 @@ enum Visual {
 
 pub struct Overlay {
     state: Entity<AppState>,
-    command: bool,
+    mode: Mode,
     traced: Option<&'static str>,
     phase: Visual,
     phase_at: Instant,
@@ -44,7 +44,7 @@ impl Overlay {
         let now = Instant::now();
         Self {
             state,
-            command: false,
+            mode: Mode::Dictate,
             traced: None,
             phase: Visual::Listening,
             phase_at: now,
@@ -76,7 +76,7 @@ impl Overlay {
     pub fn phase(&mut self, phase: Phase, window: &mut Window, cx: &mut Context<Self>) {
         let next = match phase {
             Phase::Listening(mode) => {
-                self.command = mode == typeaside::engine::Mode::Command;
+                self.mode = mode;
                 cx.notify();
                 Visual::Listening
             }
@@ -251,7 +251,7 @@ impl Overlay {
         match self.phase {
             Visual::Listening => {
                 self.width.target = if entered > OPEN_DELAY {
-                    if self.command {
+                    if matches!(self.mode, Mode::Command | Mode::Translate) {
                         COMMAND_WIDTH
                     } else {
                         LISTEN_WIDTH
@@ -310,10 +310,12 @@ impl Overlay {
 impl Render for Overlay {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        let command = self.command && self.phase == Visual::Listening;
+        let marked =
+            matches!(self.mode, Mode::Command | Mode::Translate) && self.phase == Visual::Listening;
         let (opacity, elapsed, _) = self.advance(window);
         let kind = match &self.phase {
-            Visual::Listening if command => "command",
+            Visual::Listening if self.mode == Mode::Command => "command",
+            Visual::Listening if self.mode == Mode::Translate => "translate",
             Visual::Listening => "listening",
             Visual::Processing => "processing",
             Visual::Success => "success",
@@ -437,7 +439,7 @@ impl Render for Overlay {
                         ),
                 );
         } else {
-            if command {
+            if marked {
                 pill = pill.child(
                     div()
                         .absolute()
@@ -445,8 +447,16 @@ impl Render for Overlay {
                         .w(px(12.))
                         .text_size(px(12.))
                         .line_height(px(12.))
-                        .text_color(p.lilac)
-                        .child("✦"),
+                        .text_color(if self.mode == Mode::Translate {
+                            p.blue
+                        } else {
+                            p.lilac
+                        })
+                        .child(if self.mode == Mode::Translate {
+                            "⇄"
+                        } else {
+                            "✦"
+                        }),
                 );
             }
             let phase = self.phase.clone();
@@ -487,8 +497,7 @@ impl Render for Overlay {
                             let x = positions[i].value;
                             let rect = Bounds::new(
                                 point(
-                                    center.x
-                                        + px((x + if command { 9. } else { 0. }) * scale - 1.5),
+                                    center.x + px((x + if marked { 9. } else { 0. }) * scale - 1.5),
                                     center.y + px(y - h / 2.),
                                 ),
                                 size(px(3. * scale), px(h)),

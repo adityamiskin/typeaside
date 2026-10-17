@@ -134,11 +134,8 @@ impl SettingsInputs {
             spoken_name,
         );
         let translation = select(
-            std::iter::once("Off")
-                .chain(LANGUAGES.iter().map(|(n, _)| *n))
-                .map(str::to_owned)
-                .collect(),
-            c.translate_to.as_deref(),
+            LANGUAGES.iter().map(|(n, _)| (*n).to_owned()).collect(),
+            Some(&c.translate_to),
         );
         Self {
             endpoint,
@@ -366,9 +363,7 @@ impl MainWindow {
                                 .find(|(n, _)| *n == value)
                                 .map(|(_, code)| (*code).into())
                         }
-                        Selection::Translation => {
-                            s.config.translate_to = (value != "Off").then_some(value)
-                        }
+                        Selection::Translation => s.config.translate_to = value,
                     }
                     s.persist();
                     if matches!(field, Selection::Device) && s.mic_testing {
@@ -449,6 +444,7 @@ impl MainWindow {
             match target {
                 Shortcut::Dictate => s.config.hotkey = key,
                 Shortcut::Command => s.config.command_hotkey = Some(key),
+                Shortcut::Translate => s.config.translate_hotkey = Some(key),
                 Shortcut::Paste => s.config.paste_last_hotkey = Some(key),
                 Shortcut::Cancel => s.config.cancel_hotkey = Some(key),
             }
@@ -471,6 +467,7 @@ impl MainWindow {
             .id(match target {
                 Shortcut::Dictate => "dictate-key",
                 Shortcut::Command => "command-key",
+                Shortcut::Translate => "translate-key",
                 Shortcut::Paste => "paste-key",
                 Shortcut::Cancel => "cancel-key",
             })
@@ -997,6 +994,13 @@ impl MainWindow {
                     Setting::new("Command")
                         .description("Edit selected text by voice.")
                         .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),
+                    Setting::new("Translate")
+                        .description("Translate speech into your chosen language.")
+                        .child(self.shortcut(
+                            Shortcut::Translate,
+                            c.translate_hotkey.as_deref(),
+                            cx,
+                        )),
                     Setting::new("Paste last")
                         .description("Paste the previous dictation again.")
                         .child(self.shortcut(Shortcut::Paste, c.paste_last_hotkey.as_deref(), cx)),

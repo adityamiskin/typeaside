@@ -24,8 +24,9 @@ use std::{
 pub enum Mode {
     #[default]
     Dictate,
-    /// Voice instruction applied to the selected text.
+    /// Voice instruction or question, optionally applied to selected text.
     Command,
+    Translate,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -292,11 +293,13 @@ fn run(
                 HotkeyEvent::PasteLast(true) => Command::PasteLast,
                 #[cfg(target_os = "macos")]
                 HotkeyEvent::Interrupt if recorder.is_some() => Command::Cancel,
-                HotkeyEvent::Main(pressed) | HotkeyEvent::Command(pressed) => {
-                    let mode = if matches!(event, HotkeyEvent::Command(_)) {
-                        Mode::Command
-                    } else {
-                        Mode::Dictate
+                HotkeyEvent::Main(pressed)
+                | HotkeyEvent::Command(pressed)
+                | HotkeyEvent::Translate(pressed) => {
+                    let mode = match event {
+                        HotkeyEvent::Command(_) => Mode::Command,
+                        HotkeyEvent::Translate(_) => Mode::Translate,
+                        _ => Mode::Dictate,
                     };
                     if recorder.is_some() && context.0 != mode {
                         continue;
@@ -398,6 +401,10 @@ fn run(
                 if config.transcription == crate::config::Source::Local {
                     if start_mode == Mode::Command {
                         report_error(&events, crate::pipeline::LOCAL_COMMAND);
+                        continue;
+                    }
+                    if start_mode == Mode::Translate {
+                        report_error(&events, crate::pipeline::LOCAL_TRANSLATE);
                         continue;
                     }
                     crate::local::prewarm();

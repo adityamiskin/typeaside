@@ -83,6 +83,7 @@ fn fixtures(generate: bool) -> Result<()> {
             None,
             Some("hey can u send the deck"),
         ),
+        ("answer", "What is the capital of France?", None, Some("")),
     ];
     std::fs::create_dir_all("tests/fixtures")?;
     std::fs::create_dir_all("/tmp/typeaside-perf")?;
@@ -124,11 +125,13 @@ fn fixtures(generate: bool) -> Result<()> {
         }
     }
     let mut report = String::from(
-        "# TypeAside real pipeline\n\nRepeat: `cargo run --example pipeline -- --fixtures`\nRegenerate speech: add `--generate-fixtures`. TTS: gpt-4o-mini-tts/alloy. STT: whisper-large-v3-turbo (Groq). LLM: gpt-6-luna (OpenAI). No desktop input or audio device access.\nTranslation case explicitly disables cleanup. Timings include keyring access; no prewarming in this offline-file runner.\n\n| Case | Raw | Output | STT ms | LLM ms | Total ms |\n| --- | --- | --- | ---: | ---: | ---: |\n",
+        "# TypeAside real pipeline\n\nRepeat: `cargo run --example pipeline -- --fixtures`\nRegenerate speech: add `--generate-fixtures`. TTS: gpt-4o-mini-tts/alloy; answer.wav: espeak-ng/en-us. STT: whisper-large-v3-turbo (Groq). LLM: qwen/qwen3.8-27b (Groq). No desktop input or audio device access.\nTranslation case explicitly disables cleanup. Timings include keyring access; no prewarming in this offline-file runner.\n\n| Case | Raw | Output | STT ms | LLM ms | Total ms |\n| --- | --- | --- | ---: | ---: | ---: |\n",
     );
     for (name, _, translation, selection) in cases {
         let mut config = fixture_config();
-        config.translate_to = translation.map(str::to_owned);
+        if let Some(language) = translation {
+            config.translate_to = language.into();
+        }
         if translation.is_some() {
             config.cleanup.enabled = false;
         }
@@ -143,6 +146,8 @@ fn fixtures(generate: bool) -> Result<()> {
             }),
             if selection.is_some() {
                 Mode::Command
+            } else if translation.is_some() {
+                Mode::Translate
             } else {
                 Mode::Dictate
             },
@@ -150,6 +155,34 @@ fn fixtures(generate: bool) -> Result<()> {
             &[],
             || {},
         )?;
+        if name == "translation" {
+            let translated = output.text.to_lowercase();
+            ensure!(
+                translated.contains("reunión") && translated.contains("mañana"),
+                "expected Spanish translation: {}",
+                output.text
+            );
+        }
+        if name == "answer" {
+            let answer = output.text.to_lowercase();
+            ensure!(
+                answer.contains("paris"),
+                "answer must contain Paris: {}",
+                output.text
+            );
+            ensure!(
+                !["sure", "here", "certainly", "of course", "as an ai"]
+                    .iter()
+                    .any(|prefix| answer.starts_with(prefix)),
+                "answer must have no preamble: {}",
+                output.text
+            );
+            ensure!(
+                output.text.lines().count() == 1 && !output.text.contains(['*', '#', '`']),
+                "answer must be plain text: {}",
+                output.text
+            );
+        }
         let escape = |value: &str| value.replace('|', "\\|").replace('\n', "<br>");
         report.push_str(&format!(
             "| {name} | {} | {} | {} | {} | {} |\n",
@@ -230,7 +263,7 @@ fn local_benchmark(measure_idle: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let input = args.next().context("usage: pipeline WAV [--app ID] [--title TITLE] [--translate LANGUAGE] [--command SELECTION], or --fixtures [--generate-fixtures]")?;
+    let input = args.next().unwrap_or_else(|| "--fixtures".into());
     if input == "--local-benchmark" {
         return local_benchmark(args.any(|arg| arg == "--measure-idle"));
     }
@@ -261,6 +294,7 @@ fn main() -> Result<()> {
     let mut app = None;
     let mut title = None;
     let mut selection = None;
+    let mut mode = Mode::Dictate;
     while let Some(flag) = args.next() {
         if flag == "--local" {
             config.transcription = typeaside::config::Source::Local;
@@ -270,8 +304,14 @@ fn main() -> Result<()> {
         match flag.as_str() {
             "--app" => app = Some(value),
             "--title" => title = Some(value),
-            "--translate" => config.translate_to = Some(value),
-            "--command" => selection = Some(value),
+            "--translate" => {
+                config.translate_to = value;
+                mode = Mode::Translate;
+            }
+            "--command" => {
+                selection = Some(value);
+                mode = Mode::Command;
+            }
             _ => bail!("unknown option {flag}"),
         }
     }
@@ -280,11 +320,7 @@ fn main() -> Result<()> {
         &config,
         &audio,
         Some(&FocusedApp { id: app, title }),
-        if selection.is_some() {
-            Mode::Command
-        } else {
-            Mode::Dictate
-        },
+        mode,
         selection.as_deref().unwrap_or_default(),
         &[],
         || {},

@@ -123,6 +123,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
         if let Ok(visual) = std::env::var("TYPEASIDE_DEMO_OVERLAY") {
             let event = match visual.as_str() {
                 "command" => Event::Phase(Phase::Listening(Mode::Command)),
+                "translate" => Event::Phase(Phase::Listening(Mode::Translate)),
                 "processing" => Event::Phase(Phase::Transcribing),
                 "success" => Event::Done(history().remove(0)),
                 "copied" => Event::Copied(

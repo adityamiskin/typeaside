@@ -14,6 +14,7 @@ pub enum HotkeyEvent {
     Main(bool),
     Cancel(bool),
     Command(bool),
+    Translate(bool),
     PasteLast(bool),
 }
 
@@ -69,6 +70,7 @@ impl HotkeyService {
                 &config.command_hotkey,
                 HotkeyEvent::Command as fn(bool) -> HotkeyEvent,
             ),
+            (&config.translate_hotkey, HotkeyEvent::Translate),
             (
                 &config.paste_last_hotkey,
                 HotkeyEvent::PasteLast as fn(bool) -> HotkeyEvent,
