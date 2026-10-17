@@ -25,7 +25,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libfreetype6-dev libxcb1-dev libxcb-xkb-dev libxcb-xfixes0-dev libxcb-randr0-dev libx11-xcb-dev libssl-dev pkg-config clang cmake
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --locked --all-targets -- -D warnings
+      # Clippy findings rarely differ by OS, and it costs ~6 minutes on Windows.
+      - if: runner.os == 'Linux'
+        run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - run: cargo build --locked
       - name: Bundle macOS app
