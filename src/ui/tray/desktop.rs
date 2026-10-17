@@ -33,7 +33,7 @@ pub fn spawn(sender: async_channel::Sender<Action>) -> anyhow::Result<TrayHandle
         .with_tooltip("TypeAside")
         .with_menu(Box::new(menu))
         .with_icon(tray_icon::Icon::from_rgba(
-            typeaside::icons::TRAY_RGBA.to_vec(),
+            super::ICON_RGBA.to_vec(),
             32,
             32,
         )?)

@@ -20,7 +20,7 @@ impl Tray for TypeAsideTray {
         "typeaside".into()
     }
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        let mut pixels = typeaside::icons::TRAY_RGBA.to_vec();
+        let mut pixels = super::ICON_RGBA.to_vec();
         for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel.rotate_right(1);
         }
