@@ -383,6 +383,7 @@ fn start_ui(
             }
         };
         let mut surface: Option<WindowHandle<overlay::Overlay>> = None;
+        let mut answer: Option<WindowHandle<overlay::AnswerCard>> = None;
         while let Ok(event) = events.recv().await {
             cx.update(|cx| match event {
                 Event::Level(level) => {
@@ -433,6 +434,39 @@ fn start_ui(
                             let _ = h.update(cx, |v, w, cx| v.learned(&learned, w, cx));
                             surface = Some(h);
                         }
+                    }
+                }
+                Event::DismissReply => {
+                    if let Some(handle) = answer.take() {
+                        let _ = handle.update(cx, |_, window, _| {
+                            #[cfg(target_os = "linux")]
+                            window.set_input_region(Some(&[]));
+                            window.remove_window();
+                        });
+                    }
+                }
+                Event::Reply { prompt, text } => {
+                    if let Some(handle) = answer.take() {
+                        let _ = handle.update(cx, |_, window, _| window.remove_window());
+                    }
+                    if let Some(surface) = surface {
+                        let _ = surface.update(cx, |view, window, cx| view.exit(window, cx));
+                    }
+                    match overlay::open_answer(state.clone(), prompt, text, cx) {
+                        Ok(handle) => answer = Some(handle),
+                        Err(error) => state.update(cx, |state, cx| {
+                            state.command(Command::DismissReply);
+                            state.save_error = Some(format!("Could not show answer: {error}"));
+                            cx.notify();
+                        }),
+                    }
+                }
+                Event::Open(url) => {
+                    cx.open_url(&url);
+                    let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.opened(&url, w, cx)).is_ok());
+                    if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
+                        let _ = h.update(cx, |v, w, cx| v.opened(&url, w, cx));
+                        surface = Some(h);
                     }
                 }
                 Event::Copied(text) => {

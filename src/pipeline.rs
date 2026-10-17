@@ -1,5 +1,5 @@
 use crate::{
-    cleanup,
+    cleanup::{self, Answer},
     config::{AppConfig, Source},
     engine::Mode,
     snippets,
@@ -12,9 +12,18 @@ use std::time::{Duration, Instant};
 pub const LOCAL_COMMAND: &str = "Commands need a TypeAside account or your own key";
 pub const LOCAL_TRANSLATE: &str = "Translation needs a TypeAside account or your own key";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Delivery {
+    Insert,
+    Reply,
+    Open,
+}
+
 pub struct Output {
     pub raw: String,
     pub text: String,
+    pub delivery: Delivery,
     pub stt: Duration,
     pub llm: Duration,
 }
@@ -53,10 +62,16 @@ pub fn run(
     };
     let stt = started.elapsed();
     let started = Instant::now();
-    let text = if raw.is_empty() {
-        String::new()
+    let answer = if raw.is_empty() {
+        Answer {
+            delivery: Delivery::Insert,
+            text: String::new(),
+        }
     } else if local {
-        snippets::expand(&cleanup::remove_fillers(&raw), &config.snippets)
+        Answer {
+            delivery: Delivery::Insert,
+            text: snippets::expand(&cleanup::remove_fillers(&raw), &config.snippets),
+        }
     } else if mode == Mode::Command {
         cleaning();
         cleanup::command(config, &raw, selection)?
@@ -64,10 +79,13 @@ pub fn run(
         if config.editing() || mode == Mode::Translate {
             cleaning();
         }
-        snippets::expand(
-            &cleanup::cleanup(config, &raw, app, names, mode == Mode::Translate),
-            &config.snippets,
-        )
+        Answer {
+            delivery: Delivery::Insert,
+            text: snippets::expand(
+                &cleanup::cleanup(config, &raw, app, names, mode == Mode::Translate),
+                &config.snippets,
+            ),
+        }
     };
     let llm = started.elapsed();
     if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
@@ -79,7 +97,8 @@ pub fn run(
     }
     Ok(Output {
         raw,
-        text,
+        text: answer.text,
+        delivery: answer.delivery,
         stt,
         llm,
     })

@@ -1,7 +1,6 @@
 //! Contract between the dictation engine (background threads) and the GPUI app.
 //! The UI only depends on what is declared here.
 
-use crate::config::AppConfig;
 use crate::{
     audio::AudioRecorder,
     config::RecordingMode,
@@ -9,6 +8,7 @@ use crate::{
     paths::AppPaths,
     text_injector::{TextInjector, focused_app},
 };
+use crate::{config::AppConfig, pipeline::Delivery};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -67,6 +67,12 @@ pub enum Event {
     Level(f32),
     Done(Dictation),
     Copied(String),
+    Reply {
+        prompt: String,
+        text: String,
+    },
+    Open(String),
+    DismissReply,
     FileStarted(String),
     Edited {
         inserted: String,
@@ -88,6 +94,8 @@ pub enum Command {
     Unlearn(Vec<String>),
     /// Re-pastes the latest dictation into the focused app.
     PasteLast,
+    Insert(String),
+    DismissReply,
     /// Streams Event::Level from the mic without recording, for settings and onboarding.
     MicTest(bool),
     MicPreview,
@@ -189,7 +197,7 @@ enum Message {
     Command(Command),
     Hotkey(u64, HotkeyEvent),
     Cleaning(u64),
-    Finished(u64, Result<Dictation>),
+    Finished(u64, Result<(Dictation, Delivery)>),
     Shutdown,
 }
 
@@ -248,13 +256,14 @@ fn run(
     let mut monitor: Option<(AudioRecorder, Option<Instant>)> = None;
     let mut effects = None;
     let mut restoring = Vec::new();
+    let mut reply_visible = false;
     let mut tick = Instant::now();
     loop {
         if events.is_closed() {
             break;
         }
         #[cfg(target_os = "windows")]
-        crate::hotkeys::set_cancelable(recorder.is_some() || busy.is_some());
+        crate::hotkeys::set_cancelable(recorder.is_some() || busy.is_some() || reply_visible);
         restoring.retain(|thread: &thread::JoinHandle<()>| !thread.is_finished());
         if tick.elapsed() >= Duration::from_millis(33) {
             tick = Instant::now();
@@ -338,14 +347,14 @@ fn run(
                 }
                 busy = None;
                 let audio = pending_audio.take();
-                let result = result.and_then(|dictation| {
+                let result = result.and_then(|(dictation, delivery)| {
                     if !dictation.cleaned.is_empty() {
                         append_history(&paths, &dictation)?;
                     }
-                    Ok(dictation)
+                    Ok((dictation, delivery))
                 });
                 match result {
-                    Ok(dictation) if dictation.cleaned.is_empty() => {
+                    Ok((dictation, _)) if dictation.cleaned.is_empty() => {
                         if retrying {
                             if let Err(error) = discard_failed(&paths) {
                                 report_error(&events, error);
@@ -353,7 +362,7 @@ fn run(
                             let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
                         }
                     }
-                    Ok(dictation) => {
+                    Ok((dictation, delivery)) => {
                         last = Some(dictation.cleaned.clone());
                         let _ = events.try_send(Event::Done(dictation.clone()));
                         if dictation.mode == Mode::File {
@@ -369,17 +378,23 @@ fn run(
                                 report_error(&events, error);
                             }
                             let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
-                        } else {
-                            if !deliver(
-                                &mut injector,
-                                &mut watch,
-                                &dictation.cleaned,
-                                dictation.app_id.as_deref(),
-                                &config,
-                                &events,
-                            ) {
-                                continue;
-                            }
+                        } else if delivery == Delivery::Reply {
+                            reply_visible = true;
+                            let _ = events.try_send(Event::Reply {
+                                prompt: dictation.raw,
+                                text: dictation.cleaned.clone(),
+                            });
+                        } else if delivery == Delivery::Open {
+                            let _ = events.try_send(Event::Open(dictation.cleaned.clone()));
+                        } else if !deliver(
+                            &mut injector,
+                            &mut watch,
+                            &dictation.cleaned,
+                            dictation.app_id.as_deref(),
+                            &config,
+                            &events,
+                        ) {
+                            continue;
                         }
                     }
                     Err(error) => {
@@ -411,6 +426,8 @@ fn run(
         };
         match command {
             Command::Start if recorder.is_none() && busy.is_none() => {
+                reply_visible = false;
+                let _ = events.try_send(Event::DismissReply);
                 watch = None;
                 if config.transcription == crate::config::Source::Local {
                     if start_mode == Mode::Command {
@@ -489,19 +506,22 @@ fn run(
                         let result =
                             crate::transcribe::transcribe_file(&config, &path).and_then(|raw| {
                                 anyhow::ensure!(!raw.is_empty(), "No speech found");
-                                Ok(Dictation {
-                                    at: SystemTime::now(),
-                                    cleaned: raw.clone(),
-                                    raw,
-                                    app_id: Some(name),
-                                    audio_ms: 0,
-                                    latency_ms: started
-                                        .elapsed()
-                                        .as_millis()
-                                        .min(u128::from(u32::MAX))
-                                        as u32,
-                                    mode: Mode::File,
-                                })
+                                Ok((
+                                    Dictation {
+                                        at: SystemTime::now(),
+                                        cleaned: raw.clone(),
+                                        raw,
+                                        app_id: Some(name),
+                                        audio_ms: 0,
+                                        latency_ms: started
+                                            .elapsed()
+                                            .as_millis()
+                                            .min(u128::from(u32::MAX))
+                                            as u32,
+                                        mode: Mode::File,
+                                    },
+                                    Delivery::Insert,
+                                ))
                             });
                         let _ = worker_tx.send(Message::Finished(id, result));
                     });
@@ -576,7 +596,7 @@ fn run(
                     .name("typeaside-transcription".into())
                     .spawn(move || {
                         let tx = pipeline_tx;
-                        let result = (|| -> Result<Dictation> {
+                        let result = (|| -> Result<(Dictation, Delivery)> {
                             let started = Instant::now();
                             let names = names
                                 .and_then(|names| names.try_recv().ok())
@@ -592,16 +612,23 @@ fn run(
                                     let _ = tx.send(Message::Cleaning(id));
                                 },
                             )?;
-                            Ok(Dictation {
-                                at: SystemTime::now(),
-                                raw: output.raw,
-                                cleaned: output.text,
-                                app_id: app.and_then(|app| app.id),
-                                audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX)) as u32,
-                                latency_ms: started.elapsed().as_millis().min(u128::from(u32::MAX))
-                                    as u32,
-                                mode,
-                            })
+                            Ok((
+                                Dictation {
+                                    at: SystemTime::now(),
+                                    raw: output.raw,
+                                    cleaned: output.text,
+                                    app_id: app.and_then(|app| app.id),
+                                    audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX))
+                                        as u32,
+                                    latency_ms: started
+                                        .elapsed()
+                                        .as_millis()
+                                        .min(u128::from(u32::MAX))
+                                        as u32,
+                                    mode,
+                                },
+                                output.delivery,
+                            ))
                         })();
                         let _ = tx.send(Message::Finished(id, result));
                     });
@@ -610,6 +637,10 @@ fn run(
                 }
             }
             Command::Cancel => {
+                if reply_visible {
+                    reply_visible = false;
+                    let _ = events.try_send(Event::DismissReply);
+                }
                 recorder = None;
                 monitor = None;
                 stop_effects(&mut effects, &mut restoring);
@@ -643,6 +674,20 @@ fn run(
                 }
                 phase(&events, Phase::Idle);
                 hotkeys = open_hotkeys(&config, &tx, epoch, &events);
+            }
+            Command::DismissReply => {
+                reply_visible = false;
+                let _ = events.try_send(Event::DismissReply);
+            }
+            Command::Insert(text) => {
+                deliver(
+                    &mut injector,
+                    &mut watch,
+                    &text,
+                    focused_app().and_then(|app| app.id).as_deref(),
+                    &config,
+                    &events,
+                );
             }
             Command::PasteLast => {
                 if let Some(text) = &last {

@@ -108,7 +108,10 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                     )
                 }
                 Event::Copied(_) => eprintln!("typeaside demo: Copied"),
-                Event::FileStarted(_)
+                Event::Reply { .. }
+                | Event::Open(_)
+                | Event::DismissReply
+                | Event::FileStarted(_)
                 | Event::Level(_)
                 | Event::Failed(_)
                 | Event::Edited { .. } => {}
@@ -134,6 +137,10 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                         .unwrap_or_else(|_| "See you Thursday".into()),
                 ),
                 "error" => Event::Phase(Phase::Error("No speech detected".into())),
+                "reply" => Event::Reply {
+                    prompt: "what does this mean".into(),
+                    text: "Mitochondria are the parts of a cell that turn food into ATP, the energy the rest of the cell runs on. That is why they are called its powerhouse.".into(),
+                },
                 _ => Event::Phase(Phase::Listening(Mode::Dictate)),
             };
             if !send(event) {
