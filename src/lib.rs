@@ -13,7 +13,7 @@ mod transcribe;
 
 #[doc(hidden)]
 pub mod cues;
-mod http;
+pub mod http;
 mod media;
 pub mod pipeline;
 mod snippets;

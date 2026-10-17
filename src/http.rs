@@ -50,3 +50,36 @@ pub(crate) fn checked(
     }
     Ok(response.error_for_status()?)
 }
+
+/// Model IDs from an OpenAI-compatible `GET /models`, split into (speech, chat).
+pub fn models(base_url: &str) -> anyhow::Result<(Vec<String>, Vec<String>)> {
+    #[derive(serde::Deserialize)]
+    struct Model {
+        id: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Models {
+        data: Vec<Model>,
+    }
+    let models: Models = client()
+        .get(format!("{}/models", base_url.trim_end_matches('/')))
+        .bearer_auth(endpoint_key(base_url)?)
+        .timeout(Duration::from_secs(5))
+        .send()?
+        .error_for_status()?
+        .json()?;
+    let mut ids: Vec<_> = models.data.into_iter().map(|m| m.id).collect();
+    ids.sort();
+    let (speech, other): (Vec<_>, Vec<_>) = ids
+        .into_iter()
+        .partition(|id| id.contains("whisper") || id.contains("transcribe"));
+    let chat = other
+        .into_iter()
+        .filter(|id| {
+            !["tts", "orpheus", "embed", "guard", "moderation", "dall-e"]
+                .iter()
+                .any(|n| id.contains(n))
+        })
+        .collect();
+    Ok((speech, chat))
+}
