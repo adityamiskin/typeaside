@@ -9,6 +9,7 @@ use gpui::{
 use gpui_kit::component::input::Input;
 use std::collections::BTreeSet;
 use typeaside::{
+    account,
     config::{AppCategory, Tone},
     engine::{Command, Dictation},
 };
@@ -90,8 +91,19 @@ impl MainWindow {
             (stats.streak.to_string(), "day streak"),
             (format!("{} ms", stats.median), "median latency"),
         ];
+        let share_url = (stats.words > 0).then(|| {
+            format!(
+                "{}/share?w={}&m={}&wpm={}&d={}",
+                account::web_url(),
+                stats.words,
+                stats.saved_minutes,
+                stats.wpm,
+                stats.streak
+            )
+        });
         let stats = div()
             .flex()
+            .items_center()
             .gap(px(40.))
             .pt(px(18.))
             .pb(px(16.))
@@ -113,7 +125,22 @@ impl MainWindow {
                             .text_color(p.muted)
                             .child(label),
                     )
-            }));
+            }))
+            .when_some(share_url, |row, url| {
+                row.child(
+                    div()
+                        .id("share-stats")
+                        .ml_auto()
+                        .text_size(px(12.))
+                        .text_color(p.muted)
+                        .hover(|style| style.text_color(p.fg))
+                        .cursor_pointer()
+                        .child("Share")
+                        .on_click(move |_, _, _| {
+                            let _ = account::open(&url);
+                        }),
+                )
+            });
         let mut rows = Vec::new();
         if let Some(failed) = &state.failed {
             let at: DateTime<Local> = failed.at.into();

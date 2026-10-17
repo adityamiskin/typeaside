@@ -17,9 +17,11 @@ const links = [
   { label: "Features", href: "/#features" },
   { label: "Pricing", href: "/#pricing" },
 ];
-export function Waveform() {
+export function Waveform({ size }: { size?: number } = {}) {
   return (
     <svg
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
