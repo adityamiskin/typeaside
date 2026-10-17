@@ -355,6 +355,13 @@ fn start_ui(
                         cx.notify();
                     });
                 }
+                Event::Copied(text) => {
+                    let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.copied(text.clone(), w, cx)).is_ok());
+                    if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
+                        let _ = h.update(cx, |v, w, cx| v.copied(text, w, cx));
+                        surface = Some(h);
+                    }
+                }
                 Event::Done(dictation) => {
                     if state.read(cx).config.transcription == typeaside::config::Source::Hosted {
                         refresh_account(&state, cx);

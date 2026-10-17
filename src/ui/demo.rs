@@ -86,6 +86,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                         started.elapsed().as_secs_f32()
                     )
                 }
+                Event::Copied(_) => eprintln!("typeaside demo: Copied"),
                 Event::Level(_) | Event::Failed(_) => {}
             }
             tx.send_blocking(event).is_ok()
@@ -103,6 +104,10 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                 "command" => Event::Phase(Phase::Listening(Mode::Command)),
                 "processing" => Event::Phase(Phase::Transcribing),
                 "success" => Event::Done(history().remove(0)),
+                "copied" => Event::Copied(
+                    std::env::var("TYPEASIDE_DEMO_TEXT")
+                        .unwrap_or_else(|_| "See you Thursday".into()),
+                ),
                 "error" => Event::Phase(Phase::Error("No speech detected".into())),
                 _ => Event::Phase(Phase::Listening(Mode::Dictate)),
             };

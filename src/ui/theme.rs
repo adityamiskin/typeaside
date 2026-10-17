@@ -261,6 +261,7 @@ pub const CHECK_TIME: f32 = 0.22;
 pub const SUCCESS_HOLD: f32 = 0.35;
 pub const CANCEL_TIME: f32 = 0.12;
 pub const ERROR_HOLD: f32 = 1.8;
+pub const COPIED_HOLD: f32 = 2.4;
 pub const ERROR_TEXT_TIME: f32 = 0.15;
 pub const SHAKE_TIME: f32 = 0.36;
 pub const WAVE_PERIOD: f32 = 0.9;

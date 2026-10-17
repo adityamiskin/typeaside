@@ -34,3 +34,7 @@ pub fn focused_app_id() -> Option<String> {
             .map(str::to_owned)
     }
 }
+
+pub fn has_focused_window() -> Option<bool> {
+    Some(unsafe { !GetForegroundWindow().is_invalid() })
+}
