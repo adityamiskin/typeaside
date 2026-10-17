@@ -47,6 +47,8 @@ pub struct MainWindow {
     pub settings: SettingsInputs,
     pub word_input: Entity<InputState>,
     pub search_input: Entity<InputState>,
+    pub correction_editor: Option<super::corrections::CorrectionEditor>,
+    pub learned_notice: Option<(std::time::SystemTime, std::time::Instant, String)>,
     pub snippet_editor: Option<super::snippets::SnippetEditor>,
     pub style_category: AppCategory,
     pub hovered_history: Option<usize>,
@@ -125,6 +127,8 @@ impl MainWindow {
             word_input,
             search_input,
             snippet_editor: None,
+            correction_editor: None,
+            learned_notice: None,
             style_category: AppCategory::Work,
             hovered_history: None,
             hovered_word: None,
@@ -142,6 +146,29 @@ impl MainWindow {
                 let at = this.state.read(cx).history.get(1).map(|d| d.at);
                 this.state.update(cx, |s, _| s.expanded = at);
                 this.hovered_history = Some(0);
+                if std::env::var_os("TYPEASIDE_DEMO_EDIT").is_some()
+                    && let Some(at) = this.state.read(cx).history.first().map(|item| item.at)
+                {
+                    this.edit_history(at, window, cx);
+                    if let Some(editor) = &mut this.correction_editor {
+                        editor.input.update(cx, |input, cx| {
+                            input.set_value(
+                                "Send the Hugging Face model to Qdrant after review.",
+                                window,
+                                cx,
+                            );
+                            input.set_cursor_position(
+                                gpui_kit::component::input::Position::new(
+                                    0,
+                                    input.value().chars().count() as u32,
+                                ),
+                                window,
+                                cx,
+                            );
+                        });
+                        editor.excluded.insert("qdrant".into());
+                    }
+                }
             }
             if page == Page::Dictionary {
                 this.hovered_word = Some(3);
@@ -176,6 +203,7 @@ impl MainWindow {
         if page == Page::Settings {
             super::refresh_account(&self.state, cx);
         }
+        self.correction_editor = None;
         self.page = page;
         self.state.update(cx, |s, _| s.initial_page = page);
         self.capture = None;

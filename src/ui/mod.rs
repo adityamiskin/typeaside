@@ -1,4 +1,5 @@
 mod assets;
+mod corrections;
 mod demo;
 mod dictionary;
 mod home;
