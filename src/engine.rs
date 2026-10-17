@@ -238,6 +238,7 @@ fn run(
     let mut watch = None;
     let mut last = load_history(&paths).pop().map(|entry| entry.cleaned);
     let mut context = (Mode::Dictate, None, String::new());
+    let mut screen_names = None;
     let mut start_mode = Mode::Dictate;
     let mut monitor: Option<(AudioRecorder, Option<Instant>)> = None;
     let mut effects = None;
@@ -400,6 +401,19 @@ fn run(
                     crate::local::prewarm();
                 }
                 monitor = None;
+                screen_names = None;
+                if config.screen_context && start_mode == Mode::Dictate {
+                    let (names_tx, names_rx) = std::sync::mpsc::sync_channel(1);
+                    if thread::Builder::new()
+                        .name("typeaside-screen-context".into())
+                        .spawn(move || {
+                            let _ = names_tx.send(crate::context::names());
+                        })
+                        .is_ok()
+                    {
+                        screen_names = Some(names_rx);
+                    }
+                }
                 let app = focused_app();
                 let selection = if start_mode == Mode::Command {
                     crate::text_injector::primary_selection()
@@ -489,6 +503,7 @@ fn run(
                 busy = Some(id);
                 phase(&events, Phase::Transcribing);
                 let pipeline_config = config.clone();
+                let names = if retrying { None } else { screen_names.take() };
                 let pipeline_tx = tx.clone();
                 let (mode, app, selection) = context.clone();
                 let spawned = thread::Builder::new()
@@ -497,12 +512,16 @@ fn run(
                         let tx = pipeline_tx;
                         let result = (|| -> Result<Dictation> {
                             let started = Instant::now();
+                            let names = names
+                                .and_then(|names| names.try_recv().ok())
+                                .unwrap_or_default();
                             let output = crate::pipeline::run(
                                 &pipeline_config,
                                 &audio,
                                 app.as_ref(),
                                 mode,
                                 &selection,
+                                &names,
                                 || {
                                     let _ = tx.send(Message::Cleaning(id));
                                 },

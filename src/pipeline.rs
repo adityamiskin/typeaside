@@ -32,6 +32,7 @@ pub fn run(
     app: Option<&FocusedApp>,
     mode: Mode,
     selection: &str,
+    names: &[String],
     cleaning: impl FnOnce(),
 ) -> Result<Output> {
     let effective = config.effective();
@@ -40,7 +41,7 @@ pub fn run(
     let (raw, local) = match config.transcription {
         Source::Local if mode == Mode::Command => anyhow::bail!(LOCAL_COMMAND),
         Source::Local => (crate::local::transcribe(audio)?, true),
-        Source::Hosted | Source::OwnKey => match transcribe::transcribe(config, audio) {
+        Source::Hosted | Source::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),
             Err(error) if mode != Mode::Command && offline(&error) && crate::local::installed() => {
                 (crate::local::transcribe(audio)?, true)
@@ -61,7 +62,10 @@ pub fn run(
         if config.editing() || config.translate_to.is_some() {
             cleaning();
         }
-        snippets::expand(&cleanup::cleanup(config, &raw, app), &config.snippets)
+        snippets::expand(
+            &cleanup::cleanup(config, &raw, app, names),
+            &config.snippets,
+        )
     };
     let llm = started.elapsed();
     if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {

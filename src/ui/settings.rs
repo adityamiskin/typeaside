@@ -52,6 +52,7 @@ pub(super) enum Toggle {
     Duck,
     Submit,
     AutoLearn,
+    ScreenContext,
     Login,
     ShareUsage,
 }
@@ -531,6 +532,7 @@ impl MainWindow {
                             Toggle::Duck => s.config.duck_media = !on,
                             Toggle::Submit => s.config.auto_submit = !on,
                             Toggle::AutoLearn => s.config.auto_learn = !on,
+                            Toggle::ScreenContext => s.config.screen_context = !on,
                             Toggle::ShareUsage => {
                                 if let Err(error) = s.config.set_share_usage(!on) {
                                     s.save_error = Some(error.to_string());
@@ -1049,6 +1051,16 @@ impl MainWindow {
                     .child(form_row(
                         "Press Enter after paste",
                         self.toggle("submit", c.auto_submit, Toggle::Submit, cx),
+                        p,
+                    ))
+                    .child(form_row(
+                        "Use names on screen",
+                        self.toggle(
+                            "screen-context",
+                            c.screen_context,
+                            Toggle::ScreenContext,
+                            cx,
+                        ),
                         p,
                     ))
                     .child(form_row(
