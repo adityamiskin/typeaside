@@ -472,7 +472,6 @@ impl MainWindow {
                         Ok(account) => {
                             s.account_revision += 1;
                             s.account = Some(account);
-                            s.sync_requested = true;
                             s.config.transcription = Source::Hosted;
                             s.persist();
                         }

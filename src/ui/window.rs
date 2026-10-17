@@ -76,7 +76,7 @@ impl MainWindow {
                         .is_none_or(|at| at.elapsed().as_secs() >= 60)
                     {
                         s.sync_focus_at = Some(std::time::Instant::now());
-                        s.sync_requested = true;
+                        let _ = s.sync.try_send(());
                     }
                 });
             }

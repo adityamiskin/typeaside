@@ -23,7 +23,8 @@ use typeaside::{config::AppConfig, credentials, paths::AppPaths};
 pub struct AppState {
     account: Option<typeaside::account::Account>,
     account_revision: u64,
-    sync_requested: bool,
+    /// Nudges settings sync; bounded so bursts collapse into one pending wake.
+    sync: async_channel::Sender<()>,
     sync_focus_at: Option<std::time::Instant>,
     update: Option<typeaside::update::Release>,
     update_status: typeaside::update::Status,
@@ -66,10 +67,11 @@ impl AppState {
             .save(&self.paths)
             .err()
             .map(|e| format!("Could not save: {e}"));
-        if self.save_error.is_none()
-            && let Some(engine) = &self.engine
-        {
-            engine.send(Command::Reload(Box::new(self.config.clone())));
+        if self.save_error.is_none() {
+            let _ = self.sync.try_send(());
+            if let Some(engine) = &self.engine {
+                engine.send(Command::Reload(Box::new(self.config.clone())));
+            }
         }
     }
     fn command(&self, command: Command) {
@@ -175,10 +177,11 @@ fn start_ui(
     trace("theme init begin", started);
     theme::init(config.theme, cx);
     trace("theme init end", started);
+    let (sync_tx, sync_rx) = async_channel::bounded(1);
     let state = cx.new(|_| AppState {
         account: if is_demo { demo::account() } else { None },
         account_revision: 0,
-        sync_requested: true,
+        sync: sync_tx,
         sync_focus_at: None,
         update: None,
         update_status: typeaside::update::Status::Available,
@@ -263,7 +266,7 @@ fn start_ui(
     .detach();
     if !is_demo {
         schedule_updates(&state, cx);
-        schedule_settings_sync(&state, cx);
+        schedule_settings_sync(&state, sync_rx, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
             let stt = key_hint(&config.stt.base_url);
@@ -530,43 +533,41 @@ fn install_update(state: &gpui::Entity<AppState>, cx: &mut App) {
     .detach();
 }
 
-fn schedule_settings_sync(state: &gpui::Entity<AppState>, cx: &mut App) {
-    use std::time::{Duration, Instant};
+fn schedule_settings_sync(
+    state: &gpui::Entity<AppState>,
+    wake: async_channel::Receiver<()>,
+    cx: &mut App,
+) {
+    use std::time::Duration;
     use typeaside::settings_sync::{Fields, SyncState};
+    let ticker = state.read(cx).sync.clone();
+    cx.background_executor()
+        .spawn({
+            let executor = cx.background_executor().clone();
+            async move {
+                while !ticker.is_closed() {
+                    let _ = ticker.try_send(());
+                    executor.timer(Duration::from_secs(15 * 60)).await;
+                }
+            }
+        })
+        .detach();
     let state = state.downgrade();
     cx.spawn(async move |cx| {
-        let mut observed = None;
-        let mut edited_at = None;
-        let mut next_pull = Instant::now();
-        loop {
-            cx.background_executor()
-                .timer(Duration::from_millis(250))
-                .await;
+        while wake.recv().await.is_ok() {
+            // Wait for edits to settle so typing a dictionary word sends one request.
+            loop {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                if wake.try_recv().is_err() {
+                    break;
+                }
+            }
             let Some(state) = state.upgrade() else { break };
-            let snapshot = cx.update(|cx| {
+            let (config, revision) = cx.update(|cx| {
                 let s = state.read(cx);
-                (s.config.clone(), s.account_revision, s.sync_requested)
+                (s.config.clone(), s.account_revision)
             });
-            let (config, revision, requested) = snapshot;
             let fields = Fields::from_config(&config);
-            if observed
-                .as_ref()
-                .is_some_and(|previous| previous != &fields)
-            {
-                edited_at = Some(Instant::now());
-            }
-            observed = Some(fields.clone());
-            let edit_due = edited_at.is_some_and(|at| at.elapsed() >= Duration::from_secs(2));
-            if !requested && !edit_due && Instant::now() < next_pull {
-                continue;
-            }
-            // A focus event must not bypass the edit debounce.
-            if edited_at.is_some() && !edit_due {
-                continue;
-            }
-            state.update(cx, |s, _| s.sync_requested = false);
-            edited_at = None;
-            next_pull = Instant::now() + Duration::from_secs(15 * 60);
             let result = cx
                 .background_executor()
                 .spawn(async move {
@@ -578,21 +579,23 @@ fn schedule_settings_sync(state: &gpui::Entity<AppState>, cx: &mut App) {
                     typeaside::settings_sync::synchronize(&config, &url, &token).map(Some)
                 })
                 .await;
-            if let Ok(Some(remote)) = result {
-                state.update(cx, |s, cx| {
-                    if s.account_revision != revision || Fields::from_config(&s.config) != fields {
-                        return;
-                    }
-                    s.config.settings_sync = Some(SyncState {
-                        updated_at: remote.updated_at,
-                        hash: remote.fields.hash(),
-                    });
-                    observed = Some(remote.fields.clone());
-                    remote.fields.apply(&mut s.config);
-                    s.persist();
-                    cx.notify();
+            let Ok(Some(remote)) = result else { continue };
+            state.update(cx, |s, cx| {
+                if s.account_revision != revision || Fields::from_config(&s.config) != fields {
+                    return;
+                }
+                let synced = Some(SyncState {
+                    updated_at: remote.updated_at,
+                    hash: remote.fields.hash(),
                 });
-            }
+                if s.config.settings_sync == synced && remote.fields == fields {
+                    return;
+                }
+                s.config.settings_sync = synced;
+                remote.fields.apply(&mut s.config);
+                s.persist();
+                cx.notify();
+            });
         }
     })
     .detach();
