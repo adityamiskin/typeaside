@@ -92,47 +92,22 @@ impl Overlay {
     }
 
     pub fn copied(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
-        let first_line = text.lines().next().unwrap_or("");
-        let preview = first_line.split_whitespace().collect::<Vec<_>>().join(" ");
-        let measure = |text: String| {
-            let len = text.len();
-            f32::from(
-                window
-                    .text_system()
-                    .shape_line(
-                        text.into(),
-                        px(13.),
-                        &[TextRun {
-                            len,
-                            font: font("Inter"),
-                            color: palette(cx).fg,
-                            background_color: None,
-                            underline: None,
-                            strikethrough: None,
-                        }],
-                        None,
-                    )
-                    .width,
-            )
-        };
-        let available = SURFACE_WIDTH - 48. - 46. - 6. - measure("Copied".into());
+        let preview = text
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let available = SURFACE_WIDTH - 48. - 46. - COPIED_GAP - text_width("Copied", window, cx);
         let mut quoted = format!("“{preview}”");
-        if measure(quoted.clone()) > available {
-            let boundaries = preview
-                .char_indices()
-                .map(|(i, _)| i)
-                .chain(std::iter::once(preview.len()))
-                .collect::<Vec<_>>();
-            let (mut low, mut high) = (0, boundaries.len() - 1);
-            while low < high {
-                let mid = (low + high).div_ceil(2);
-                if measure(format!("“{}…”", &preview[..boundaries[mid]])) <= available {
-                    low = mid;
-                } else {
-                    high = mid - 1;
-                }
-            }
-            quoted = format!("“{}…”", &preview[..boundaries[low]]);
+        if text_width(&quoted, window, cx) > available {
+            let ends = preview.char_indices().map(|(i, _)| i).collect::<Vec<_>>();
+            let fits = |end: usize| {
+                text_width(&format!("“{}…”", &preview[..end]), window, cx) <= available
+            };
+            let end = ends[ends.partition_point(|&end| fits(end)).saturating_sub(1)];
+            quoted = format!("“{}…”", &preview[..end]);
         }
         self.set(Visual::Copied(quoted), window, cx);
     }
@@ -143,37 +118,15 @@ impl Overlay {
         }
         self.phase = phase;
         self.phase_at = Instant::now();
-        if let Visual::Error(message) | Visual::Copied(message) = &self.phase {
-            let line = window.text_system().shape_line(
-                if matches!(self.phase, Visual::Copied(_)) {
-                    format!("Copied{message}").into()
-                } else {
-                    message.clone().into()
-                },
-                px(13.),
-                &[TextRun {
-                    len: message.len()
-                        + if matches!(self.phase, Visual::Copied(_)) {
-                            6
-                        } else {
-                            0
-                        },
-                    font: font("Inter"),
-                    color: palette(cx).fg,
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                }],
-                None,
-            );
-            self.width.target = (f32::from(line.width)
-                + 46.
-                + if matches!(self.phase, Visual::Copied(_)) {
-                    6.
-                } else {
-                    0.
-                })
-            .clamp(96., SURFACE_WIDTH - 48.);
+        let text = match &self.phase {
+            Visual::Error(message) => Some(text_width(message, window, cx)),
+            Visual::Copied(preview) => Some(
+                text_width("Copied", window, cx) + COPIED_GAP + text_width(preview, window, cx),
+            ),
+            _ => None,
+        };
+        if let Some(text) = text {
+            self.width.target = (text + 46.).clamp(96., SURFACE_WIDTH - 48.);
             self.dot = Spring::new(0.);
             self.dot.target = 1.;
         }
@@ -343,6 +296,7 @@ impl Render for Overlay {
             .justify_center()
             .overflow_hidden();
         if let Visual::Error(message) | Visual::Copied(message) = &self.phase {
+            let copied = matches!(self.phase, Visual::Copied(_));
             let text_progress = (elapsed / ERROR_TEXT_TIME).min(1.);
             pill = pill.child(
                 div()
@@ -355,11 +309,7 @@ impl Render for Overlay {
                             .size(px(6. * self.dot.value.max(0.)))
                             .flex_shrink_0()
                             .rounded_full()
-                            .bg(if matches!(self.phase, Visual::Copied(_)) {
-                                p.blue
-                            } else {
-                                p.red
-                            }),
+                            .bg(if copied { p.blue } else { p.red }),
                     )
                     .child(
                         div()
@@ -369,19 +319,12 @@ impl Render for Overlay {
                             .text_color(p.fg)
                             .text_size(px(13.))
                             .flex()
-                            .items_center()
-                            .gap(px(6.))
+                            .gap(px(COPIED_GAP))
                             .whitespace_nowrap()
-                            .when(matches!(self.phase, Visual::Copied(_)), |el| {
-                                el.child("Copied")
-                            })
+                            .when(copied, |el| el.child("Copied"))
                             .child(
                                 div()
-                                    .text_color(if matches!(self.phase, Visual::Copied(_)) {
-                                        p.muted
-                                    } else {
-                                        p.fg
-                                    })
+                                    .when(copied, |el| el.text_color(p.muted))
                                     .child(message.clone()),
                             ),
                     ),
@@ -555,5 +498,22 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
                 Overlay::new(state)
             })
         },
+    )
+}
+
+fn text_width(text: &str, window: &Window, cx: &App) -> f32 {
+    let run = TextRun {
+        len: text.len(),
+        font: font("Inter"),
+        color: palette(cx).fg,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    f32::from(
+        window
+            .text_system()
+            .shape_line(text.to_owned().into(), px(13.), &[run], None)
+            .width,
     )
 }

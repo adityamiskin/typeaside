@@ -35,6 +35,6 @@ pub fn focused_app_id() -> Option<String> {
     }
 }
 
-pub fn has_focused_window() -> Option<bool> {
-    Some(unsafe { !GetForegroundWindow().is_invalid() })
+pub fn has_focused_window() -> bool {
+    unsafe { !GetForegroundWindow().is_invalid() }
 }

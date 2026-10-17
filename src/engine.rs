@@ -592,11 +592,11 @@ fn deliver(
     config: &AppConfig,
     events: &async_channel::Sender<Event>,
 ) -> bool {
-    match crate::text_injector::deliver_text(injector, text, app_id, config.auto_submit) {
-        Ok(delivery) => {
-            if matches!(delivery, crate::text_injector::Delivery::Copied) {
-                let _ = events.try_send(Event::Copied(text.to_owned()));
-            }
+    use crate::text_injector::{Delivery, deliver_text};
+    match deliver_text(injector, text, app_id, config.auto_submit) {
+        Ok(Delivery::Pasted) => true,
+        Ok(Delivery::Copied) => {
+            let _ = events.try_send(Event::Copied(text.to_owned()));
             true
         }
         Err(error) => {

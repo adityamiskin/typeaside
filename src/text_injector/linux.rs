@@ -22,8 +22,8 @@ fn focused_window() -> Option<serde_json::Value> {
     serde_json::from_slice(&output.stdout).ok()
 }
 
-pub fn has_focused_window() -> Option<bool> {
-    focused_window().map(|window| !window.is_null())
+pub fn has_focused_window() -> bool {
+    focused_window().is_none_or(|window| !window.is_null())
 }
 
 pub struct TextInjector {
