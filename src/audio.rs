@@ -63,7 +63,8 @@ impl AudioRecorder {
             host.default_input_device()
                 .context("no input device available")?
         };
-        if let Some(external) = lid::external_input(&host, &device, config.input_device.is_some())
+        if config.input_device.is_none()
+            && let Some(external) = lid::external_input(&host, &device)
             && let Ok(description) = external.description()
             && let Ok(recorder) = Self::open_device(&external, retain)
         {

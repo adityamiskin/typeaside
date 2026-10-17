@@ -1,33 +1,9 @@
-#[cfg(any(target_os = "linux", target_os = "macos", test))]
-fn choose_external<T>(
-    explicit_device: bool,
-    lid_closed: Option<bool>,
-    default_is_builtin: Option<bool>,
-    candidates: impl IntoIterator<Item = (T, bool)>,
-) -> Option<T> {
-    if explicit_device || lid_closed != Some(true) || default_is_builtin != Some(true) {
-        return None;
-    }
-    candidates
-        .into_iter()
-        .find_map(|(candidate, external)| external.then_some(candidate))
-}
-
-pub(super) fn external_input(
-    host: &cpal::Host,
-    default: &cpal::Device,
-    explicit_device: bool,
-) -> Option<cpal::Device> {
-    if explicit_device {
-        return None;
-    }
-    platform::external_input(host, default)
-}
+pub(super) use platform::external_input;
 
 #[cfg(target_os = "linux")]
 mod platform {
     use cpal::traits::{DeviceTrait, HostTrait};
-    use std::{collections::HashSet, path::PathBuf, process::Command};
+    use std::{path::PathBuf, process::Command};
 
     fn output(program: &str, args: &[&str]) -> Option<String> {
         let output = Command::new(program).args(args).output().ok()?;
@@ -35,7 +11,7 @@ mod platform {
         String::from_utf8(output.stdout).ok()
     }
 
-    pub(super) fn external_input(host: &cpal::Host, _: &cpal::Device) -> Option<cpal::Device> {
+    pub(crate) fn external_input(host: &cpal::Host, _: &cpal::Device) -> Option<cpal::Device> {
         let closed = match output(
             "busctl",
             &[
@@ -61,8 +37,7 @@ mod platform {
         if !builtin {
             return None;
         }
-        let mut candidates: Vec<_> = host
-            .input_devices()
+        host.input_devices()
             .ok()?
             .filter_map(|device| {
                 let id = device.id().ok()?.1;
@@ -91,20 +66,10 @@ mod platform {
                     "hw" => 3,
                     _ => return None,
                 };
-                Some((rank, path.canonicalize().ok()?, device))
+                Some((rank, device))
             })
-            .collect();
-        candidates.sort_by_key(|(rank, _, _)| *rank);
-        let mut cards = HashSet::new();
-        super::choose_external(
-            false,
-            Some(closed),
-            Some(builtin),
-            candidates
-                .into_iter()
-                .filter(|(_, card, _)| cards.insert(card.clone()))
-                .map(|(_, _, device)| (device, true)),
-        )
+            .min_by_key(|(rank, _)| *rank)
+            .map(|(_, device)| device)
     }
 }
 
@@ -216,7 +181,7 @@ mod platform {
         (status == 0 && size == size_of::<u32>() as u32).then_some(transport)
     }
 
-    pub(super) fn external_input(
+    pub(crate) fn external_input(
         host: &cpal::Host,
         default: &cpal::Device,
     ) -> Option<cpal::Device> {
@@ -228,59 +193,23 @@ mod platform {
         if !builtin {
             return None;
         }
-        super::choose_external(
-            false,
-            Some(closed),
-            Some(builtin),
-            host.input_devices().ok()?.filter_map(|device| {
-                let transport = transport(&device)?;
-                let external = ![
+        host.input_devices().ok()?.find(|device| {
+            transport(device).is_some_and(|transport| {
+                ![
                     0,
                     u32::from_be_bytes(*b"bltn"),
                     u32::from_be_bytes(*b"grup"),
                     u32::from_be_bytes(*b"virt"),
                 ]
-                .contains(&transport);
-                Some((device, external))
-            }),
-        )
+                .contains(&transport)
+            })
+        })
     }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod platform {
-    pub(super) fn external_input(_: &cpal::Host, _: &cpal::Device) -> Option<cpal::Device> {
+    pub(crate) fn external_input(_: &cpal::Host, _: &cpal::Device) -> Option<cpal::Device> {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::choose_external;
-
-    #[test]
-    fn switches_only_from_an_implicit_builtin_with_a_closed_lid() {
-        let candidates = [("built-in", false), ("USB", true), ("second USB", true)];
-        for (explicit, closed, builtin, expected) in [
-            (false, Some(true), Some(true), Some("USB")),
-            (true, Some(true), Some(true), None),
-            (false, Some(false), Some(true), None),
-            (false, Some(true), Some(false), None),
-            (false, None, Some(true), None),
-            (false, Some(true), None, None),
-        ] {
-            assert_eq!(
-                choose_external(explicit, closed, builtin, candidates),
-                expected
-            );
-        }
-        assert_eq!(
-            choose_external(false, Some(true), Some(true), [("built-in", false)]),
-            None
-        );
-        assert_eq!(
-            choose_external::<&str>(false, Some(true), Some(true), []),
-            None
-        );
     }
 }
