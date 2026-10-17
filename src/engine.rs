@@ -385,7 +385,7 @@ fn run(
             Command::Start if recorder.is_none() && busy.is_none() => {
                 if config.transcription == crate::config::Source::Local {
                     if start_mode == Mode::Command {
-                        report_error(&events, "Commands need a TypeAside account or your own key");
+                        report_error(&events, crate::pipeline::LOCAL_COMMAND);
                         continue;
                     }
                     crate::local::prewarm();
