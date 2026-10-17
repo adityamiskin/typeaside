@@ -23,6 +23,9 @@ use typeaside::{config::AppConfig, credentials, paths::AppPaths};
 pub struct AppState {
     account: Option<typeaside::account::Account>,
     account_revision: u64,
+    /// Nudges settings sync; bounded so bursts collapse into one pending wake.
+    sync: async_channel::Sender<()>,
+    sync_focus_at: Option<std::time::Instant>,
     update: Option<typeaside::update::Release>,
     update_status: typeaside::update::Status,
     signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -64,10 +67,11 @@ impl AppState {
             .save(&self.paths)
             .err()
             .map(|e| format!("Could not save: {e}"));
-        if self.save_error.is_none()
-            && let Some(engine) = &self.engine
-        {
-            engine.send(Command::Reload(Box::new(self.config.clone())));
+        if self.save_error.is_none() {
+            let _ = self.sync.try_send(());
+            if let Some(engine) = &self.engine {
+                engine.send(Command::Reload(Box::new(self.config.clone())));
+            }
         }
     }
     fn command(&self, command: Command) {
@@ -173,9 +177,12 @@ fn start_ui(
     trace("theme init begin", started);
     theme::init(config.theme, cx);
     trace("theme init end", started);
+    let (sync_tx, sync_rx) = async_channel::bounded(1);
     let state = cx.new(|_| AppState {
         account: if is_demo { demo::account() } else { None },
         account_revision: 0,
+        sync: sync_tx,
+        sync_focus_at: None,
         update: None,
         update_status: typeaside::update::Status::Available,
         signing_in: None,
@@ -259,6 +266,7 @@ fn start_ui(
     .detach();
     if !is_demo {
         schedule_updates(&state, cx);
+        schedule_settings_sync(&state, sync_rx, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
             let stt = key_hint(&config.stt.base_url);
@@ -521,6 +529,74 @@ fn install_update(state: &gpui::Entity<AppState>, cx: &mut App) {
             };
             cx.notify();
         });
+    })
+    .detach();
+}
+
+fn schedule_settings_sync(
+    state: &gpui::Entity<AppState>,
+    wake: async_channel::Receiver<()>,
+    cx: &mut App,
+) {
+    use std::time::Duration;
+    use typeaside::settings_sync::{Fields, SyncState};
+    let ticker = state.read(cx).sync.clone();
+    cx.background_executor()
+        .spawn({
+            let executor = cx.background_executor().clone();
+            async move {
+                while !ticker.is_closed() {
+                    let _ = ticker.try_send(());
+                    executor.timer(Duration::from_secs(15 * 60)).await;
+                }
+            }
+        })
+        .detach();
+    let state = state.downgrade();
+    cx.spawn(async move |cx| {
+        while wake.recv().await.is_ok() {
+            // Wait for edits to settle so typing a dictionary word sends one request.
+            loop {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                if wake.try_recv().is_err() {
+                    break;
+                }
+            }
+            let Some(state) = state.upgrade() else { break };
+            let (config, revision) = cx.update(|cx| {
+                let s = state.read(cx);
+                (s.config.clone(), s.account_revision)
+            });
+            let fields = Fields::from_config(&config);
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let url = typeaside::account::hosted_url();
+                    let host = credentials::endpoint_host(&url)?;
+                    let Some(token) = credentials::get_credential(&host)? else {
+                        return Ok(None);
+                    };
+                    typeaside::settings_sync::synchronize(&config, &url, &token).map(Some)
+                })
+                .await;
+            let Ok(Some(remote)) = result else { continue };
+            state.update(cx, |s, cx| {
+                if s.account_revision != revision || Fields::from_config(&s.config) != fields {
+                    return;
+                }
+                let synced = Some(SyncState {
+                    updated_at: remote.updated_at,
+                    hash: remote.fields.hash(),
+                });
+                if s.config.settings_sync == synced && remote.fields == fields {
+                    return;
+                }
+                s.config.settings_sync = synced;
+                remote.fields.apply(&mut s.config);
+                s.persist();
+                cx.notify();
+            });
+        }
     })
     .detach();
 }

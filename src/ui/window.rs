@@ -69,6 +69,19 @@ impl MainWindow {
             cx.notify();
         })
         .detach();
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.state.update(cx, |s, _| {
+                    if s.sync_focus_at
+                        .is_none_or(|at| at.elapsed().as_secs() >= 60)
+                    {
+                        s.sync_focus_at = Some(std::time::Instant::now());
+                        let _ = s.sync.try_send(());
+                    }
+                });
+            }
+        })
+        .detach();
         let config = state.read(cx).config.clone();
         let devices = state.read(cx).devices.clone();
         let settings = SettingsInputs::new(&config, &devices, window, cx);

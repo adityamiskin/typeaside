@@ -470,6 +470,7 @@ impl MainWindow {
                     s.signing_in = None;
                     match result {
                         Ok(account) => {
+                            s.account_revision += 1;
                             s.account = Some(account);
                             s.config.transcription = Source::Hosted;
                             s.persist();
@@ -522,7 +523,9 @@ impl MainWindow {
                     grouped(account.usage.cap.unwrap_or(2000))
                 )
             };
-            row.child(div().text_color(p.fg).child(account.email.clone()))
+            let account_row = row
+                .flex_wrap()
+                .child(div().text_color(p.fg).child(account.email.clone()))
                 .child(
                     div()
                         .text_color(if limit { p.red } else { p.muted })
@@ -565,7 +568,9 @@ impl MainWindow {
                                     this.state.update(cx, |s, cx| {
                                         match result {
                                             Ok(source) => {
+                                                s.account_revision += 1;
                                                 s.account = None;
+                                                s.config.settings_sync = None;
                                                 s.config.transcription = source;
                                                 s.persist();
                                             }
@@ -577,6 +582,17 @@ impl MainWindow {
                             })
                             .detach();
                         })),
+                );
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(account_row)
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(p.muted)
+                        .child("Dictionary, snippets and styles sync across your devices"),
                 )
         } else {
             row.child(div().text_color(p.muted).child("Not signed in"))
