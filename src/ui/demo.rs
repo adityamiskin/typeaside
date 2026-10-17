@@ -108,7 +108,10 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                     )
                 }
                 Event::Copied(_) => eprintln!("typeaside demo: Copied"),
-                Event::FileStarted(_)
+                Event::Reply { .. }
+                | Event::Open(_)
+                | Event::DismissReply
+                | Event::FileStarted(_)
                 | Event::Level(_)
                 | Event::Failed(_)
                 | Event::Edited { .. } => {}

@@ -104,6 +104,21 @@ impl Overlay {
         self.notice("Copied", &preview, &[], |s| format!("“{s}”"), window, cx);
     }
 
+    pub fn exit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.set(Visual::Exit, window, cx);
+    }
+
+    pub fn opened(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Ok(url) = reqwest::Url::parse(url) {
+            let label = if url.scheme() == "mailto" {
+                "email"
+            } else {
+                url.host_str().unwrap_or_default()
+            };
+            self.notice("Opened", label, &[], str::to_owned, window, cx);
+        }
+    }
+
     pub fn learned(&mut self, words: &[String], window: &mut Window, cx: &mut Context<Self>) {
         self.notice(
             "Learned",
@@ -357,19 +372,25 @@ impl Render for Overlay {
         };
         let clickable = matches!(&self.phase, Visual::Notice(_, _, words) if !words.is_empty());
         // Each region change commits the surface, so only send it when Undo appears or goes.
-        #[cfg(target_os = "linux")]
         if self.clickable != Some(clickable) {
             self.clickable = Some(clickable);
-            let target = self.width.target;
-            let region = Bounds::new(
-                point(
-                    px((SURFACE_WIDTH - target) / 2.),
-                    px(SURFACE_HEIGHT - SHADOW_SPACE - PILL_HEIGHT),
-                ),
-                size(px(target), px(PILL_HEIGHT)),
-            );
-            let regions = [region];
-            window.set_input_region(Some(if clickable { &regions[..] } else { &[] }));
+            #[cfg(target_os = "macos")]
+            borderless(window, clickable);
+            #[cfg(target_os = "windows")]
+            windows_interactivity(window, "pill", clickable);
+            #[cfg(target_os = "linux")]
+            {
+                let target = self.width.target;
+                let region = Bounds::new(
+                    point(
+                        px((SURFACE_WIDTH - target) / 2.),
+                        px(SURFACE_HEIGHT - SHADOW_SPACE - PILL_HEIGHT),
+                    ),
+                    size(px(target), px(PILL_HEIGHT)),
+                );
+                let regions = [region];
+                window.set_input_region(Some(if clickable { &regions[..] } else { &[] }));
+            }
         }
         let mut pill = div()
             .absolute()
@@ -613,13 +634,17 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
         },
     )?;
     #[cfg(target_os = "macos")]
-    handle.update(cx, |_, window, _| borderless(window))?;
+    handle.update(cx, |_, window, _| borderless(window, false))?;
+    #[cfg(target_os = "windows")]
+    handle.update(cx, |_, window, _| {
+        windows_interactivity(window, "pill", false)
+    })?;
     Ok(handle)
 }
 
 /// GPUI gives untitled windows a titled frame, whose border and shadow outline the whole surface.
 #[cfg(target_os = "macos")]
-fn borderless(window: &Window) {
+fn borderless(window: &Window, interactive: bool) {
     use objc2_app_kit::{NSView, NSWindowStyleMask};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     let Ok(handle) = HasWindowHandle::window_handle(window) else {
@@ -632,6 +657,7 @@ fn borderless(window: &Window) {
     if let Some(window) = view.window() {
         window.setStyleMask(NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel);
         window.setHasShadow(false);
+        window.setIgnoresMouseEvents(!interactive);
     }
 }
 
@@ -650,4 +676,312 @@ fn text_width(text: &str, window: &Window, cx: &App) -> f32 {
             .shape_line(text.to_owned().into(), px(13.), &[run], None)
             .width,
     )
+}
+
+const ANSWER_WIDTH: f32 = 440.;
+const ANSWER_BOTTOM: f32 = SHADOW_SPACE + PILL_HEIGHT + 12.;
+
+pub struct AnswerCard {
+    state: Entity<AppState>,
+    prompt: String,
+    text: String,
+    body_height: f32,
+    entered: Instant,
+    last_frame: Instant,
+    rise: Spring,
+    copied_at: Option<Instant>,
+    #[cfg(target_os = "linux")]
+    input_region: Option<Bounds<gpui::Pixels>>,
+}
+
+impl AnswerCard {
+    fn close(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.read(cx).command(Command::DismissReply);
+        #[cfg(target_os = "linux")]
+        window.set_input_region(Some(&[]));
+        window.remove_window();
+    }
+}
+
+impl Render for AnswerCard {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
+        let now = Instant::now();
+        let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.032);
+        self.last_frame = now;
+        self.rise.target = 0.;
+        let moving = self.rise.step(dt, PILL_STIFFNESS, PILL_DAMPING);
+        let opacity = (now.duration_since(self.entered).as_secs_f32() / ENTER_FADE).min(1.);
+        if moving || opacity < 1. {
+            window.request_animation_frame();
+        }
+        #[cfg(target_os = "linux")]
+        let (left, top) = (24., 8. + self.rise.value);
+        #[cfg(not(target_os = "linux"))]
+        let (left, top) = (0., self.rise.value);
+        #[cfg(target_os = "linux")]
+        {
+            let region = Bounds::new(
+                point(px(left), px(top)),
+                size(px(ANSWER_WIDTH), px(self.body_height + 92.)),
+            );
+            if self.input_region != Some(region) {
+                window.set_input_region(Some(&[region]));
+                self.input_region = Some(region);
+            }
+        }
+        div().size_full().font_family("Inter").child(
+            div()
+                .absolute()
+                .left(px(left))
+                .top(px(top))
+                .w(px(ANSWER_WIDTH))
+                .p(px(16.))
+                .rounded(px(14.))
+                .bg(p.pill)
+                .border_1()
+                .border_color(p.pill_border)
+                .shadow(vec![BoxShadow {
+                    color: p.shadow,
+                    offset: point(px(0.), px(10.)),
+                    blur_radius: px(28.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }])
+                .opacity(opacity)
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .text_size(px(12.))
+                        .line_height(px(16.))
+                        .child(div().text_color(p.lilac).child("✦"))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(p.muted)
+                                .child(self.prompt.clone()),
+                        )
+                        .child(
+                            div()
+                                .id("close-answer")
+                                .cursor_pointer()
+                                .text_size(px(14.))
+                                .text_color(p.muted)
+                                .hover(|el| el.text_color(p.fg))
+                                .child("×")
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.close(window, cx)),
+                                ),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("answer-body")
+                        .h(px(self.body_height))
+                        .max_h(px(220.))
+                        .overflow_y_scroll()
+                        .text_size(px(13.))
+                        .line_height(px(19.))
+                        .text_color(p.fg)
+                        .child(self.text.clone()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(px(16.))
+                        .text_size(px(13.))
+                        .line_height(px(18.))
+                        .text_color(p.muted)
+                        .child(
+                            div()
+                                .id("copy-answer")
+                                .cursor_pointer()
+                                .hover(|el| el.text_color(p.fg))
+                                .child(if self.copied_at.is_some() {
+                                    "Copied"
+                                } else {
+                                    "Copy"
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    match typeaside::text_injector::set_clipboard(&this.text) {
+                                        Ok(()) => {
+                                            let copied_at = Instant::now();
+                                            this.copied_at = Some(copied_at);
+                                            cx.notify();
+                                            cx.spawn(async move |this, cx| {
+                                                cx.background_executor()
+                                                    .timer(Duration::from_millis(1200))
+                                                    .await;
+                                                let _ = this.update(cx, |this, cx| {
+                                                    if this.copied_at == Some(copied_at) {
+                                                        this.copied_at = None;
+                                                        cx.notify();
+                                                    }
+                                                });
+                                            })
+                                            .detach();
+                                        }
+                                        Err(error) => this.state.update(cx, |state, cx| {
+                                            state.save_error =
+                                                Some(format!("Could not copy answer: {error}"));
+                                            cx.notify();
+                                        }),
+                                    }
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("insert-answer")
+                                .cursor_pointer()
+                                .hover(|el| el.text_color(p.fg))
+                                .child("Insert")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.state
+                                        .read(cx)
+                                        .command(Command::Insert(this.text.clone()));
+                                    this.close(window, cx);
+                                })),
+                        ),
+                ),
+        )
+    }
+}
+
+pub fn open_answer(
+    state: Entity<AppState>,
+    prompt: String,
+    text: String,
+    cx: &mut App,
+) -> anyhow::Result<WindowHandle<AnswerCard>> {
+    let run = TextRun {
+        len: text.len(),
+        font: font("Inter"),
+        color: palette(cx).fg,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let text_system = gpui::WindowTextSystem::new(cx.text_system().clone());
+    let lines = text_system.shape_text(
+        text.clone().into(),
+        px(13.),
+        &[run],
+        Some(px(ANSWER_WIDTH - 34.)),
+        None,
+    )?;
+    let body_height = (lines
+        .iter()
+        .map(|line| line.wrap_boundaries.len() + 1)
+        .sum::<usize>() as f32
+        * 19.)
+        .clamp(19., 220.);
+    let height = body_height + 92.;
+    #[cfg(not(target_os = "linux"))]
+    let display = cx.primary_display();
+    #[cfg(not(target_os = "linux"))]
+    let origin = display.as_ref().map_or(point(px(0.), px(0.)), |display| {
+        let bounds = display.bounds();
+        point(
+            bounds.origin.x + (bounds.size.width - px(ANSWER_WIDTH)) / 2.,
+            bounds.origin.y + bounds.size.height - px(ANSWER_BOTTOM + height),
+        )
+    });
+    let handle = cx.open_window(
+        WindowOptions {
+            titlebar: None,
+            focus: false,
+            app_id: Some("typeaside-answer".into()),
+            window_background: WindowBackgroundAppearance::Transparent,
+            #[cfg(target_os = "linux")]
+            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                point(px(0.), px(0.)),
+                size(px(ANSWER_WIDTH + 48.), px(height + 56.)),
+            ))),
+            #[cfg(target_os = "linux")]
+            kind: WindowKind::LayerShell(LayerShellOptions {
+                namespace: "typeaside-answer".into(),
+                layer: Layer::Overlay,
+                anchor: Anchor::BOTTOM,
+                keyboard_interactivity: KeyboardInteractivity::None,
+                margin: Some((px(0.), px(0.), px(ANSWER_BOTTOM - 48.), px(0.))),
+                ..Default::default()
+            }),
+            #[cfg(not(target_os = "linux"))]
+            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                origin,
+                size(px(ANSWER_WIDTH), px(height)),
+            ))),
+            #[cfg(not(target_os = "linux"))]
+            display_id: display.map(|display| display.id()),
+            #[cfg(not(target_os = "linux"))]
+            kind: WindowKind::PopUp,
+            #[cfg(not(target_os = "linux"))]
+            is_movable: false,
+            #[cfg(not(target_os = "linux"))]
+            is_resizable: false,
+            #[cfg(not(target_os = "linux"))]
+            is_minimizable: false,
+            ..Default::default()
+        },
+        |window, cx| {
+            #[cfg(target_os = "linux")]
+            window.set_input_region(Some(&[]));
+            cx.new(|cx| {
+                super::theme::apply(state.read(cx).config.theme, window.appearance(), cx);
+                cx.observe_window_appearance(window, |this: &mut AnswerCard, window, cx| {
+                    super::theme::apply(this.state.read(cx).config.theme, window.appearance(), cx);
+                    cx.notify();
+                })
+                .detach();
+                let now = Instant::now();
+                AnswerCard {
+                    state,
+                    prompt: prompt.split_whitespace().collect::<Vec<_>>().join(" "),
+                    text,
+                    body_height,
+                    entered: now,
+                    last_frame: now,
+                    rise: Spring::new(8.),
+                    copied_at: None,
+                    #[cfg(target_os = "linux")]
+                    input_region: None,
+                }
+            })
+        },
+    )?;
+    #[cfg(target_os = "macos")]
+    handle.update(cx, |_, window, _| borderless(window, true))?;
+    #[cfg(target_os = "windows")]
+    handle.update(cx, |_, window, _| {
+        windows_interactivity(window, "answer", true)
+    })?;
+    Ok(handle)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_interactivity(window: &mut Window, kind: &str, interactive: bool) {
+    use windows::{Win32::UI::WindowsAndMessaging::*, core::PCWSTR};
+    let title = format!("TypeAside {kind} {}", std::process::id());
+    window.set_window_title(&title);
+    let title = title.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+    // GPUI exposes raw handles through a macOS-only dependency in this app.
+    if let Ok(handle) = unsafe { FindWindowW(None, PCWSTR(title.as_ptr())) } {
+        unsafe {
+            let mut style = GetWindowLongPtrW(handle, GWL_EXSTYLE) | WS_EX_NOACTIVATE.0 as isize;
+            if interactive {
+                style &= !(WS_EX_TRANSPARENT.0 as isize);
+            } else {
+                style |= WS_EX_TRANSPARENT.0 as isize;
+            }
+            SetWindowLongPtrW(handle, GWL_EXSTYLE, style);
+        }
+    }
 }
