@@ -7,6 +7,8 @@ use typeaside::config::Theme as Preference;
 pub const MONO: &str = "DejaVu Sans Mono";
 pub const SIDEBAR: f32 = 240.;
 pub const INSET: f32 = 24.;
+/// Wide windows center pages instead of stretching rows across the screen.
+pub const CONTENT_WIDTH: f32 = 880.;
 pub const CONTROL: f32 = 30.;
 pub const RADIUS: f32 = 6.;
 pub const LABEL: f32 = 200.;
