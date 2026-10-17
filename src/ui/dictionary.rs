@@ -78,7 +78,12 @@ impl MainWindow {
                                 .border_b_1()
                                 .border_color(p.row)
                                 .on_hover(cx.listener(move |this, hovered, _, cx| {
-                                    this.hovered_word = if *hovered { Some(index) } else { None };
+                                    // The next row's hover-in can arrive before this row's hover-out.
+                                    if *hovered {
+                                        this.hovered_word = Some(index);
+                                    } else if this.hovered_word == Some(index) {
+                                        this.hovered_word = None;
+                                    }
                                     cx.notify();
                                 }))
                                 .child(div().flex_1().text_ellipsis().child(word.clone()))
