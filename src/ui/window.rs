@@ -386,7 +386,8 @@ impl Render for MainWindow {
                     .items_center()
                     .gap(px(8.))
                     .px(px(10.))
-                    .pt(px(2.))
+                    // Clears the macOS traffic lights drawn over the transparent titlebar.
+                    .pt(px(if cfg!(target_os = "macos") { 22. } else { 2. }))
                     .pb(px(16.))
                     .text_size(px(14.))
                     .line_height(px(20.3))
@@ -508,10 +509,21 @@ impl Render for MainWindow {
                     .filter(|_| !onboarding)
                     .map(|notice| {
                         div()
+                            .flex()
+                            .gap(px(8.))
                             .px(px(16.))
                             .py(px(8.))
                             .text_color(p.red)
                             .child(notice.clone())
+                            .child(
+                                div()
+                                    .id("permission-settings")
+                                    .cursor_pointer()
+                                    .text_color(p.fg)
+                                    .underline()
+                                    .child("Open Settings")
+                                    .on_click(|_, _, _| super::permissions::open_missing()),
+                            )
                     }),
             )
             .child(div().flex_1().min_h_0().child(content));
@@ -578,6 +590,7 @@ impl Render for MainWindow {
                             this.capture_modifiers.alt |= event.modifiers.alt;
                             this.capture_modifiers.shift |= event.modifiers.shift;
                             this.capture_modifiers.platform |= event.modifiers.platform;
+                            this.capture_modifiers.function |= event.modifiers.function;
                         }
                     } else if let Some(target) = this.capture.take() {
                         #[cfg(target_os = "linux")]
@@ -600,6 +613,7 @@ impl Render for MainWindow {
                                 (modifiers.alt, "ALT"),
                                 (modifiers.shift, "SHIFT"),
                                 (modifiers.platform, "META"),
+                                (modifiers.function, "FN"),
                             ]
                             .into_iter()
                             .filter_map(|(held, name)| held.then_some(name))

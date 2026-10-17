@@ -555,7 +555,7 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
             bounds.origin.y + bounds.size.height - px(SURFACE_HEIGHT),
         )
     });
-    cx.open_window(
+    let handle = cx.open_window(
         WindowOptions {
             titlebar: None,
             focus: false,
@@ -605,7 +605,28 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
                 Overlay::new(state)
             })
         },
-    )
+    )?;
+    #[cfg(target_os = "macos")]
+    handle.update(cx, |_, window, _| borderless(window))?;
+    Ok(handle)
+}
+
+/// GPUI gives untitled windows a titled frame, whose border and shadow outline the whole surface.
+#[cfg(target_os = "macos")]
+fn borderless(window: &Window) {
+    use objc2_app_kit::{NSView, NSWindowStyleMask};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return;
+    };
+    let view = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
+    if let Some(window) = view.window() {
+        window.setStyleMask(NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel);
+        window.setHasShadow(false);
+    }
 }
 
 fn text_width(text: &str, window: &Window, cx: &App) -> f32 {

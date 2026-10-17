@@ -3,7 +3,8 @@ use crate::config::AppConfig;
 use anyhow::{Context, Result, anyhow};
 use core_foundation::runloop::{CFRunLoop, kCFRunLoopDefaultMode};
 use core_graphics::event::{
-    CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType, EventField,
+    CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
+    CGEventType, EventField,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -46,7 +47,9 @@ impl HotkeyService {
                         == crate::text_injector::INJECTED_EVENT_TAG
                     { return None; }
                     let code = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
-                    if matches!(kind, CGEventType::FlagsChanged) {
+                    if matches!(kind, CGEventType::FlagsChanged) && code == 63 {
+                        state.borrow_mut().key(63, event.get_flags().contains(CGEventFlags::CGEventFlagSecondaryFn));
+                    } else if matches!(kind, CGEventType::FlagsChanged) {
                         for modifier in [54, 55, 56, 58, 59, 60, 61, 62] {
                             state.borrow_mut().key(modifier, unsafe { CGEventSourceKeyState(0, modifier) });
                         }
@@ -56,8 +59,8 @@ impl HotkeyService {
                     None
                 });
             let Ok(tap) = tap else {
-                eprintln!("typeaside: global hotkeys unavailable; enable Accessibility and Input Monitoring in System Settings > Privacy & Security, then restart TypeAside");
-                let _ = ready.send(Err("global hotkeys unavailable: grant TypeAside Accessibility and Input Monitoring permission in System Settings, then restart TypeAside"));
+                eprintln!("typeaside: global hotkeys unavailable; allow Accessibility in System Settings > Privacy & Security");
+                let _ = ready.send(Err("global hotkeys unavailable: allow Accessibility for TypeAside in System Settings > Privacy & Security"));
                 return;
             };
             let Ok(source) = tap.mach_port.create_runloop_source(0) else {

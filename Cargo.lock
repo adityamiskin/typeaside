@@ -7601,6 +7601,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-av-foundation",
  "ort",
+ "raw-window-handle",
  "regex",
  "reqwest",
  "semver",

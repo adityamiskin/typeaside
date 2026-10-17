@@ -154,6 +154,7 @@ fn key_code(name: &str) -> Result<u16> {
         "RIGHTSHIFT" => (60, 0xa1),
         "RIGHTALT" => (61, 0xa5),
         "RIGHTCTRL" => (62, 0xa3),
+        "FN" if cfg!(target_os = "macos") => (63, 0),
         "F1" => (122, 0x70),
         "F2" => (120, 0x71),
         "F3" => (99, 0x72),
