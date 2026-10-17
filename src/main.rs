@@ -9,9 +9,6 @@ fn main() {
         return;
     }
     if std::env::args().any(|arg| arg == "--update-now") {
-        if std::env::args().any(|arg| arg == "--demo") {
-            return;
-        }
         let result = (|| -> anyhow::Result<()> {
             let release =
                 typeaside::update::check()?.ok_or_else(|| anyhow::anyhow!("No newer release"))?;

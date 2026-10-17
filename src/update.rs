@@ -110,7 +110,11 @@ fn version(value: &str) -> Result<semver::Version> {
     semver::Version::parse(value).context("Invalid release version")
 }
 
-fn parse_manifest(body: &str, current: &str, file: &'static str) -> Result<Option<Release>> {
+fn parse_manifest(
+    body: &str,
+    current: &str,
+    file: Option<&'static str>,
+) -> Result<Option<Release>> {
     let manifest: Manifest = serde_json::from_str(body)?;
     if !version(&manifest.version)?
         .cmp_precedence(&version(current)?)
@@ -118,21 +122,22 @@ fn parse_manifest(body: &str, current: &str, file: &'static str) -> Result<Optio
     {
         return Ok(None);
     }
-    let installer = if file.is_empty() {
-        None
-    } else {
-        let checksum = manifest
-            .files
-            .get(file)
-            .context("Missing release installer")?;
-        ensure!(
-            checksum.len() == 64 && checksum.bytes().all(|b| b.is_ascii_hexdigit()),
-            "Invalid release checksum"
-        );
-        Some(Installer {
-            file,
-            sha256: checksum.to_ascii_lowercase(),
-        })
+    let installer = match file {
+        None => None,
+        Some(file) => {
+            let checksum = manifest
+                .files
+                .get(file)
+                .context("Missing release installer")?;
+            ensure!(
+                checksum.len() == 64 && checksum.bytes().all(|b| b.is_ascii_hexdigit()),
+                "Invalid release checksum"
+            );
+            Some(Installer {
+                file,
+                sha256: checksum.to_ascii_lowercase(),
+            })
+        }
     };
     Ok(Some(Release {
         version: manifest.version,
@@ -150,7 +155,7 @@ pub fn check() -> Result<Option<Release>> {
     parse_manifest(
         &body,
         env!("CARGO_PKG_VERSION"),
-        InstallKind::detected().file().unwrap_or_default(),
+        InstallKind::detected().file(),
     )
 }
 
@@ -403,7 +408,7 @@ mod tests {
             r#"{"version":"0.3.0","files":{}}"#,
             r#"{"version":"0.3.0","files":{"TypeAside.AppImage":"invalid"}}"#,
         ] {
-            assert!(parse_manifest(manifest, "0.2.0", "TypeAside.AppImage").is_err());
+            assert!(parse_manifest(manifest, "0.2.0", Some("TypeAside.AppImage")).is_err());
         }
         assert!(version("0.3.0.1").is_err());
         let manifest = serde_json::json!({
@@ -412,11 +417,11 @@ mod tests {
         })
         .to_string();
         assert!(
-            parse_manifest(&manifest, "0.10.0", "TypeAside.AppImage")
+            parse_manifest(&manifest, "0.10.0", Some("TypeAside.AppImage"))
                 .unwrap()
                 .is_none()
         );
-        let release = parse_manifest(&manifest, "0.9.9", "TypeAside.AppImage")
+        let release = parse_manifest(&manifest, "0.9.9", Some("TypeAside.AppImage"))
             .unwrap()
             .unwrap();
         assert_eq!(release.version, "0.10.0");
