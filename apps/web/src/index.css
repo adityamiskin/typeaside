@@ -954,11 +954,6 @@ footer {
   right: 12px;
   color: var(--white);
 }
-.steps .steps-note {
-  margin-top: 28px;
-  font-size: 13px;
-  color: var(--muted);
-}
 .steps .steps-help {
   margin-top: 40px;
   font-size: 14px;

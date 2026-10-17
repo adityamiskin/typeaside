@@ -13,10 +13,10 @@ export const downloads = {
     ],
   },
   Linux: {
-    requirement: "Linux with Wayland.",
+    requirement: "Ubuntu 22.04+ and Fedora, on Wayland.",
     files: [
-      { slug: "appimage", label: "AppImage", href: `${release}TypeAside.AppImage` },
-      { slug: "deb", label: ".deb", href: `${release}typeaside.deb` },
+      { slug: "deb", label: "Ubuntu (.deb)", href: `${release}typeaside.deb` },
+      { slug: "appimage", label: "Fedora (AppImage)", href: `${release}TypeAside.AppImage` },
     ],
   },
 } as const;

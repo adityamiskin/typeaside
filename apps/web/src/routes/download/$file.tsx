@@ -236,11 +236,6 @@ function Install() {
           <CopyButton text={permissions} />
         </div>
       )}
-      {file.slug === "deb" && (
-        <p className="steps-note">
-          On Arch: <code>yay -S typeaside-bin</code>
-        </p>
-      )}
       <p className="steps-help">
         Not working? <a href={file.href}>Download again</a>
         <span> · </span>
