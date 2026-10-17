@@ -350,7 +350,12 @@ impl Render for MainWindow {
                     .text_size(px(14.))
                     .line_height(px(20.3))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(div().size(px(16.)).rounded(px(4.)).bg(p.blue))
+                    .child(
+                        gpui::svg()
+                            .path("icons/typeaside.svg")
+                            .size(px(16.))
+                            .text_color(p.fg),
+                    )
                     .child("TypeAside"),
             )
             .children(

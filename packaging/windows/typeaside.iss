@@ -13,6 +13,7 @@ OutputBaseFilename=TypeAside-setup
 Compression=lzma2
 SolidCompression=yes
 UninstallDisplayIcon={app}\typeaside.exe
+SetupIconFile=typeaside.ico
 WizardStyle=modern
 CloseApplications=yes
 CloseApplicationsFilter=typeaside.exe

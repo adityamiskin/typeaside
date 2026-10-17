@@ -24,6 +24,9 @@ pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> anyhow::Result<Option<Cow<'static, [u8]>>> {
         match path {
+            "icons/typeaside.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../../assets/icons/typeaside.svg"
+            )))),
             "onboarding/bloom.png" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../../assets/onboarding/bloom.png"
             )))),
@@ -40,6 +43,9 @@ impl AssetSource for Assets {
     fn list(&self, path: &str) -> anyhow::Result<Vec<SharedString>> {
         let mut paths = gpui_kit::assets::Assets.list(path)?;
         paths.extend(NavIcons.list(path)?);
+        if "icons/typeaside.svg".starts_with(path) {
+            paths.push("icons/typeaside.svg".into());
+        }
         paths.sort();
         paths.dedup();
         Ok(paths)

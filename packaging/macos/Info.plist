@@ -4,6 +4,7 @@
   <key>CFBundleIdentifier</key><string>app.typeaside.dictation</string>
   <key>CFBundleName</key><string>TypeAside</string>
   <key>CFBundleExecutable</key><string>typeaside</string>
+  <key>CFBundleIconFile</key><string>TypeAside.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.5</string>
   <key>NSMicrophoneUsageDescription</key><string>TypeAside records your voice while dictating and sends it to your configured transcription service.</string>

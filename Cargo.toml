@@ -48,6 +48,9 @@ interprocess = "2.4"
 winreg = "0.55"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading"] }
 
+[build-dependencies]
+winresource = "0.1"
+
 [patch.crates-io]
 keyring = { path = "vendor/keyring" }
 gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
