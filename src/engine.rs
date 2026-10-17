@@ -290,6 +290,8 @@ fn run(
             Message::Hotkey(source, event) if source == epoch => match event {
                 HotkeyEvent::Cancel(true) => Command::Cancel,
                 HotkeyEvent::PasteLast(true) => Command::PasteLast,
+                #[cfg(target_os = "macos")]
+                HotkeyEvent::Interrupt if recorder.is_some() => Command::Cancel,
                 HotkeyEvent::Main(pressed) | HotkeyEvent::Command(pressed) => {
                     let mode = if matches!(event, HotkeyEvent::Command(_)) {
                         Mode::Command

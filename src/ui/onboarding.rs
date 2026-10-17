@@ -692,7 +692,11 @@ impl MainWindow {
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     #[cfg(target_os = "macos")]
                                                     if !this.state.read(cx).is_demo {
-                                                        super::permissions::request_one(i);
+                                                        super::permissions::allow(
+                                                            i,
+                                                            &this.state,
+                                                            cx,
+                                                        );
                                                     }
                                                     #[cfg(not(target_os = "macos"))]
                                                     let _ = (this, cx);
@@ -702,6 +706,13 @@ impl MainWindow {
                                 }),
                             ),
                     )
+                    .children({
+                        #[cfg(target_os = "macos")]
+                        let help = super::permissions::help(s);
+                        #[cfg(not(target_os = "macos"))]
+                        let help: Option<&'static str> = None;
+                        help.map(|help| sub(help, p).mt(px(16.)))
+                    })
             }
             Step::Microphone => col
                 .child(title("Say something", p))

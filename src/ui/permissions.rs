@@ -1,21 +1,15 @@
 use super::AppState;
 use core_foundation::{
-    base::{CFType, CFTypeRef, TCFType},
+    base::TCFType,
     boolean::CFBoolean,
     bundle::{CFBundleGetMainBundle, CFBundleGetValueForInfoDictionaryKey},
     dictionary::{CFDictionary, CFDictionaryRef},
-    number::CFNumber,
-    string::{CFString, CFStringRef},
+    string::CFString,
 };
 use gpui::{App, Entity};
 use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
 use std::time::Duration;
 use typeaside::engine::Command;
-
-#[link(name = "CoreFoundation", kind = "framework")]
-unsafe extern "C" {
-    fn CFPreferencesCopyAppValue(key: CFStringRef, application: CFStringRef) -> CFTypeRef;
-}
 
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
@@ -89,11 +83,27 @@ fn prompt_accessibility() {
     }
 }
 
-/// Opens the Settings pane for the first missing permission.
-pub fn open_missing() {
-    if let Some(index) = statuses().into_iter().position(|granted| !granted) {
-        request_one(index);
-    }
+/// Opens the Settings pane for a permission, then offers the ad-hoc signing fix if it never lands.
+pub fn allow(index: usize, state: &Entity<AppState>, cx: &mut App) {
+    request_one(index);
+    let state = state.downgrade();
+    cx.spawn(async move |cx| {
+        cx.background_executor()
+            .timer(Duration::from_secs(10))
+            .await;
+        let _ = state.update(cx, |s, cx| {
+            s.permission_help = true;
+            cx.notify();
+        });
+    })
+    .detach();
+}
+
+/// Ad-hoc signed builds keep a stale grant from an older build, which only re-adding clears.
+pub fn help(state: &AppState) -> Option<&'static str> {
+    (state.permission_help && !statuses()[1]).then_some(
+        "Still not working? In Accessibility, remove TypeAside with −, then add it again with +.",
+    )
 }
 
 fn bundled_microphone_description() -> bool {
@@ -157,23 +167,4 @@ pub fn watch(state: &Entity<AppState>, cx: &mut App) {
         }
     })
     .detach();
-}
-
-/// Whether the system still claims the Fn key for emoji, dictation, or input switching.
-pub fn fn_key_claimed() -> bool {
-    let value = unsafe {
-        CFPreferencesCopyAppValue(
-            CFString::new("AppleFnUsageType").as_concrete_TypeRef(),
-            CFString::new("com.apple.HIToolbox").as_concrete_TypeRef(),
-        )
-    };
-    if value.is_null() {
-        // Unset means the macOS default, which shows the emoji picker.
-        return true;
-    }
-    let value = unsafe { CFType::wrap_under_create_rule(value) };
-    value
-        .downcast::<CFNumber>()
-        .and_then(|number| number.to_i64())
-        .is_none_or(|usage| usage != 0)
 }

@@ -124,6 +124,8 @@ impl MainWindow {
         .detach();
         let weak = state.downgrade();
         window.on_window_should_close(cx, move |_, cx| {
+            #[cfg(target_os = "macos")]
+            show_in_dock(false);
             let _ = weak.update(cx, |s, cx| {
                 s.mic_testing = false;
                 s.mic_generation += 1;
@@ -273,6 +275,8 @@ impl Render for MainWindow {
         let state = self.state.read(cx);
         #[cfg(target_os = "macos")]
         let permission_notice = state.permission_notice.clone();
+        #[cfg(target_os = "macos")]
+        let permission_help = super::permissions::help(state);
         let onboarding = !state.config.onboarded;
         let (color, status) = if let Some(error) = &state.save_error {
             (p.red, error.clone())
@@ -509,20 +513,37 @@ impl Render for MainWindow {
                     .filter(|_| !onboarding)
                     .map(|notice| {
                         div()
-                            .flex()
-                            .gap(px(8.))
                             .px(px(16.))
                             .py(px(8.))
-                            .text_color(p.red)
-                            .child(notice.clone())
                             .child(
                                 div()
-                                    .id("permission-settings")
-                                    .cursor_pointer()
-                                    .text_color(p.fg)
-                                    .underline()
-                                    .child("Open Settings")
-                                    .on_click(|_, _, _| super::permissions::open_missing()),
+                                    .flex()
+                                    .gap(px(8.))
+                                    .text_color(p.red)
+                                    .child(notice.clone())
+                                    .child(
+                                        div()
+                                            .id("permission-settings")
+                                            .cursor_pointer()
+                                            .text_color(p.fg)
+                                            .underline()
+                                            .child("Open Settings")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                let missing = super::permissions::statuses()
+                                                    .into_iter()
+                                                    .position(|granted| !granted);
+                                                if let Some(index) = missing {
+                                                    super::permissions::allow(
+                                                        index,
+                                                        &this.state,
+                                                        cx,
+                                                    );
+                                                }
+                                            })),
+                                    ),
+                            )
+                            .children(
+                                permission_help.map(|help| div().text_color(p.muted).child(help)),
                             )
                     }),
             )
@@ -645,4 +666,18 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<gpui::AnyWi
         |window, cx| cx.new(|cx| MainWindow::new(state, window, cx)),
     )?;
     Ok(handle)
+}
+
+/// The Dock icon follows the main window; otherwise TypeAside lives in the menu bar.
+#[cfg(target_os = "macos")]
+pub fn show_in_dock(visible: bool) {
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+    let Some(main_thread) = objc2::MainThreadMarker::new() else {
+        return;
+    };
+    NSApplication::sharedApplication(main_thread).setActivationPolicy(if visible {
+        NSApplicationActivationPolicy::Regular
+    } else {
+        NSApplicationActivationPolicy::Accessory
+    });
 }
