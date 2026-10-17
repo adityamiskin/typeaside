@@ -8,6 +8,21 @@ fn main() {
         }
         return;
     }
+    if std::env::args().any(|arg| arg == "--update-now") {
+        let result = (|| -> anyhow::Result<()> {
+            let release =
+                typeaside::update::check()?.ok_or_else(|| anyhow::anyhow!("No newer release"))?;
+            typeaside::update::install(&release, |progress| eprintln!("{progress:?}"))?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => typeaside::update::quit_after_install(),
+            Err(error) => {
+                eprintln!("Update failed: {error:#}");
+                std::process::exit(1);
+            }
+        }
+    }
     let started = std::time::Instant::now();
     #[cfg(target_os = "linux")]
     prefer_integrated_gpu();

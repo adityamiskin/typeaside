@@ -88,6 +88,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
         if std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() == Ok("onboarding")
             || std::env::var_os("TYPEASIDE_DEMO_EDIT").is_some()
             || std::env::var_os("TYPEASIDE_DEMO_MODEL").is_some()
+            || std::env::var_os("TYPEASIDE_DEMO_UPDATE").is_some()
         {
             // Keep interactive fixtures static and avoid creating an overlay window.
             std::thread::park();
@@ -216,4 +217,27 @@ pub fn intro_time() -> Option<f32> {
         .parse::<f32>()
         .ok()
         .filter(|t| t.is_finite() && *t >= 0.)
+}
+
+pub fn update() -> (Option<typeaside::update::Release>, super::update::Toast) {
+    use super::update::Toast;
+    let Ok(value) = std::env::var("TYPEASIDE_DEMO_UPDATE") else {
+        return (None, Toast::Available);
+    };
+    let state = match value.as_str() {
+        "available" | "managed" => Toast::Available,
+        "downloading" => Toast::Downloading(42),
+        "failed" => Toast::Failed("Release checksum mismatch".into()),
+        _ => return (None, Toast::Available),
+    };
+    (
+        Some(typeaside::update::Release {
+            version: "0.3.0".into(),
+            installer: (value != "managed").then(|| typeaside::update::Installer {
+                file: "TypeAside.AppImage",
+                sha256: "a".repeat(64),
+            }),
+        }),
+        state,
+    )
 }

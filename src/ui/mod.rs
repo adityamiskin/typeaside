@@ -14,6 +14,7 @@ mod snippets;
 mod style;
 mod theme;
 mod tray;
+mod update;
 mod window;
 
 use gpui::{App, AppContext, QuitMode, WindowHandle};
@@ -29,7 +30,8 @@ pub struct AppState {
     model: typeaside::local::Status,
     model_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     update: Option<typeaside::update::Release>,
-    update_status: typeaside::update::Status,
+    update_status: update::Toast,
+    update_dismissed: bool,
     signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     onboarding_own_key: bool,
     config: AppConfig,
@@ -180,6 +182,11 @@ fn start_ui(
     theme::init(config.theme, cx);
     trace("theme init end", started);
     let (sync_tx, sync_rx) = async_channel::bounded(1);
+    let (update, update_status) = if is_demo {
+        demo::update()
+    } else {
+        (None, update::Toast::Available)
+    };
     let state = cx.new(|_| AppState {
         account: if is_demo { demo::account() } else { None },
         account_revision: 0,
@@ -191,8 +198,9 @@ fn start_ui(
             typeaside::local::Status::current()
         },
         model_cancel: None,
-        update: None,
-        update_status: typeaside::update::Status::Available,
+        update,
+        update_status,
+        update_dismissed: false,
         signing_in: None,
         onboarding_own_key: false,
         config,
@@ -273,7 +281,7 @@ fn start_ui(
     })
     .detach();
     if !is_demo {
-        schedule_updates(&state, cx);
+        update::schedule(&state, cx);
         schedule_settings_sync(&state, sync_rx, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
@@ -469,74 +477,6 @@ fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
                 }
             });
         }
-    })
-    .detach();
-}
-
-fn schedule_updates(state: &gpui::Entity<AppState>, cx: &mut App) {
-    let state = state.downgrade();
-    cx.spawn(async move |cx| {
-        let mut delay = std::time::Duration::from_secs(10);
-        loop {
-            cx.background_executor().timer(delay).await;
-            let result = cx
-                .background_executor()
-                .spawn(async { typeaside::update::check() })
-                .await;
-            let Some(state) = state.upgrade() else { break };
-            match result {
-                Ok(release) => state.update(cx, |s, cx| {
-                    if s.update_status != typeaside::update::Status::Installing {
-                        s.update = release;
-                        s.update_status = typeaside::update::Status::Available;
-                        cx.notify();
-                    }
-                }),
-                Err(error) => eprintln!("typeaside: update check failed: {error:#}"),
-            }
-            delay = std::time::Duration::from_secs(6 * 60 * 60);
-        }
-    })
-    .detach();
-}
-
-fn install_update(state: &gpui::Entity<AppState>, cx: &mut App) {
-    let current = state.read(cx);
-    if current.is_demo || current.update_status == typeaside::update::Status::Installing {
-        return;
-    }
-    if current.update_status == typeaside::update::Status::Failed {
-        cx.background_executor()
-            .spawn(async {
-                let _ =
-                    typeaside::account::open(format!("{}/download", typeaside::account::web_url()));
-            })
-            .detach();
-        return;
-    }
-    let Some(release) = current.update.clone() else {
-        return;
-    };
-    state.update(cx, |s, cx| {
-        s.update_status = typeaside::update::Status::Installing;
-        cx.notify();
-    });
-    let state = state.clone();
-    let task = cx
-        .background_executor()
-        .spawn(async move { typeaside::update::install(&release) });
-    cx.spawn(async move |cx| {
-        let result = task.await;
-        state.update(cx, |s, cx| {
-            s.update_status = match result {
-                Ok(()) => typeaside::update::Status::Available,
-                Err(error) => {
-                    eprintln!("typeaside: update failed: {error:#}");
-                    typeaside::update::Status::Failed
-                }
-            };
-            cx.notify();
-        });
     })
     .detach();
 }
