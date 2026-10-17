@@ -16,7 +16,13 @@ gpui_kit::assets::icon_assets!(
         Mic,
         Accessibility,
         Keyboard,
-        Check
+        Check,
+        Copy,
+        Info,
+        Ellipsis,
+        FileText,
+        Trash,
+        RotateCw
     ]
 );
 

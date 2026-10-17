@@ -1,5 +1,4 @@
 mod assets;
-mod corrections;
 mod demo;
 mod dictionary;
 mod home;
@@ -13,6 +12,7 @@ mod settings;
 mod snippets;
 mod style;
 mod theme;
+mod toast;
 mod tray;
 mod update;
 mod window;

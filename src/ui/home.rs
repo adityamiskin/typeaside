@@ -4,9 +4,17 @@ use super::{
 };
 use chrono::{DateTime, Local};
 use gpui::{
-    ClipboardItem, Context, FontFeatures, FontWeight, IntoElement, Styled, div, prelude::*, px,
+    Anchor, App, ClipboardItem, Context, DismissEvent, ElementId, Focusable, FontFeatures,
+    FontWeight, IntoElement, Styled, div, prelude::*, px,
 };
-use gpui_kit::component::input::Input;
+use gpui_kit::component::{
+    Icon, Sizable,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
+    input::Input,
+    menu::{PopupMenu, PopupMenuItem},
+    popover::Popover,
+    tooltip::Tooltip,
+};
 use std::collections::BTreeSet;
 use typeaside::{
     account,
@@ -79,6 +87,100 @@ impl MainWindow {
         if !state.is_demo && state.file_transcribing.is_none() && state.phase == Phase::Idle {
             state.command(Command::TranscribeFile(path));
         }
+    }
+    fn history_menu(
+        &self,
+        index: usize,
+        timestamp: std::time::SystemTime,
+        raw: String,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let main = cx.entity().downgrade();
+        let on_open = main.clone();
+        let demo = self.state.read(cx).is_demo
+            && index == 0
+            && std::env::var_os("TYPEASIDE_DEMO_MENU").is_some();
+        Popover::new(("history-menu", index))
+            .appearance(false)
+            .anchor(Anchor::TopRight)
+            .default_open(demo)
+            .trigger(history_button(
+                ("more", index),
+                "icons/ellipsis.svg",
+                "More",
+                false,
+                cx,
+            ))
+            .on_open_change(move |open, _, cx| {
+                let _ = on_open.update(cx, |this, cx| {
+                    this.menu_history = open.then_some(timestamp);
+                    cx.notify();
+                });
+            })
+            .content(move |_, window, cx| {
+                let main = main.clone();
+                let raw = raw.clone();
+                let menu_state = window.use_keyed_state(
+                    gpui::SharedString::from(format!("history-popup:{timestamp:?}")),
+                    cx,
+                    |_, _| None::<gpui::Entity<PopupMenu>>,
+                );
+                if let Some(menu) = menu_state.read(cx).clone() {
+                    menu
+                } else {
+                    let copy = main.clone();
+                    let menu = PopupMenu::build(window, cx, move |menu, _, cx| {
+                        menu.min_w(px(150.))
+                            .item(
+                                PopupMenuItem::new("Copy raw")
+                                    .icon(Icon::default().path("icons/file-text.svg"))
+                                    .on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            raw.clone(),
+                                        ));
+                                        let _ = copy.update(cx, |this, cx| {
+                                            this.show_toast("Copied raw", None, cx)
+                                        });
+                                    }),
+                            )
+                            .separator()
+                            .item(
+                                PopupMenuItem::element(|_, cx| {
+                                    div().text_color(palette(cx).red).child("Delete")
+                                })
+                                .icon(
+                                    Icon::default()
+                                        .path("icons/trash.svg")
+                                        .text_color(palette(cx).red),
+                                )
+                                .on_click(move |_, _, cx| {
+                                    let _ = main.update(cx, |this, cx| {
+                                        if let Some(index) = this
+                                            .state
+                                            .read(cx)
+                                            .history
+                                            .iter()
+                                            .position(|item| item.at == timestamp)
+                                        {
+                                            this.delete_history(index, cx);
+                                        }
+                                    });
+                                }),
+                            )
+                    });
+                    menu.focus_handle(cx).focus(window, cx);
+                    menu_state.update(cx, |state, _| *state = Some(menu.clone()));
+                    let popover = cx.entity().downgrade();
+                    let menu_state = menu_state.downgrade();
+                    window
+                        .subscribe(&menu, cx, move |_, _: &DismissEvent, window, cx| {
+                            let _ = popover.update(cx, |state, cx| state.dismiss(window, cx));
+                            let _ = menu_state.update(cx, |state, _| *state = None);
+                        })
+                        .detach();
+                    menu
+                }
+            })
     }
     pub fn home(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
@@ -195,27 +297,26 @@ impl MainWindow {
         if let Some(failed) = &state.failed {
             let at: DateTime<Local> = failed.at.into();
             let seconds = failed.audio_ms / 1000;
-            let actions =
-                if failed.retrying {
-                    div().text_color(p.muted).child("Retrying")
-                } else {
-                    div()
-                        .flex()
-                        .gap(px(8.))
-                        .child(
-                            button("Retry", true, p)
-                                .id("retry-failed")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.state.update(cx, |s, cx| {
-                                        if !s.is_demo {
-                                            s.command(Command::RetryFailed);
-                                        }
-                                        cx.notify();
-                                    });
-                                })),
-                        )
-                        .child(button("Discard", false, p).id("discard-failed").on_click(
-                            cx.listener(|this, _, _, cx| {
+            let actions = if failed.retrying {
+                div().text_color(p.muted).child("Retrying")
+            } else {
+                div()
+                    .flex()
+                    .gap(px(2.))
+                    .child(
+                        history_button("retry-failed", "icons/rotate-cw.svg", "Retry", false, cx)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.state.update(cx, |s, cx| {
+                                    if !s.is_demo {
+                                        s.command(Command::RetryFailed);
+                                    }
+                                    cx.notify();
+                                });
+                            })),
+                    )
+                    .child(
+                        history_button("discard-failed", "icons/trash.svg", "Discard", false, cx)
+                            .on_click(cx.listener(|this, _, _, cx| {
                                 this.state.update(cx, |s, cx| {
                                     if s.is_demo {
                                         s.failed = None;
@@ -224,9 +325,10 @@ impl MainWindow {
                                     }
                                     cx.notify();
                                 });
-                            }),
-                        ))
-                };
+                                this.show_toast("Discarded", None, cx);
+                            })),
+                    )
+            };
             rows.push(
                 div()
                     .flex()
@@ -283,79 +385,46 @@ impl MainWindow {
                 );
                 previous = Some(day);
             }
-            let hovered = self.hovered_history == Some(index);
+            let hovered = self.hovered_history == Some(index) || self.menu_history == Some(item.at);
             let text = item.cleaned.clone();
             let raw = item.raw.clone();
             let timestamp = item.at;
-            let editing = self
-                .correction_editor
-                .as_ref()
-                .is_some_and(|editor| editor.at == timestamp);
-            let notice = self
-                .learned_notice
-                .as_ref()
-                .filter(|(at, _, _)| *at == timestamp);
+            let expanded = state.expanded == Some(timestamp);
             let actions = div()
                 .flex()
-                .gap(px(14.))
-                .text_size(px(12.))
-                .line_height(px(19.))
+                .flex_shrink_0()
+                .items_center()
+                .gap(px(2.))
+                .mt(px(-4.5))
+                .mb(px(-4.5))
                 .child(
-                    div()
-                        .id(("edit", index))
-                        .cursor_pointer()
-                        .child("Edit")
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.edit_history(timestamp, window, cx)
-                        })),
+                    history_button(("copy", index), "icons/copy.svg", "Copy", false, cx).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                            this.show_toast("Copied", None, cx);
+                        }),
+                    ),
                 )
                 .child(
-                    div()
-                        .id(("copy", index))
-                        .cursor_pointer()
-                        .child("Copy")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))
-                        })),
+                    history_button(
+                        ("details", index),
+                        "icons/info.svg",
+                        if expanded { "Hide details" } else { "Details" },
+                        expanded,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.state.update(cx, |s, cx| {
+                            s.expanded = if s.expanded == Some(timestamp) {
+                                None
+                            } else {
+                                Some(timestamp)
+                            };
+                            cx.notify();
+                        });
+                    })),
                 )
-                .child(
-                    div()
-                        .id(("details", index))
-                        .cursor_pointer()
-                        .child("Details")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.update(cx, |s, cx| {
-                                s.expanded = if s.expanded == Some(timestamp) {
-                                    None
-                                } else {
-                                    Some(timestamp)
-                                };
-                                cx.notify();
-                            });
-                        })),
-                )
-                .child(
-                    div()
-                        .id(("delete", index))
-                        .text_color(p.red)
-                        .cursor_pointer()
-                        .child("Delete")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.update(cx, |s, cx| {
-                                s.history.retain(|d| d.at != timestamp);
-                                if s.expanded == Some(timestamp) {
-                                    s.expanded = None;
-                                }
-                                if !s.is_demo {
-                                    s.save_error =
-                                        typeaside::engine::save_history(&s.paths, &s.history)
-                                            .err()
-                                            .map(|e| format!("Could not save history: {e}"));
-                                }
-                                cx.notify();
-                            });
-                        })),
-                );
+                .child(self.history_menu(index, timestamp, raw, cx));
             rows.push(
                 div()
                     .id(("history", index))
@@ -386,26 +455,14 @@ impl MainWindow {
                             .text_color(p.muted)
                             .child(at.format("%H:%M").to_string()),
                     )
-                    .child(if editing {
-                        self.correction_form(cx).into_any_element()
-                    } else {
+                    .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .line_clamp(2)
-                            .child(item.cleaned.clone())
-                            .into_any_element()
-                    })
-                    .child(if editing {
-                        div().into_any_element()
-                    } else if let Some((_, _, message)) = notice {
-                        div()
-                            .text_size(px(12.))
-                            .line_height(px(19.))
-                            .text_color(p.muted)
-                            .child(message.clone())
-                            .into_any_element()
-                    } else if hovered {
+                            .child(item.cleaned.clone()),
+                    )
+                    .child(if hovered {
                         actions.into_any_element()
                     } else {
                         div()
@@ -458,32 +515,19 @@ impl MainWindow {
                     );
                 }
                 details = details.child(
-                    div()
-                        .ml(px(80.))
-                        .flex()
-                        .gap(px(14.))
-                        .child(
-                            div()
-                                .id(("copy-raw", index))
-                                .cursor_pointer()
-                                .child("Copy raw")
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(raw.clone()))
-                                })),
-                        )
-                        .child(
-                            div()
-                                .id(("add-unknown", index))
-                                .cursor_pointer()
-                                .child("Add word to dictionary")
-                                .on_click(cx.listener(|this, _, w, cx| {
-                                    this.set_page(Page::Dictionary, w, cx);
-                                    this.word_input.update(cx, |input, cx| {
-                                        input.set_value("", w, cx);
-                                        input.focus(w, cx);
-                                    });
-                                })),
-                        ),
+                    div().ml(px(80.)).flex().gap(px(14.)).child(
+                        div()
+                            .id(("add-unknown", index))
+                            .cursor_pointer()
+                            .child("Add word to dictionary")
+                            .on_click(cx.listener(|this, _, w, cx| {
+                                this.set_page(Page::Dictionary, w, cx);
+                                this.word_input.update(cx, |input, cx| {
+                                    input.set_value("", w, cx);
+                                    input.focus(w, cx);
+                                });
+                            })),
+                    ),
                 );
                 rows.push(details.into_any_element());
             }
@@ -572,4 +616,40 @@ fn friendly_app(app: Option<&str>) -> &str {
         Some(other) => other,
         None => "",
     }
+}
+
+fn history_button(
+    id: impl Into<ElementId>,
+    icon: &'static str,
+    tooltip: &'static str,
+    active: bool,
+    cx: &App,
+) -> Button {
+    let p = palette(cx);
+    let id = id.into();
+    Button::new(id.clone())
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .foreground(if active { p.fg } else { p.muted })
+                .hover(p.border)
+                .active(p.border),
+        )
+        .with_size(px(28.))
+        .rounded(px(6.))
+        .size(px(28.))
+        .p_0()
+        .accessibility_label(tooltip)
+        .child(
+            div()
+                .id(id)
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .hover(|style| style.text_color(p.fg))
+                .tooltip(move |window, cx| {
+                    Tooltip::new(tooltip).text_size(px(12.)).build(window, cx)
+                })
+                .child(Icon::default().path(icon).size(px(15.))),
+        )
 }
