@@ -22,49 +22,51 @@ struct Thunk {
     gain: f32,
 }
 
-/// Mono samples for `cue` at `rate` Hz: muted, woody knocks rather than beeps.
+/// Mono samples for `cue` at `rate` Hz: deep, muffled thucks with no click or bright overtones.
 pub fn render(cue: Cue, rate: u32) -> Vec<f32> {
     let thunks: &[Thunk] = match cue {
-        Cue::Start => &[
-            Thunk {
-                at: 0.,
-                pitch: 220.,
-                gain: 1.,
-            },
-            Thunk {
-                at: 0.004,
-                pitch: 330.,
-                gain: 0.35,
-            },
-        ],
+        Cue::Start => &[Thunk {
+            at: 0.,
+            pitch: 60.,
+            gain: 1.,
+        }],
         Cue::Stop => &[Thunk {
             at: 0.,
-            pitch: 165.,
-            gain: 0.9,
+            pitch: 48.,
+            gain: 0.85,
         }],
         Cue::Error => &[
             Thunk {
                 at: 0.,
-                pitch: 131.,
-                gain: 0.8,
+                pitch: 55.,
+                gain: 0.85,
             },
             Thunk {
-                at: 0.11,
-                pitch: 123.,
-                gain: 0.7,
+                at: 0.14,
+                pitch: 44.,
+                gain: 0.8,
             },
         ],
     };
     let rate = rate as f32;
-    let length = thunks.iter().map(|thunk| thunk.at).fold(0., f32::max) + 0.32;
+    let length = thunks.iter().map(|thunk| thunk.at).fold(0., f32::max) + 0.4;
     let mut samples = vec![0f32; (length * rate) as usize];
     for thunk in thunks {
         add_thunk(&mut samples, rate, thunk);
     }
-    let fade = 0.04 * rate;
+    // Two one-pole low-passes at 250 Hz keep it a felt thud on headphones.
+    let k = 1. - (-TAU * 250. / rate).exp();
+    let (mut low, mut lower) = (0f32, 0f32);
+    for sample in &mut samples {
+        low += (*sample - low) * k;
+        lower += (low - lower) * k;
+        *sample = (lower * 1.3).tanh();
+    }
+    let peak = samples.iter().fold(0f32, |peak, s| peak.max(s.abs()));
+    let fade = 0.06 * rate;
     let total = samples.len();
     for (index, sample) in samples.iter_mut().enumerate() {
-        *sample = (*sample * 1.4).tanh() * 0.32 * ((total - index) as f32 / fade).min(1.);
+        *sample *= 0.55 / peak * ((total - index) as f32 / fade).min(1.);
     }
     samples
 }
@@ -72,21 +74,14 @@ pub fn render(cue: Cue, rate: u32) -> Vec<f32> {
 fn add_thunk(samples: &mut [f32], rate: f32, thunk: &Thunk) {
     let start = (thunk.at * rate) as usize;
     let mut phase = 0f32;
-    let mut noise_seed = 0x9e37_79b9u32;
-    let mut noise = 0f32;
     for (n, sample) in samples.iter_mut().skip(start).enumerate() {
         let t = n as f32 / rate;
-        // The pitch falls into place like a struck mallet, which reads as "thunk" not "beep".
-        phase += TAU * thunk.pitch * (1. + 0.5 * (-t / 0.01).exp()) / rate;
-        let attack = (t / 0.0015).min(1.);
-        let body = phase.sin() * (-t / 0.06).exp();
-        let wood = (phase * 2.76).sin() * (-t / 0.016).exp() * 0.3;
-        noise_seed ^= noise_seed << 13;
-        noise_seed ^= noise_seed >> 17;
-        noise_seed ^= noise_seed << 5;
-        noise += (noise_seed as f32 / u32::MAX as f32 * 2. - 1. - noise) * 0.25;
-        let click = noise * (-t / 0.002).exp() * 0.5;
-        *sample += (body + wood + click) * attack * thunk.gain;
+        // The pitch falls into place like a struck drum, which reads as "thuck" not "beep".
+        phase += TAU * thunk.pitch * (1. + 1.5 * (-t / 0.02).exp()) / rate;
+        // A 5 ms attack avoids a click; the octave keeps it audible on small speakers.
+        let attack = (t / 0.005).min(1.);
+        let body = (phase.sin() + 0.25 * (2. * phase).sin()) * (-t / 0.09).exp();
+        *sample += body * attack * thunk.gain;
     }
 }
 
