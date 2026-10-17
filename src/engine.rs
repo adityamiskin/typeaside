@@ -80,6 +80,7 @@ pub enum Command {
     Cancel,
     Reload(Box<AppConfig>),
     Learn(Vec<String>),
+    Unlearn(Vec<String>),
     /// Re-pastes the latest dictation into the focused app.
     PasteLast,
     /// Streams Event::Level from the mic without recording, for settings and onboarding.
@@ -535,6 +536,11 @@ fn run(
             Command::Learn(words) => {
                 for word in words {
                     config.add_word(word);
+                }
+            }
+            Command::Unlearn(words) => {
+                for word in words {
+                    config.remove_word(&word);
                 }
             }
             Command::Reload(next) => {

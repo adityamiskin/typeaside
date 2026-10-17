@@ -262,6 +262,8 @@ pub const SUCCESS_HOLD: f32 = 0.35;
 pub const CANCEL_TIME: f32 = 0.12;
 pub const ERROR_HOLD: f32 = 1.8;
 pub const COPIED_HOLD: f32 = 2.4;
+/// Long enough to reach Undo.
+pub const LEARNED_HOLD: f32 = 6.;
 pub const COPIED_GAP: f32 = 6.;
 pub const ERROR_TEXT_TIME: f32 = 0.15;
 pub const SHAKE_TIME: f32 = 0.36;
