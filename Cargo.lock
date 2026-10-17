@@ -554,6 +554,7 @@ checksum = "c77886257be21c9cd89a4ae7e64860c6f0eefca799bb79127913052bd0eefb3d"
 dependencies = [
  "atspi-common",
  "atspi-proxies",
+ "zbus",
 ]
 
 [[package]]
@@ -7578,6 +7579,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "async-channel",
+ "atspi",
  "block2 0.6.2",
  "chrono",
  "core-foundation 0.10.1",
