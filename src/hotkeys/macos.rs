@@ -54,7 +54,11 @@ impl HotkeyService {
                             state.borrow_mut().key(modifier, unsafe { CGEventSourceKeyState(0, modifier) });
                         }
                     } else {
-                        state.borrow_mut().key(code, matches!(kind, CGEventType::KeyDown));
+                        let down = matches!(kind, CGEventType::KeyDown);
+                        if down {
+                            state.borrow().interrupt_fn();
+                        }
+                        state.borrow_mut().key(code, down);
                     }
                     None
                 });

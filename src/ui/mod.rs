@@ -47,6 +47,8 @@ pub struct AppState {
     save_error: Option<String>,
     #[cfg(target_os = "macos")]
     permission_notice: Option<String>,
+    #[cfg(target_os = "macos")]
+    permission_help: bool,
     trace_started: Option<std::time::Instant>,
     initial_page: window::Page,
     expanded: Option<std::time::SystemTime>,
@@ -72,6 +74,8 @@ impl AppState {
             .err()
             .map(|e| format!("Could not save: {e}"));
         if self.save_error.is_none() {
+            #[cfg(target_os = "macos")]
+            typeaside::hotkeys::globe::follow(&self.config);
             let _ = self.sync.try_send(());
             if let Some(engine) = &self.engine {
                 engine.send(Command::Reload(Box::new(self.config.clone())));
@@ -108,6 +112,12 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             trace("application ready", started);
+            #[cfg(target_os = "macos")]
+            {
+                window::show_in_dock(false);
+                cx.on_app_quit(|_| async { typeaside::hotkeys::globe::hold(false) })
+                    .detach();
+            }
             let load_paths = paths.clone();
             let load = cx.background_executor().spawn(async move {
                 let mut config = if is_demo {
@@ -170,8 +180,11 @@ fn start_ui(
     cx: &mut App,
 ) {
     #[cfg(target_os = "macos")]
-    if !is_demo && config.onboarded {
-        permissions::request();
+    if !is_demo {
+        typeaside::hotkeys::globe::follow(&config);
+        if config.onboarded {
+            permissions::request();
+        }
     }
     let initial_page = if is_demo {
         window::Page::from_demo()
@@ -233,6 +246,8 @@ fn start_ui(
         save_error: None,
         #[cfg(target_os = "macos")]
         permission_notice: if is_demo { None } else { permissions::notice() },
+        #[cfg(target_os = "macos")]
+        permission_help: false,
         trace_started: (std::env::var("TYPEASIDE_TRACE").as_deref() == Ok("1")).then_some(started),
         initial_page,
         expanded: None,
@@ -266,6 +281,8 @@ fn start_ui(
             cx.update(|cx| match action {
                 tray::Action::Quit => cx.quit(),
                 tray::Action::Open => {
+                    #[cfg(target_os = "macos")]
+                    window::show_in_dock(true);
                     let activated = main_window.is_some_and(|handle| {
                         handle.update(cx, |_, w, _| w.activate_window()).is_ok()
                     });

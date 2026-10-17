@@ -8,6 +8,9 @@ pub enum HotkeyEvent {
     Cancel(bool),
     Command(bool),
     PasteLast(bool),
+    /// A key pressed while Fn is held: Fn+Left is Home, not dictation.
+    #[cfg(target_os = "macos")]
+    Interrupt,
 }
 
 struct Combo {
@@ -70,6 +73,17 @@ impl State {
             pressed: HashSet::new(),
             emit: Box::new(emit),
         })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn interrupt_fn(&self) {
+        if self
+            .combos
+            .iter()
+            .any(|combo| combo.active && combo.keys == [vec![63]])
+        {
+            (self.emit)(HotkeyEvent::Interrupt);
+        }
     }
 
     pub(super) fn key(&mut self, code: u16, down: bool) {
