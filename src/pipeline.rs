@@ -1,4 +1,6 @@
-use crate::{cleanup, config::AppConfig, engine::Mode, snippets, transcribe};
+use crate::{
+    cleanup, config::AppConfig, engine::Mode, snippets, text_injector::FocusedApp, transcribe,
+};
 use anyhow::Result;
 use std::time::{Duration, Instant};
 
@@ -12,7 +14,7 @@ pub struct Output {
 pub fn run(
     config: &AppConfig,
     audio: &[f32],
-    app_id: Option<&str>,
+    app: Option<&FocusedApp>,
     mode: Mode,
     selection: &str,
     cleaning: impl FnOnce(),
@@ -32,7 +34,7 @@ pub fn run(
         if config.cleanup.enabled || config.translate_to.is_some() {
             cleaning();
         }
-        snippets::expand(&cleanup::cleanup(config, &raw, app_id), &config.snippets)
+        snippets::expand(&cleanup::cleanup(config, &raw, app), &config.snippets)
     };
     let llm = started.elapsed();
     if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {

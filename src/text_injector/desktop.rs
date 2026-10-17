@@ -4,9 +4,9 @@ use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use std::{thread, time::Duration};
 
 #[cfg(target_os = "macos")]
-pub use super::macos::{focused_app_id, has_focused_window};
+pub use super::macos::{focused_app, has_focused_window};
 #[cfg(target_os = "windows")]
-pub use super::windows::{focused_app_id, has_focused_window};
+pub use super::windows::{focused_app, has_focused_window};
 
 #[cfg(target_os = "macos")]
 pub(crate) const INJECTED_EVENT_TAG: i64 = 0x4845524d4553;

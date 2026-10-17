@@ -442,6 +442,7 @@ pub fn category_label(category: AppCategory) -> &'static str {
         AppCategory::Personal => "Personal",
         AppCategory::Work => "Work",
         AppCategory::Email => "Email",
+        AppCategory::Code => "Code",
         AppCategory::Other => "Other",
     }
 }

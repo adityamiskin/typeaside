@@ -1,0 +1,22 @@
+{
+  "tts": {
+    "engine": "espeak-ng 1.52.0",
+    "voice": "en-us",
+    "words_per_minute": 220,
+    "format": "16 kHz mono signed 16-bit PCM WAV"
+  },
+  "fixtures": [
+    {
+      "file": "code-rename.wav",
+      "spoken": "Open engine dot rs and rename load history to read history."
+    },
+    {
+      "file": "code-flag.wav",
+      "spoken": "Run cargo check with dash dash all targets."
+    },
+    {
+      "file": "code-path.wav",
+      "spoken": "Open source slash config dot rs and use camel case for app context."
+    }
+  ]
+}

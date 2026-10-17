@@ -48,16 +48,89 @@ pub enum AppCategory {
     Personal,
     Work,
     Email,
+    Code,
     Other,
 }
 
+/// Exact IDs, since substrings like "code" or "kitty" also match unrelated apps.
+const CODE_APPS: &[&str] = &[
+    // Editors
+    "code",
+    "code - oss",
+    "code-oss",
+    "code-insiders",
+    "code - insiders",
+    "codium",
+    "vscodium",
+    "com.visualstudio.code",
+    "com.visualstudio.code.oss",
+    "com.visualstudio.code.insiders",
+    "com.vscodium.codium",
+    "cursor",
+    "com.todesktop.230313mzl4w4u92",
+    "zed",
+    "dev.zed.zed",
+    "dev.zed.zed-preview",
+    "sublime_text",
+    "sublime-text",
+    "com.sublimetext.3",
+    "com.sublimetext.4",
+    "neovide",
+    "dev.neovide.neovide",
+    "com.neovide.neovide",
+    "idea64",
+    "pycharm64",
+    "webstorm64",
+    "goland64",
+    "clion64",
+    "rider64",
+    "rustrover64",
+    // Terminals
+    "alacritty",
+    "org.alacritty",
+    "org.alacritty.alacritty",
+    "kitty",
+    "net.kovidgoyal.kitty",
+    "ghostty",
+    "com.mitchellh.ghostty",
+    "wezterm",
+    "wezterm-gui",
+    "org.wezfurlong.wezterm",
+    "com.github.wez.wezterm",
+    "foot",
+    "footclient",
+    "konsole",
+    "org.kde.konsole",
+    "gnome-terminal-server",
+    "org.gnome.terminal",
+    "org.gnome.ptyxis",
+    "com.apple.terminal",
+    "com.googlecode.iterm2",
+    "dev.warp.warp-stable",
+    "warp",
+    "windowsterminal",
+    "wt",
+];
+
 impl AppCategory {
-    pub const ALL: [Self; 4] = [Self::Personal, Self::Work, Self::Email, Self::Other];
+    pub const ALL: [Self; 5] = [
+        Self::Personal,
+        Self::Work,
+        Self::Email,
+        Self::Code,
+        Self::Other,
+    ];
 
     pub fn of(app_id: Option<&str>) -> Self {
         let id = app_id.unwrap_or_default().to_ascii_lowercase();
         let has = |names: &[&str]| names.iter().any(|name| id.contains(name));
-        if has(&[
+        let name = id.strip_suffix(".exe").unwrap_or(&id);
+        let code = name.starts_with("jetbrains-")
+            || name.starts_with("com.jetbrains.")
+            || CODE_APPS.contains(&name);
+        if code {
+            Self::Code
+        } else if has(&[
             "telegram", "whatsapp", "signal", "discord", "element", "beeper",
         ]) {
             Self::Personal
@@ -77,6 +150,7 @@ pub struct Styles {
     pub personal: Tone,
     pub work: Tone,
     pub email: Tone,
+    pub code: Tone,
     pub other: Tone,
 }
 
@@ -86,6 +160,7 @@ impl Default for Styles {
             personal: Tone::Casual,
             work: Tone::Casual,
             email: Tone::Formal,
+            code: Tone::Casual,
             other: Tone::Casual,
         }
     }
@@ -97,6 +172,7 @@ impl Styles {
             AppCategory::Personal => &mut self.personal,
             AppCategory::Work => &mut self.work,
             AppCategory::Email => &mut self.email,
+            AppCategory::Code => &mut self.code,
             AppCategory::Other => &mut self.other,
         }
     }
@@ -246,5 +322,90 @@ impl AppConfig {
         let temporary = paths.config_file.with_extension("json.tmp");
         std::fs::write(&temporary, serde_json::to_vec_pretty(self)?)?;
         std::fs::rename(temporary, &paths.config_file).context("failed to save config")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppCategory, Styles, Tone};
+
+    #[test]
+    fn app_categories_match_real_ids_without_code_substrings() {
+        use AppCategory::*;
+        for id in [
+            "code",
+            "Code.exe",
+            "code-oss",
+            "Code - OSS.exe",
+            "com.visualstudio.code",
+            "com.visualstudio.code.oss",
+            "com.visualstudio.code.insiders",
+            "code-insiders",
+            "VSCodium",
+            "VSCodium.exe",
+            "com.vscodium.codium",
+            "codium",
+            "Cursor",
+            "Cursor.exe",
+            "com.todesktop.230313mzl4w4u92",
+            "cursor",
+            "dev.zed.Zed",
+            "Zed",
+            "com.jetbrains.intellij",
+            "jetbrains-idea-ce",
+            "idea64.exe",
+            "pycharm64.exe",
+            "com.jetbrains.pycharm.ce",
+            "jetbrains-rustrover",
+            "com.sublimetext.4",
+            "sublime_text.exe",
+            "sublime_text",
+            "neovide",
+            "dev.neovide.neovide",
+            "com.neovide.neovide",
+            "Alacritty",
+            "org.alacritty.Alacritty",
+            "org.alacritty",
+            "net.kovidgoyal.kitty",
+            "kitty",
+            "com.mitchellh.ghostty",
+            "Ghostty",
+            "org.wezfurlong.wezterm",
+            "com.github.wez.wezterm",
+            "wezterm-gui.exe",
+            "foot",
+            "footclient",
+            "org.kde.konsole",
+            "org.gnome.Terminal",
+            "gnome-terminal-server",
+            "org.gnome.Ptyxis",
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "dev.warp.Warp-Stable",
+            "Warp.exe",
+            "WindowsTerminal.exe",
+            "wt.exe",
+        ] {
+            assert_eq!(AppCategory::of(Some(id)), Code, "{id}");
+        }
+        for (id, expected) in [
+            (Some("com.slack.Slack"), Work),
+            (Some("org.telegram.desktop"), Personal),
+            (Some("org.mozilla.Thunderbird"), Email),
+            (Some("org.mozilla.firefox"), Other),
+            (Some("com.example.code-review"), Other),
+            (Some("com.example.decode"), Other),
+            (Some("com.example.cursor"), Other),
+            (Some("com.example.kitty"), Other),
+            (Some("codepen"), Other),
+            (Some("linear-code-review"), Work),
+            (Some("org.gnome.TerminalPreferences"), Other),
+            (None, Other),
+        ] {
+            assert_eq!(AppCategory::of(id), expected, "{id:?}");
+        }
+        let old: Styles = serde_json::from_str(r#"{"email":"very_casual"}"#).unwrap();
+        assert_eq!(old.code, Tone::Casual);
+        assert_eq!(old.email, Tone::VeryCasual);
     }
 }

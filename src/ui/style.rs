@@ -1,7 +1,7 @@
 use super::{home::tone_label, theme::*, window::MainWindow};
 use gpui::{Context, IntoElement, Styled, div, prelude::*, px};
 use typeaside::config::{AppCategory, Tone};
-const EXAMPLES: [[&str; 3]; 4] = [
+const EXAMPLES: [[&str; 3]; 5] = [
     [
         "Would you like to meet for lunch tomorrow at noon?",
         "Hey, want to grab lunch tomorrow at 12?",
@@ -18,12 +18,17 @@ const EXAMPLES: [[&str; 3]; 4] = [
         "thanks! i'll check the doc this afternoon",
     ],
     [
+        "Please rename load_history to read_history in engine.rs.",
+        "Rename load_history to read_history in engine.rs.",
+        "rename load_history to read_history in engine.rs",
+    ],
+    [
         "Please update the pagination cursor and verify the empty page.",
         "Update the pagination cursor and check the empty page.",
         "fix pagination cursor, check empty page",
     ],
 ];
-const ROWS: [(AppCategory, &str, &str); 4] = [
+const ROWS: [(AppCategory, &str, &str); 5] = [
     (
         AppCategory::Personal,
         "Personal messages",
@@ -32,9 +37,14 @@ const ROWS: [(AppCategory, &str, &str); 4] = [
     (AppCategory::Work, "Work messages", "Slack, Teams, Linear"),
     (AppCategory::Email, "Email", "Thunderbird, Geary, Gmail"),
     (
+        AppCategory::Code,
+        "Code",
+        "VS Code, Zed, JetBrains, terminals",
+    ),
+    (
         AppCategory::Other,
         "Everything else",
-        "Editors, terminals, browsers",
+        "Browsers and other apps",
     ),
 ];
 impl MainWindow {

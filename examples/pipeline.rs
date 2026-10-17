@@ -11,6 +11,7 @@ use typeaside::{
     engine::Mode,
     paths::AppPaths,
     pipeline,
+    text_injector::FocusedApp,
 };
 
 fn read_wav(path: &Path) -> Result<Vec<f32>> {
@@ -136,7 +137,10 @@ fn fixtures(generate: bool) -> Result<()> {
         let output = pipeline::run(
             &config,
             &audio,
-            Some("org.mozilla.Thunderbird"),
+            Some(&FocusedApp {
+                id: Some("org.mozilla.Thunderbird".into()),
+                title: None,
+            }),
             if selection.is_some() {
                 Mode::Command
             } else {
@@ -169,7 +173,7 @@ fn fixtures(generate: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let input = args.next().context("usage: pipeline WAV [--app ID] [--translate LANGUAGE] [--command SELECTION], or --fixtures [--generate-fixtures]")?;
+    let input = args.next().context("usage: pipeline WAV [--app ID] [--title TITLE] [--translate LANGUAGE] [--command SELECTION], or --fixtures [--generate-fixtures]")?;
     let paths = AppPaths::discover()?;
     if input == "--fixtures" {
         return fixtures(args.any(|arg| arg == "--generate-fixtures"));
@@ -180,11 +184,13 @@ fn main() -> Result<()> {
         Err(error) => return Err(error.into()),
     };
     let mut app = None;
+    let mut title = None;
     let mut selection = None;
     while let Some(flag) = args.next() {
         let value = args.next().context("missing option value")?;
         match flag.as_str() {
             "--app" => app = Some(value),
+            "--title" => title = Some(value),
             "--translate" => config.translate_to = Some(value),
             "--command" => selection = Some(value),
             _ => bail!("unknown option {flag}"),
@@ -194,7 +200,7 @@ fn main() -> Result<()> {
     let output = pipeline::run(
         &config,
         &audio,
-        app.as_deref(),
+        Some(&FocusedApp { id: app, title }),
         if selection.is_some() {
             Mode::Command
         } else {

@@ -1,3 +1,10 @@
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct FocusedApp {
+    #[serde(rename = "app_id")]
+    pub id: Option<String>,
+    pub title: Option<String>,
+}
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
