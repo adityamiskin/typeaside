@@ -974,7 +974,7 @@ impl MainWindow {
                 "Startup and sound",
                 [
                     Setting::new("Launch at login")
-                        .description("Start hidden in the menu bar.")
+                        .description("Start hidden when you log in.")
                         .child(self.toggle("login", c.launch_at_login, Toggle::Login, cx)),
                     Setting::new("Sound cues")
                         .description("Short tones when recording starts and stops.")
