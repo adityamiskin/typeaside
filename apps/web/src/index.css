@@ -902,11 +902,6 @@ footer {
 .steps-terminal > span:first-child {
   color: var(--faint);
 }
-.steps-signout {
-  display: block;
-  margin-top: 12px;
-  font-size: 11px;
-}
 .steps .steps-caption {
   max-width: 300px;
   margin: 20px auto 0;
@@ -936,6 +931,28 @@ footer {
   border-radius: 4px;
   box-shadow: none;
   transform: none;
+}
+.steps-setup {
+  position: relative;
+  max-width: 1080px;
+  margin: 48px auto 0;
+  padding: 16px 48px 16px 20px;
+  border-radius: 12px;
+  background: #16171a;
+  color: var(--white);
+  text-align: left;
+}
+.steps-setup pre {
+  margin: 0;
+  font: 13px/1.7 monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.steps .steps-setup .steps-copy {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: var(--white);
 }
 .steps .steps-note {
   margin-top: 28px;
