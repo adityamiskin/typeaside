@@ -1,8 +1,17 @@
 use anyhow::{Context, Result, bail};
+use atspi::{
+    Role, State,
+    proxy::{
+        accessible::{AccessibleProxy, ObjectRefExt},
+        bus::BusProxy,
+    },
+    zbus::{self, proxy::CacheProperties},
+};
 use evdev::{AttributeSet, EventType, InputEvent, KeyCode, uinput::VirtualDevice};
 use std::{
     io::Write,
     process::{Command, Stdio},
+    sync::OnceLock,
     thread,
     time::{Duration, Instant},
 };
@@ -15,8 +24,12 @@ pub fn has_focused_window() -> bool {
     focused_window().is_none_or(|window| window.is_some())
 }
 
-/// `None` when niri can't be asked, `Some(None)` when no window has focus.
+/// Unknown focus stays `None`; only niri can establish that no window has focus.
 fn focused_window() -> Option<Option<super::FocusedApp>> {
+    niri_focused_window().or_else(|| atspi_focused_app().map(Some))
+}
+
+fn niri_focused_window() -> Option<Option<super::FocusedApp>> {
     let output = Command::new("niri")
         .args(["msg", "--json", "focused-window"])
         .output()
@@ -25,6 +38,74 @@ fn focused_window() -> Option<Option<super::FocusedApp>> {
         return None;
     }
     serde_json::from_slice(&output.stdout).ok()
+}
+
+fn atspi_focused_app() -> Option<super::FocusedApp> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .ok()?;
+    runtime.block_on(async {
+        tokio::time::timeout(Duration::from_millis(150), query_atspi_focused_app())
+            .await
+            .ok()?
+            .ok()?
+    })
+}
+
+async fn query_atspi_focused_app() -> Result<Option<super::FocusedApp>> {
+    static CONNECTION: OnceLock<zbus::Connection> = OnceLock::new();
+    let connection = match CONNECTION.get() {
+        Some(connection) => connection,
+        None => {
+            let session = zbus::Connection::session().await?;
+            let address = BusProxy::new(&session).await?.get_address().await?;
+            let connection = zbus::connection::Builder::address(address.as_str())?
+                .build()
+                .await?;
+            CONNECTION.get_or_init(|| connection)
+        }
+    };
+    let registry = AccessibleProxy::builder(connection)
+        .destination("org.a11y.atspi.Registry")?
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await?;
+    for application in registry.get_children().await? {
+        let Ok(application) = application.as_accessible_proxy(connection).await else {
+            continue;
+        };
+        let Ok(windows) = application.get_children().await else {
+            continue;
+        };
+        for window in windows {
+            let Ok(window) = window.as_accessible_proxy(connection).await else {
+                continue;
+            };
+            if !window
+                .get_state()
+                .await
+                .is_ok_and(|state| state.contains(State::Active))
+            {
+                continue;
+            }
+            if !matches!(
+                window.get_role().await,
+                Ok(Role::Frame | Role::Window | Role::Dialog)
+            ) {
+                continue;
+            }
+            return Ok(Some(super::FocusedApp {
+                id: application
+                    .name()
+                    .await
+                    .ok()
+                    .filter(|name| !name.is_empty()),
+                title: window.name().await.ok().filter(|name| !name.is_empty()),
+            }));
+        }
+    }
+    Ok(None)
 }
 
 pub struct TextInjector {
@@ -76,7 +157,7 @@ impl TextInjector {
             }
             let terminal = app_id.is_some_and(|id| {
                 let id = id.to_ascii_lowercase();
-                id == "org.gnome.terminal"
+                matches!(id.as_str(), "org.gnome.terminal" | "org.gnome.console")
                     || [
                         "ghostty",
                         "kitty",
@@ -85,6 +166,13 @@ impl TextInjector {
                         "wezterm",
                         "konsole",
                         "gnome-terminal",
+                        "gnome-terminal-server",
+                        "ptyxis",
+                        "kgx",
+                        "tilix",
+                        "terminator",
+                        "xfce4-terminal",
+                        "blackbox",
                     ]
                     .iter()
                     .any(|name| id.split('.').any(|part| part == *name))
