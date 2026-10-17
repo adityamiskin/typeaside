@@ -1284,3 +1284,26 @@ small {
 .feedback-form .error {
   margin-top: 16px;
 }
+
+.share-page {
+  max-width: 720px;
+}
+.share-card {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1200 / 630;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  margin-bottom: 40px;
+}
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.share-copy-error {
+  display: block;
+  margin-top: 16px;
+  color: var(--muted);
+}
