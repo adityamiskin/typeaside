@@ -45,7 +45,7 @@ fn checked_output(raw: &str, output: Result<String>, translation: bool) -> Strin
 }
 
 pub(crate) fn cleanup(config: &AppConfig, raw: &str, app: Option<&FocusedApp>) -> String {
-    if !config.cleanup.enabled && config.translate_to.is_none() {
+    if !config.editing() && config.translate_to.is_none() {
         return raw.into();
     }
     let prepared = remove_fillers(raw);
