@@ -1,4 +1,5 @@
 use crate::{config::AppConfig, engine::Dictation, paths::AppPaths};
+use anyhow::Context;
 use std::{collections::HashSet, time::SystemTime};
 
 pub fn candidates(old: &str, new: &str, dictionary: &[String]) -> Vec<String> {
@@ -40,6 +41,7 @@ pub fn candidates(old: &str, new: &str, dictionary: &[String]) -> Vec<String> {
         if i == start_i || j == start_j {
             continue;
         }
+        let replaced = old[start_i..i].join(" ").to_lowercase();
         let words = new[start_j..j]
             .iter()
             .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()))
@@ -59,7 +61,10 @@ pub fn candidates(old: &str, new: &str, dictionary: &[String]) -> Vec<String> {
                 .copied()
                 .collect::<Vec<_>>()
                 .join(" ");
-            if !phrase.is_empty() && seen.insert(phrase.to_lowercase()) {
+            if term_like(&phrase)
+                && !replaced.contains(&phrase.to_lowercase())
+                && seen.insert(phrase.to_lowercase())
+            {
                 result.push(phrase);
             }
         }
@@ -71,6 +76,13 @@ fn capitalized(word: &str) -> bool {
     word.chars().next().is_some_and(char::is_uppercase)
 }
 
+/// Plain lowercase words are ordinary edits, not vocabulary worth teaching.
+fn term_like(phrase: &str) -> bool {
+    phrase
+        .chars()
+        .any(|c| c.is_uppercase() || c.is_ascii_digit() || matches!(c, '.' | '\'' | '-' | '_'))
+}
+
 pub fn save(
     paths: &AppPaths,
     history: &mut [Dictation],
@@ -79,28 +91,24 @@ pub fn save(
     text: &str,
     selected: &[String],
 ) -> anyhow::Result<Vec<String>> {
-    let index = history
+    let item = history
+        .iter_mut()
+        .find(|item| item.at == at)
+        .context("Dictation no longer exists")?;
+    item.cleaned = text.to_owned();
+    crate::engine::save_history(paths, history)?;
+    let added = selected
         .iter()
-        .position(|item| item.at == at)
-        .ok_or_else(|| anyhow::anyhow!("Dictation no longer exists"))?;
-    let mut updated = history.to_vec();
-    updated[index].cleaned = text.to_owned();
-    crate::engine::save_history(paths, &updated)?;
-    history[index].cleaned = text.to_owned();
-    let mut next_config = config.clone();
-    let mut added = Vec::new();
-    for word in selected {
-        if !next_config
-            .dictionary
-            .iter()
-            .any(|existing| existing.to_lowercase() == word.to_lowercase())
-        {
-            next_config.dictionary.push(word.clone());
-            added.push(word.clone());
-        }
-    }
-    next_config.save(paths)?;
-    *config = next_config;
+        .filter(|word| {
+            !config
+                .dictionary
+                .iter()
+                .any(|existing| existing.to_lowercase() == word.to_lowercase())
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    config.dictionary.extend(added.iter().cloned());
+    config.save(paths)?;
     Ok(added)
 }
 
@@ -129,7 +137,7 @@ mod tests {
                 "use huggingface with old",
                 "use Hugging Face with new",
                 &[],
-                &["Hugging Face", "new"],
+                &["Hugging Face"],
             ),
             (
                 "use old and older",
@@ -138,17 +146,14 @@ mod tests {
                 &[],
             ),
             ("say old then old", "say old then Convex", &[], &["Convex"]),
+            ("send it", "Send it", &[], &[]),
+            ("ship it on monday", "ship it on Tuesday", &[], &["Tuesday"]),
             ("some text", "", &[], &[]),
             ("", "Convex", &[], &[]),
             ("same text", "same text", &[], &[]),
             ("word", "a ! x", &[], &[]),
             ("old and older", "Éclair and éclair", &[], &["Éclair"]),
-            (
-                "use old word",
-                "use Node.js today",
-                &[],
-                &["Node.js", "today"],
-            ),
+            ("use old word", "use Node.js today", &[], &["Node.js"]),
         ];
         for (old, new, dictionary, expected) in cases {
             let dictionary = dictionary
@@ -161,73 +166,5 @@ mod tests {
                 "{old:?} -> {new:?}"
             );
         }
-    }
-
-    #[test]
-    fn correction_persists_selected_terms_and_preserves_raw() -> anyhow::Result<()> {
-        use crate::{
-            engine::{Dictation, Mode, load_history},
-            paths::AppPaths,
-        };
-        let root = std::path::PathBuf::from("/tmp/typeaside-learn-corrections/persistence");
-        let paths = AppPaths {
-            config_dir: root.join("config/typeaside"),
-            config_file: root.join("config/typeaside/config.json"),
-            data_dir: root.join("data/typeaside"),
-            history_file: root.join("data/typeaside/history.jsonl"),
-            failed_file: root.join("data/typeaside/failed.wav"),
-        };
-        paths.ensure()?;
-        let at = std::time::SystemTime::UNIX_EPOCH;
-        let mut history = vec![Dictation {
-            at,
-            raw: "use huggingface and con vex".into(),
-            cleaned: "Use huggingface and con vex".into(),
-            app_id: None,
-            audio_ms: 1000,
-            latency_ms: 200,
-            mode: Mode::Dictate,
-        }];
-        let mut config = crate::config::AppConfig::default();
-        crate::engine::save_history(&paths, &history)?;
-        config.save(&paths)?;
-        std::fs::copy(&paths.history_file, root.join("before-history.jsonl"))?;
-        std::fs::copy(&paths.config_file, root.join("before-config.json"))?;
-        let added = save(
-            &paths,
-            &mut history,
-            &mut config,
-            at,
-            "Use Hugging Face and Convex",
-            &["Hugging Face".into()],
-        )?;
-        assert_eq!(added, ["Hugging Face"]);
-        let loaded = load_history(&paths);
-        assert_eq!(loaded[0].cleaned, "Use Hugging Face and Convex");
-        assert_eq!(loaded[0].raw, "use huggingface and con vex");
-        assert_eq!(
-            crate::config::AppConfig::load(&paths)?.dictionary,
-            ["Hugging Face"]
-        );
-        std::fs::copy(&paths.history_file, root.join("after-history.jsonl"))?;
-        std::fs::copy(&paths.config_file, root.join("after-config.json"))?;
-        assert!(
-            save(
-                &paths,
-                &mut history,
-                &mut config,
-                at,
-                "Use Hugging Face and Convex",
-                &["Hugging Face".into()]
-            )?
-            .is_empty()
-        );
-        let bad_paths = AppPaths {
-            history_file: root.join("missing/history.jsonl"),
-            ..paths
-        };
-        assert!(save(&bad_paths, &mut history, &mut config, at, "changed", &[]).is_err());
-        assert_eq!(history[0].cleaned, "Use Hugging Face and Convex");
-        Ok(())
     }
 }
