@@ -31,17 +31,43 @@ pub fn web_url() -> String {
         .trim_end_matches('/')
         .into()
 }
-/// Spawned, not awaited: explorer.exe exits 1 even when it opens the target.
+#[cfg(not(target_os = "windows"))]
 pub fn open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
     std::process::Command::new(if cfg!(target_os = "macos") {
         "open"
-    } else if cfg!(target_os = "windows") {
-        "explorer.exe"
     } else {
         "xdg-open"
     })
     .arg(target)
     .spawn()?;
+    Ok(())
+}
+// explorer.exe opens Documents instead of some URLs, so let the shell pick the handler.
+#[cfg(target_os = "windows")]
+pub fn open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        core::{PCWSTR, w},
+    };
+    let target: Vec<u16> = target.as_ref().encode_wide().chain([0]).collect();
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            PCWSTR(target.as_ptr()),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+    // Values above 32 mean success.
+    if result.0 as isize <= 32 {
+        bail!(
+            "cannot open {}",
+            String::from_utf16_lossy(&target[..target.len() - 1])
+        );
+    }
     Ok(())
 }
 #[derive(Clone, Deserialize)]

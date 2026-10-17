@@ -1,13 +1,17 @@
 use super::desktop::{HotkeyEvent, State};
 use crate::config::AppConfig;
 use anyhow::{Context, Result, anyhow};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
+    collections::HashSet,
     sync::mpsc,
     thread::{self, JoinHandle},
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput,
+    VIRTUAL_KEY,
+};
 use windows::Win32::{
     Foundation::{LPARAM, LRESULT, WPARAM},
     System::Threading::GetCurrentThreadId,
@@ -16,6 +20,14 @@ use windows::Win32::{
 
 const MODIFIERS: [u16; 8] = [0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0x5b, 0x5c];
 static PHYSICAL_MODIFIERS: AtomicU8 = AtomicU8::new(0);
+static CANCELABLE: AtomicBool = AtomicBool::new(false);
+// Unassigned virtual key, the same one AutoHotkey uses to mask Alt and Win releases.
+const MASK: u16 = 0xe8;
+
+/// Lets the hook swallow the cancel key only while a recording or transcript is in flight.
+pub(crate) fn set_cancelable(cancelable: bool) {
+    CANCELABLE.store(cancelable, Ordering::Relaxed);
+}
 
 pub(crate) fn held_modifiers() -> impl Iterator<Item = u16> {
     let held = PHYSICAL_MODIFIERS.load(Ordering::Relaxed);
@@ -25,7 +37,32 @@ pub(crate) fn held_modifiers() -> impl Iterator<Item = u16> {
         .filter_map(move |(index, key)| (held & (1 << index) != 0).then_some(key))
 }
 
-thread_local! { static STATE: RefCell<Option<State>> = const { RefCell::new(None) }; }
+thread_local! {
+    static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+    static SWALLOWED: RefCell<HashSet<u16>> = RefCell::new(HashSet::new());
+    static MASKED: Cell<bool> = const { Cell::new(false) };
+}
+
+fn send(keys: &[(u16, bool)]) {
+    let inputs: Vec<INPUT> = keys
+        .iter()
+        .map(|&(key, down)| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(key),
+                    dwFlags: if down {
+                        Default::default()
+                    } else {
+                        KEYEVENTF_KEYUP
+                    },
+                    ..Default::default()
+                },
+            },
+        })
+        .collect();
+    unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
+}
 
 unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
@@ -36,21 +73,48 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
                 wparam.0 as u32,
                 WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP
             ) {
-                if let Some(index) = MODIFIERS
-                    .iter()
-                    .position(|key| u32::from(*key) == event.vkCode)
-                {
+                let key = event.vkCode as u16;
+                let modifier = MODIFIERS.iter().position(|code| *code == key);
+                if let Some(index) = modifier {
                     if down {
                         PHYSICAL_MODIFIERS.fetch_or(1 << index, Ordering::Relaxed);
                     } else {
                         PHYSICAL_MODIFIERS.fetch_and(!(1 << index), Ordering::Relaxed);
                     }
                 }
-                STATE.with_borrow_mut(|state| {
-                    if let Some(state) = state {
-                        state.key(event.vkCode as u16, down);
-                    }
+                let claimed = STATE.with_borrow_mut(|state| {
+                    let Some(state) = state else {
+                        return false;
+                    };
+                    state.key(key, down);
+                    modifier.is_none()
+                        && down
+                        && state.claims(key, CANCELABLE.load(Ordering::Relaxed))
                 });
+                // Alt and Win are bits 4 to 7 of MODIFIERS.
+                let alt_or_win = PHYSICAL_MODIFIERS.load(Ordering::Relaxed) & 0xf0 != 0;
+                // A handled shortcut must not also type, open Notepad's menu or the Start menu.
+                if modifier.is_none() {
+                    let swallow = SWALLOWED.with_borrow_mut(|keys| {
+                        if down {
+                            claimed && {
+                                keys.insert(key);
+                                true
+                            }
+                        } else {
+                            keys.remove(&key)
+                        }
+                    });
+                    if swallow {
+                        MASKED.set(MASKED.get() || alt_or_win);
+                        return LRESULT(1);
+                    }
+                } else if !down && MASKED.get() && matches!(key, 0xa4 | 0xa5 | 0x5b | 0x5c) {
+                    // Releasing Alt or Win with no other key seen since its press opens the menu bar or Start.
+                    MASKED.set(alt_or_win);
+                    send(&[(MASK, true), (MASK, false), (key, false)]);
+                    return LRESULT(1);
+                }
             }
         }
     }

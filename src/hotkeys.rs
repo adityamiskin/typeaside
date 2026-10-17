@@ -19,4 +19,4 @@ mod desktop;
 pub use desktop::HotkeyEvent;
 
 #[cfg(target_os = "windows")]
-pub(crate) use windows::held_modifiers;
+pub(crate) use windows::{held_modifiers, set_cancelable};

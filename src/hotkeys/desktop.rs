@@ -86,6 +86,17 @@ impl State {
         }
     }
 
+    /// Whether `code` belongs to a combo that is now held. Escape is only claimed while
+    /// there is something to cancel, so it keeps working in other apps.
+    #[cfg(target_os = "windows")]
+    pub(super) fn claims(&self, code: u16, cancelable: bool) -> bool {
+        self.combos.iter().any(|combo| {
+            combo.active
+                && (cancelable || !matches!((combo.event)(true), HotkeyEvent::Cancel(_)))
+                && combo.keys.iter().any(|group| group.contains(&code))
+        })
+    }
+
     pub(super) fn key(&mut self, code: u16, down: bool) {
         if down {
             self.pressed.insert(code);
