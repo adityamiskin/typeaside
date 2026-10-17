@@ -1,17 +1,14 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import {
   ArrowRight,
-  Check,
-  Copy,
   File,
   Folder,
   MousePointer2,
   Package,
   Search,
-  ShieldCheck,
+  ToggleRight,
 } from "lucide-react";
-import { Button } from "@typeaside/ui/components/button";
 import { Logo } from "../../components/site";
 import { downloadFiles } from "../../lib/downloads";
 import { seo } from "../../lib/seo";
@@ -28,40 +25,18 @@ export const Route = createFileRoute("/download/$file")({
 
 type Step = [ui: ReactNode, caption: ReactNode];
 
-const permissions = `sudo usermod -aG input "$USER"
-echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' | sudo tee /etc/udev/rules.d/99-typeaside.rules
-echo uinput | sudo tee /etc/modules-load.d/typeaside.conf`;
-
-function linux(name: string, install: string): Step[] {
-  return [
-    [
-      <Downloads name={name} icon={<Package />} />,
-      <>
-        Open a terminal in your <strong>Downloads</strong> folder.
-      </>,
-    ],
-    [
-      <Terminal command={install} />,
-      <>
-        Run <Command command={install} />
-      </>,
-    ],
-    [
-      <Window>
-        <div className="steps-title">
-          <ShieldCheck />
-          Keyboard access
-        </div>
-        <p>/dev/input · /dev/uinput</p>
-        <span className="steps-mini-button">Restart</span>
-      </Window>,
-      <>
-        Allow <strong>keyboard access</strong> with the commands below, then restart and open{" "}
-        <strong>TypeAside</strong>.
-      </>,
-    ],
-  ];
-}
+const launcher = (
+  <Window>
+    <div className="steps-search">
+      <Search />
+      typeaside
+    </div>
+    <div className="steps-launcher">
+      <Logo />
+      TypeAside
+    </div>
+  </Window>
+);
 
 const steps: Record<(typeof downloadFiles)[number]["slug"], Step[]> = {
   mac: [
@@ -118,23 +93,65 @@ const steps: Record<(typeof downloadFiles)[number]["slug"], Step[]> = {
       </>,
     ],
     [
-      <Window>
-        <div className="steps-search">
-          <Search />
-          typeaside
-        </div>
-        <div className="steps-launcher">
-          <Logo />
-          TypeAside
-        </div>
-      </Window>,
+      launcher,
       <>
         Open <strong>TypeAside</strong> from the <strong>Start</strong> menu.
       </>,
     ],
   ],
-  appimage: linux("TypeAside.AppImage", "chmod +x TypeAside.AppImage && ./TypeAside.AppImage"),
-  deb: linux("typeaside.deb", "sudo apt install ./typeaside.deb"),
+  deb: [
+    [
+      <Downloads name="typeaside.deb" icon={<Package />} />,
+      <>
+        Open <strong>typeaside.deb</strong> from your <strong>Downloads</strong> folder.
+      </>,
+    ],
+    [
+      <Window>
+        <div className="steps-title">
+          <Logo />
+          TypeAside
+        </div>
+        <span className="steps-mini-button">Install</span>
+      </Window>,
+      <>
+        Click <strong>Install</strong> in <strong>App Center</strong>.
+      </>,
+    ],
+    [
+      launcher,
+      <>
+        Open <strong>TypeAside</strong> from your apps.
+      </>,
+    ],
+  ],
+  appimage: [
+    [
+      <Downloads name="TypeAside.AppImage" icon={<Package />} />,
+      <>
+        Right-click <strong>TypeAside.AppImage</strong> in <strong>Downloads</strong> and choose{" "}
+        <strong>Properties</strong>.
+      </>,
+    ],
+    [
+      <Window>
+        <div className="steps-title">TypeAside.AppImage</div>
+        <div className="steps-toggle">
+          Executable as Program
+          <ToggleRight />
+        </div>
+      </Window>,
+      <>
+        Turn on <strong>Executable as Program</strong>.
+      </>,
+    ],
+    [
+      launcher,
+      <>
+        Double-click <strong>TypeAside.AppImage</strong> to open it.
+      </>,
+    ],
+  ],
 };
 
 function Window({ className = "", children }: { className?: string; children: ReactNode }) {
@@ -160,43 +177,6 @@ function Downloads({ name, icon, dots }: { name: string; icon: ReactNode; dots?:
         <MousePointer2 className="steps-pointer" />
       </div>
     </Window>
-  );
-}
-
-function Terminal({ command }: { command: string }) {
-  return (
-    <div className="steps-window steps-terminal">
-      <span>$ </span>
-      {command}▏
-    </div>
-  );
-}
-
-function Command({ command }: { command: string }) {
-  return (
-    <span className="steps-command">
-      <code>{command}</code>
-      <CopyButton text={command} />
-    </span>
-  );
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      className="steps-copy"
-      aria-label="Copy command"
-      onClick={async () => {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-    >
-      {copied ? <Check /> : <Copy />}
-    </Button>
   );
 }
 
@@ -230,12 +210,6 @@ function Install() {
           </li>
         ))}
       </ol>
-      {(file.slug === "deb" || file.slug === "appimage") && (
-        <div className="steps-setup">
-          <pre>{permissions}</pre>
-          <CopyButton text={permissions} />
-        </div>
-      )}
       <p className="steps-help">
         Not working? <a href={file.href}>Download again</a>
         <span> · </span>

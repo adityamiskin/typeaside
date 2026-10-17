@@ -874,7 +874,8 @@ footer {
   text-decoration: underline;
 }
 .steps-search,
-.steps-launcher {
+.steps-launcher,
+.steps-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -888,19 +889,17 @@ footer {
 .steps-launcher {
   margin-top: 12px;
 }
+.steps-toggle {
+  justify-content: space-between;
+}
+.steps-toggle svg {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
 .steps-launcher svg {
   width: 28px;
   height: 28px;
-}
-.steps-terminal {
-  background: #16171a;
-  color: var(--white);
-  border-radius: 10px;
-  font: 12px/1.6 monospace;
-  overflow-wrap: anywhere;
-}
-.steps-terminal > span:first-child {
-  color: var(--faint);
 }
 .steps .steps-caption {
   max-width: 300px;
@@ -912,47 +911,6 @@ footer {
 .steps-caption strong {
   color: var(--text);
   font-weight: 600;
-}
-.steps-command {
-  color: var(--text);
-}
-.steps-command code {
-  font-size: 13px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.steps .steps-copy {
-  display: inline-flex;
-  vertical-align: middle;
-  width: 24px;
-  height: 24px;
-  padding: 3px;
-  margin-left: 3px;
-  border-radius: 4px;
-  box-shadow: none;
-  transform: none;
-}
-.steps-setup {
-  position: relative;
-  max-width: 1080px;
-  margin: 48px auto 0;
-  padding: 16px 48px 16px 20px;
-  border-radius: 12px;
-  background: #16171a;
-  color: var(--white);
-  text-align: left;
-}
-.steps-setup pre {
-  margin: 0;
-  font: 13px/1.7 monospace;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.steps .steps-setup .steps-copy {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  color: var(--white);
 }
 .steps .steps-help {
   margin-top: 40px;
