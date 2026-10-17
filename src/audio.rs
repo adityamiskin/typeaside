@@ -1,3 +1,5 @@
+mod lid;
+
 use crate::config::AppConfig;
 use anyhow::{Context, Result, anyhow, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -61,6 +63,17 @@ impl AudioRecorder {
             host.default_input_device()
                 .context("no input device available")?
         };
+        if let Some(external) = lid::external_input(&host, &device, config.input_device.is_some())
+            && let Ok(description) = external.description()
+            && let Ok(recorder) = Self::open_device(&external, retain)
+        {
+            eprintln!("typeaside: lid closed, using {}", description.name());
+            return Ok(recorder);
+        }
+        Self::open_device(&device, retain)
+    }
+
+    fn open_device(device: &cpal::Device, retain: bool) -> Result<Self> {
         let supported = device.default_input_config()?;
         let stream_config = supported.config();
         let buffer = Arc::new(Mutex::new(Vec::new()));
@@ -68,7 +81,7 @@ impl AudioRecorder {
         let error = Arc::new(Mutex::new(None));
         let stream = match supported.sample_format() {
             SampleFormat::F32 => capture::<f32>(
-                &device,
+                device,
                 &stream_config,
                 buffer.clone(),
                 level.clone(),
@@ -76,7 +89,7 @@ impl AudioRecorder {
                 retain,
             ),
             SampleFormat::I16 => capture::<i16>(
-                &device,
+                device,
                 &stream_config,
                 buffer.clone(),
                 level.clone(),
@@ -84,7 +97,7 @@ impl AudioRecorder {
                 retain,
             ),
             SampleFormat::U16 => capture::<u16>(
-                &device,
+                device,
                 &stream_config,
                 buffer.clone(),
                 level.clone(),
