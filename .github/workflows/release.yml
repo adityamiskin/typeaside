@@ -102,6 +102,11 @@ jobs:
     container: archlinux:base-devel
     steps:
       - uses: actions/checkout@v4
+      # typeaside.app blocks GitHub runners, so checksum the artifact we just uploaded.
+      - uses: actions/download-artifact@v4
+        with:
+          name: typeaside-linux-installers
+          path: dist
       - name: Publish typeaside-bin to the AUR
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
@@ -114,4 +119,4 @@ jobs:
           ssh-keyscan aur.archlinux.org > /home/builder/.ssh/known_hosts
           chown -R builder /home/builder/.ssh && chmod 600 /home/builder/.ssh/id_ed25519
           # makepkg refuses to run as root.
-          su builder -c "VERSION=$VERSION packaging/aur/publish.sh"
+          su builder -c "VERSION=$VERSION DEB=$PWD/dist/typeaside.deb packaging/aur/publish.sh"

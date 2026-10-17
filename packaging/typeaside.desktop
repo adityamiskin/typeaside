@@ -1,6 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=TypeAside
+GenericName=Voice Dictation
+Comment=Dictate anywhere and get clean, edited text
+Keywords=dictation;voice;speech;transcribe;
 Exec=typeaside
 Icon=typeaside
 Categories=Utility;

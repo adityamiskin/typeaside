@@ -6,8 +6,9 @@ here="$(cd "$(dirname "$0")" && pwd)"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 git clone -q ssh://aur@aur.archlinux.org/typeaside-bin.git "$work/aur"
-curl --fail --location --retry 3 -o "$work/typeaside.deb" "https://typeaside.app/releases/v$VERSION/typeaside.deb"
-sum=$(sha256sum "$work/typeaside.deb" | cut -d' ' -f1)
+deb="${DEB:-$work/typeaside.deb}"
+[[ -n "${DEB:-}" ]] || curl --fail --location --retry 3 -o "$deb" "https://typeaside.app/releases/v$VERSION/typeaside.deb"
+sum=$(sha256sum "$deb" | cut -d' ' -f1)
 sed -e "s/^pkgver=.*/pkgver=$VERSION/" -e "s/^pkgrel=.*/pkgrel=1/" -e "s/^sha256sums=.*/sha256sums=('$sum')/" \
     "$here/PKGBUILD" > "$work/aur/PKGBUILD"
 cd "$work/aur"
