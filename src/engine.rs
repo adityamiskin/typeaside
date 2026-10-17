@@ -249,6 +249,8 @@ fn run(
         if events.is_closed() {
             break;
         }
+        #[cfg(target_os = "windows")]
+        crate::hotkeys::set_cancelable(recorder.is_some() || busy.is_some());
         restoring.retain(|thread: &thread::JoinHandle<()>| !thread.is_finished());
         if tick.elapsed() >= Duration::from_millis(33) {
             tick = Instant::now();
