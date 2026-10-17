@@ -8,13 +8,7 @@ impl MainWindow {
             return;
         }
         self.state.update(cx, |s, cx| {
-            if !s
-                .config
-                .dictionary
-                .iter()
-                .any(|existing| existing.to_lowercase() == word.to_lowercase())
-            {
-                s.config.dictionary.push(word);
+            if s.config.add_word(word) {
                 s.persist();
                 cx.notify();
             }
@@ -98,7 +92,7 @@ impl MainWindow {
                                             .child("Remove")
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.state.update(cx, |s, cx| {
-                                                    s.config.dictionary.retain(|v| v != &word);
+                                                    s.config.remove_word(&word);
                                                     s.persist();
                                                     cx.notify();
                                                 });

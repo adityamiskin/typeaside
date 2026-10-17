@@ -75,7 +75,7 @@ impl MainWindow {
         let selected = corrections::candidates(
             &editor.original,
             &text,
-            &self.state.read(cx).config.dictionary,
+            self.state.read(cx).config.known_words(),
         )
         .into_iter()
         .filter(|word| !editor.excluded.contains(&word.to_lowercase()))
@@ -142,7 +142,7 @@ impl MainWindow {
         let candidates = corrections::candidates(
             &editor.original,
             &editor.input.read(cx).value(),
-            &self.state.read(cx).config.dictionary,
+            self.state.read(cx).config.known_words(),
         );
         div()
             .flex_1()

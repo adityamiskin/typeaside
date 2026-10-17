@@ -228,6 +228,8 @@ pub struct AppConfig {
     pub language: Option<String>,
     pub cleanup: Cleanup,
     pub dictionary: Vec<String>,
+    /// Words the user removed; corrections never suggest them again.
+    pub removed_words: Vec<String>,
     pub settings_sync: Option<crate::settings_sync::SyncState>,
     pub auto_submit: bool,
     /// Rewrites the selected text by voice instruction.
@@ -258,6 +260,7 @@ impl Default for AppConfig {
             language: None,
             cleanup: Cleanup::default(),
             dictionary: Vec::new(),
+            removed_words: Vec::new(),
             settings_sync: None,
             auto_submit: false,
             command_hotkey: Some("RIGHTALT".into()),
@@ -278,6 +281,38 @@ impl Default for AppConfig {
 
 impl AppConfig {
     /// Account (hosted) users always get AI editing; the toggle only exists for their own keys.
+    /// Returns false when the word is already in the dictionary.
+    pub fn add_word(&mut self, word: String) -> bool {
+        let key = word.to_lowercase();
+        self.removed_words
+            .retain(|removed| removed.to_lowercase() != key);
+        if self
+            .dictionary
+            .iter()
+            .any(|existing| existing.to_lowercase() == key)
+        {
+            return false;
+        }
+        self.dictionary.push(word);
+        true
+    }
+
+    pub fn remove_word(&mut self, word: &str) {
+        self.dictionary.retain(|existing| existing != word);
+        if !self
+            .removed_words
+            .iter()
+            .any(|removed| removed.eq_ignore_ascii_case(word))
+        {
+            self.removed_words.push(word.to_owned());
+        }
+    }
+
+    /// Dictionary words plus removed ones: neither should be suggested again.
+    pub fn known_words(&self) -> impl Iterator<Item = &String> {
+        self.dictionary.iter().chain(&self.removed_words)
+    }
+
     pub fn editing(&self) -> bool {
         self.cleanup.enabled || self.transcription == Source::Hosted
     }

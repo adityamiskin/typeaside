@@ -2,7 +2,11 @@ use crate::{config::AppConfig, engine::Dictation, paths::AppPaths};
 use anyhow::Context;
 use std::{collections::HashSet, time::SystemTime};
 
-pub fn candidates(old: &str, new: &str, dictionary: &[String]) -> Vec<String> {
+pub fn candidates<'a>(
+    old: &str,
+    new: &str,
+    known: impl IntoIterator<Item = &'a String>,
+) -> Vec<String> {
     let old = old.split_whitespace().collect::<Vec<_>>();
     let new = new.split_whitespace().collect::<Vec<_>>();
     let mut lcs = vec![vec![0; new.len() + 1]; old.len() + 1];
@@ -15,8 +19,8 @@ pub fn candidates(old: &str, new: &str, dictionary: &[String]) -> Vec<String> {
             };
         }
     }
-    let mut seen = dictionary
-        .iter()
+    let mut seen = known
+        .into_iter()
         .map(|word| word.to_lowercase())
         .collect::<HashSet<_>>();
     let mut result = Vec::new();
@@ -78,9 +82,22 @@ fn capitalized(word: &str) -> bool {
 
 /// Plain lowercase words are ordinary edits, not vocabulary worth teaching.
 fn term_like(phrase: &str) -> bool {
-    phrase
-        .chars()
-        .any(|c| c.is_uppercase() || c.is_ascii_digit() || matches!(c, '.' | '\'' | '-' | '_'))
+    phrase.split(' ').all(|word| !machine_text(word))
+        && phrase
+            .chars()
+            .any(|c| c.is_uppercase() || c.is_ascii_digit() || matches!(c, '.' | '\'' | '-'))
+}
+
+/// URLs, paths, emails, numbers, dates and code are typed, not dictated, so they never teach STT.
+fn machine_text(word: &str) -> bool {
+    const TLDS: &[&str] = &[
+        "com", "org", "net", "io", "app", "dev", "ai", "co", "me", "xyz",
+    ];
+    !word.chars().any(char::is_alphabetic)
+        || word.contains(['/', '\\', '@', ':', '=', '_', '(', ')', '<', '>', '#', '`'])
+        || word
+            .rsplit_once('.')
+            .is_some_and(|(_, tld)| TLDS.contains(&tld.to_lowercase().as_str()))
 }
 
 pub fn save(
@@ -99,15 +116,9 @@ pub fn save(
     crate::engine::save_history(paths, history)?;
     let added = selected
         .iter()
-        .filter(|word| {
-            !config
-                .dictionary
-                .iter()
-                .any(|existing| existing.to_lowercase() == word.to_lowercase())
-        })
+        .filter(|word| config.add_word((*word).clone()))
         .cloned()
         .collect::<Vec<_>>();
-    config.dictionary.extend(added.iter().cloned());
     config.save(paths)?;
     Ok(added)
 }
@@ -115,6 +126,18 @@ pub fn save(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removed_words_are_not_suggested_until_added_again() {
+        let mut config = AppConfig::default();
+        assert!(config.add_word("Convex".into()));
+        config.remove_word("Convex");
+        assert!(config.dictionary.is_empty());
+        assert!(candidates("use old", "use CONVEX", config.known_words()).is_empty());
+        assert!(config.add_word("convex".into()));
+        assert!(config.removed_words.is_empty());
+        assert!(!config.add_word("CONVEX".into()));
+    }
 
     #[test]
     fn replacement_candidates() {
@@ -154,6 +177,18 @@ mod tests {
             ("word", "a ! x", &[], &[]),
             ("old and older", "Éclair and éclair", &[], &["Éclair"]),
             ("use old word", "use Node.js today", &[], &["Node.js"]),
+            (
+                "see a b c d e f g h i",
+                "see example.com https://typeaside.app/docs src/main.rs adi@x.com 10:30 2026-10-17 3.5 user_id foo()",
+                &[],
+                &[],
+            ),
+            (
+                "try old and old on old",
+                "try GPT-5 and S3 on Typeaside.app",
+                &[],
+                &["GPT-5", "S3"],
+            ),
         ];
         for (old, new, dictionary, expected) in cases {
             let dictionary = dictionary
