@@ -53,7 +53,7 @@ impl Onboarding {
     pub fn visible_steps(demo: bool) -> Vec<Step> {
         let mut steps = vec![Step::Welcome, Step::Account];
         let permissions = demo && std::env::var("TYPEASIDE_DEMO_STEP").as_deref() == Ok("2");
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         let permissions = permissions || !super::permissions::statuses().into_iter().all(|s| s);
         if permissions {
             steps.push(Step::Permissions);
@@ -211,11 +211,11 @@ impl MainWindow {
         if self.state.read(cx).is_demo {
             return [true, false];
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             super::permissions::statuses()
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             [true; 2]
         }
@@ -639,13 +639,18 @@ impl MainWindow {
                                         "icons/mic.svg",
                                     ),
                                     (
-                                        "Accessibility",
-                                        "To notice your shortcut and paste where your cursor is.",
+                                        if cfg!(target_os = "linux") { "Keyboard" } else { "Accessibility" },
+                                        if cfg!(target_os = "linux") {
+                                            "To notice your shortcut and type where your cursor is."
+                                        } else {
+                                            "To notice your shortcut and paste where your cursor is."
+                                        },
                                         "icons/accessibility.svg",
                                     ),
                                 ]
                                 .into_iter()
                                 .enumerate()
+                                .filter(|(i, _)| !cfg!(target_os = "linux") || *i == 1)
                                 .map(|(i, (name, desc, path))| {
                                     div()
                                         .h(px(60.))
@@ -690,7 +695,7 @@ impl MainWindow {
                                                 .text_size(px(12.))
                                                 .id(("permission", i))
                                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                                    #[cfg(target_os = "macos")]
+                                                    #[cfg(any(target_os = "macos", target_os = "linux"))]
                                                     if !this.state.read(cx).is_demo {
                                                         super::permissions::allow(
                                                             i,
@@ -698,7 +703,7 @@ impl MainWindow {
                                                             cx,
                                                         );
                                                     }
-                                                    #[cfg(not(target_os = "macos"))]
+                                                    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                                                     let _ = (this, cx);
                                                 }))
                                                 .into_any_element()
@@ -707,9 +712,9 @@ impl MainWindow {
                             ),
                     )
                     .children({
-                        #[cfg(target_os = "macos")]
+                        #[cfg(any(target_os = "macos", target_os = "linux"))]
                         let help = super::permissions::help(s);
-                        #[cfg(not(target_os = "macos"))]
+                        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                         let help: Option<&'static str> = None;
                         help.map(|help| sub(help, p).mt(px(16.)))
                     })

@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { seo } from "../lib/seo";
+import { seo } from "../../lib/seo";
 import { buttonVariants } from "@typeaside/ui/components/button";
-import { downloads, useOS } from "../lib/downloads";
-export const Route = createFileRoute("/download")({
+import { downloads, useOS } from "../../lib/downloads";
+export const Route = createFileRoute("/download/")({
   head: () =>
     seo({
       path: "/download",
@@ -33,7 +33,7 @@ function Download() {
                 <a
                   key={file.label}
                   className={buttonVariants({ variant: os === system ? "default" : "outline" })}
-                  href={file.href}
+                  href={`/download/${file.slug}`}
                 >
                   {file.label}
                 </a>

@@ -21,6 +21,8 @@ pub enum InstallKind {
     AppImage(PathBuf),
     #[cfg(target_os = "linux")]
     Deb,
+    #[cfg(target_os = "linux")]
+    Rpm,
     #[cfg(target_os = "macos")]
     Bundle(PathBuf),
     #[cfg(target_os = "windows")]
@@ -38,14 +40,20 @@ impl InstallKind {
                     return Self::AppImage(PathBuf::from(path));
                 }
                 if std::env::current_exe().is_ok_and(|path| path == Path::new("/usr/bin/typeaside"))
-                    && Command::new("dpkg")
-                        .args(["-S", "/usr/bin/typeaside"])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .is_ok_and(|status| status.success())
                 {
-                    return Self::Deb;
+                    for (command, flag, kind) in
+                        [("dpkg", "-S", Self::Deb), ("rpm", "-qf", Self::Rpm)]
+                    {
+                        if Command::new(command)
+                            .args([flag, "/usr/bin/typeaside"])
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .status()
+                            .is_ok_and(|status| status.success())
+                        {
+                            return kind;
+                        }
+                    }
                 }
             }
             #[cfg(target_os = "macos")]
@@ -73,6 +81,8 @@ impl InstallKind {
             Self::AppImage(_) => Some("TypeAside.AppImage"),
             #[cfg(target_os = "linux")]
             Self::Deb => Some("typeaside.deb"),
+            #[cfg(target_os = "linux")]
+            Self::Rpm => Some("typeaside.rpm"),
             #[cfg(target_os = "macos")]
             Self::Bundle(_) => Some("TypeAside.dmg"),
             #[cfg(target_os = "windows")]
@@ -272,14 +282,19 @@ pub fn install(release: &Release, mut progress: impl FnMut(Progress)) -> Result<
             relaunch(destination, None)?;
         }
         #[cfg(target_os = "linux")]
-        InstallKind::Deb => {
-            // apt drops privileges to _apt while reading local packages.
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o755))?;
-            fs::set_permissions(&installer, fs::Permissions::from_mode(0o644))?;
+        InstallKind::Deb | InstallKind::Rpm => {
+            let manager = if matches!(kind, InstallKind::Deb) {
+                // apt drops privileges to _apt while reading local packages.
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o755))?;
+                fs::set_permissions(&installer, fs::Permissions::from_mode(0o644))?;
+                "apt-get"
+            } else {
+                "dnf"
+            };
             ensure!(
                 Command::new("pkexec")
-                    .args(["apt-get", "install", "-y"])
+                    .args([manager, "install", "-y"])
                     .arg(&installer)
                     .status()
                     .context("Could not start package installer")?

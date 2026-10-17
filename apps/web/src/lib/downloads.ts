@@ -4,25 +4,27 @@ const release = "/releases/";
 export const downloads = {
   macOS: {
     requirement: "macOS 13+. Apple silicon and Intel.",
-    files: [{ label: "Download for macOS", href: `${release}TypeAside.dmg` }],
+    files: [{ slug: "mac", label: "Download for macOS", href: `${release}TypeAside.dmg` }],
   },
   Windows: {
     requirement: "Windows 10 and 11.",
-    files: [{ label: "Download for Windows", href: `${release}TypeAside-setup.exe` }],
-  },
-  Linux: {
-    requirement: "Linux with Wayland.",
     files: [
-      { label: "AppImage", href: `${release}TypeAside.AppImage` },
-      { label: ".deb", href: `${release}typeaside.deb` },
+      { slug: "windows", label: "Download for Windows", href: `${release}TypeAside-setup.exe` },
     ],
   },
-};
+  Linux: {
+    requirement: "Ubuntu 22.04+ and Fedora, on Wayland.",
+    files: [
+      { slug: "deb", label: "Ubuntu (.deb)", href: `${release}typeaside.deb` },
+      { slug: "rpm", label: "Fedora (.rpm)", href: `${release}typeaside.rpm` },
+      { slug: "appimage", label: "AppImage", href: `${release}TypeAside.AppImage` },
+    ],
+  },
+} as const;
+export const downloadFiles = Object.values(downloads).flatMap(({ files }) => [...files]);
 export const releaseFiles = new Set([
   "latest.json",
-  ...Object.values(downloads).flatMap(({ files }) =>
-    files.map(({ href }) => href.slice(release.length)),
-  ),
+  ...downloadFiles.map(({ href }) => href.slice(release.length)),
 ]);
 export function detectOS(agent: string) {
   if (/Macintosh|Mac OS X/.test(agent) && !/iPhone|iPad/.test(agent)) return "macOS";
