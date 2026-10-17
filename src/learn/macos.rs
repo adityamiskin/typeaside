@@ -1,5 +1,5 @@
 use core_foundation::{
-    base::{CFType, CFTypeRef, TCFType},
+    base::{CFRange, CFType, CFTypeRef, TCFType},
     string::{CFString, CFStringRef},
 };
 
@@ -11,7 +11,10 @@ unsafe extern "C" {
         attribute: CFStringRef,
         value: *mut CFTypeRef,
     ) -> i32;
+    fn AXValueGetValue(value: CFTypeRef, kind: u32, result: *mut std::ffi::c_void) -> bool;
 }
+
+const CF_RANGE: u32 = 4;
 
 const ATTRIBUTE_UNSUPPORTED: i32 = -25205;
 const NO_VALUE: i32 = -25212;
@@ -58,7 +61,7 @@ impl FocusedElement {
     pub fn value(&self) -> Option<String> {
         match attribute(&self.element, "AXSubrole") {
             Ok(subrole) => {
-                if subrole.downcast::<CFString>()?.to_string() == "AXSecureTextField" {
+                if subrole.downcast::<CFString>()? == "AXSecureTextField" {
                     return None;
                 }
             }
@@ -70,5 +73,17 @@ impl FocusedElement {
             .ok()?
             .downcast::<CFString>()
             .map(|value| value.to_string())
+    }
+
+    /// UTF-16 start and length.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        let value = attribute(&self.element, "AXSelectedTextRange").ok()?;
+        let mut range = CFRange::init(0, 0);
+        unsafe { AXValueGetValue(value.as_CFTypeRef(), CF_RANGE, (&raw mut range).cast()) }
+            .then_some(())?;
+        Some((
+            range.location.try_into().ok()?,
+            range.length.try_into().ok()?,
+        ))
     }
 }

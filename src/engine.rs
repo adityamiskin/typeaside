@@ -626,11 +626,13 @@ fn deliver(
 ) -> bool {
     use crate::text_injector::{Delivery, deliver_text};
     *watch = None;
+    // Auto-submit sends the text before anyone can edit it.
+    let pending = (config.auto_learn && !config.auto_submit)
+        .then(|| crate::learn::watch(text.to_owned(), events.clone()))
+        .flatten();
     match deliver_text(injector, text, app_id, config.auto_submit) {
         Ok(Delivery::Pasted) => {
-            if config.auto_learn {
-                *watch = crate::learn::watch(text.to_owned(), events.clone());
-            }
+            *watch = pending;
             true
         }
         Ok(Delivery::Copied) => {
