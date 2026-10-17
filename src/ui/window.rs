@@ -435,43 +435,6 @@ impl Render for MainWindow {
                 }),
             )
             .child(div().flex_1())
-            .children(state.update.as_ref().map(|release| {
-                let (label, color) = match state.update_status {
-                    typeaside::update::Status::Available => {
-                        (format!("Update to {}", release.version), p.fg)
-                    }
-                    typeaside::update::Status::Installing => ("Updating".into(), p.muted),
-                    typeaside::update::Status::Failed => ("Update failed".into(), p.red),
-                };
-                div()
-                    .id("install-update")
-                    .min_h(px(30.))
-                    .max_h(px(30.))
-                    .px(px(10.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .text_color(color)
-                    .when(
-                        state.update_status != typeaside::update::Status::Installing,
-                        |row| {
-                            row.cursor_pointer()
-                                .hover(|s| s.bg(p.hover))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    super::install_update(&this.state, cx);
-                                }))
-                        },
-                    )
-                    .child(
-                        gpui::svg()
-                            .path("icons/circle-arrow-down.svg")
-                            .size(px(15.))
-                            .flex_shrink_0()
-                            .text_color(p.blue),
-                    )
-                    .child(label)
-            }))
             .child(
                 div()
                     .id("feedback")
@@ -554,6 +517,7 @@ impl Render for MainWindow {
             .child(div().flex_1().min_h_0().child(content));
         let root = div()
             .id("main")
+            .relative()
             .track_focus(&self.focus)
             .size_full()
             .bg(p.bg)
@@ -568,7 +532,8 @@ impl Render for MainWindow {
             .flex()
             .children(trace)
             .when(!onboarding, |root| root.child(side))
-            .child(div().flex_1().min_w_0().h_full().child(content));
+            .child(div().flex_1().min_w_0().h_full().child(content))
+            .children(self.update_toast(cx));
         let _ = window;
         root.capture_any_mouse_down(cx.listener(|this, _, _, cx| {
             if this.skip_intro(cx) {
