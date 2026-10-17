@@ -127,7 +127,11 @@ fn fixtures(generate: bool) -> Result<()> {
     let mut report = String::from(
         "# TypeAside real pipeline\n\nRepeat: `cargo run --example pipeline -- --fixtures`\nRegenerate speech: add `--generate-fixtures`. TTS: gpt-4o-mini-tts/alloy; answer.wav: espeak-ng/en-us. STT: whisper-large-v3-turbo (Groq). LLM: qwen/qwen3.8-27b (Groq). No desktop input or audio device access.\nTranslation case explicitly disables cleanup. Timings include keyring access; no prewarming in this offline-file runner.\n\n| Case | Raw | Output | STT ms | LLM ms | Total ms |\n| --- | --- | --- | ---: | ---: | ---: |\n",
     );
-    for (name, _, translation, selection) in cases {
+    for (index, (name, _, translation, selection)) in cases.into_iter().enumerate() {
+        // Each cleanup reserves its max_tokens against Groq's 8k tokens/minute on free keys.
+        if index > 0 {
+            std::thread::sleep(Duration::from_secs(20));
+        }
         let mut config = fixture_config();
         if let Some(language) = translation {
             config.translate_to = language.into();

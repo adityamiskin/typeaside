@@ -992,7 +992,7 @@ impl MainWindow {
                         .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
                         .child(mode),
                     Setting::new("Command")
-                        .description("Edit selected text by voice.")
+                        .description("Edit selected text, or ask a question.")
                         .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),
                     Setting::new("Translate")
                         .description("Translate speech into your chosen language.")
@@ -1027,7 +1027,7 @@ impl MainWindow {
                 [
                     Setting::new("Spoken").child(select(&self.settings.spoken, p)),
                     Setting::new("Translate to")
-                        .description("Write the result in another language.")
+                        .description("Language for the Translate shortcut.")
                         .child(select(&self.settings.translation, p)),
                 ],
                 p,

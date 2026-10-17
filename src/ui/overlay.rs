@@ -310,8 +310,13 @@ impl Overlay {
 impl Render for Overlay {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        let marked =
-            matches!(self.mode, Mode::Command | Mode::Translate) && self.phase == Visual::Listening;
+        let mark = match self.mode {
+            _ if self.phase != Visual::Listening => None,
+            Mode::Command => Some(("✦", p.lilac)),
+            Mode::Translate => Some(("⇄", p.blue)),
+            Mode::Dictate => None,
+        };
+        let marked = mark.is_some();
         let (opacity, elapsed, _) = self.advance(window);
         let kind = match &self.phase {
             Visual::Listening if self.mode == Mode::Command => "command",
@@ -439,7 +444,7 @@ impl Render for Overlay {
                         ),
                 );
         } else {
-            if marked {
+            if let Some((glyph, color)) = mark {
                 pill = pill.child(
                     div()
                         .absolute()
@@ -447,16 +452,8 @@ impl Render for Overlay {
                         .w(px(12.))
                         .text_size(px(12.))
                         .line_height(px(12.))
-                        .text_color(if self.mode == Mode::Translate {
-                            p.blue
-                        } else {
-                            p.lilac
-                        })
-                        .child(if self.mode == Mode::Translate {
-                            "⇄"
-                        } else {
-                            "✦"
-                        }),
+                        .text_color(color)
+                        .child(glyph),
                 );
             }
             let phase = self.phase.clone();
