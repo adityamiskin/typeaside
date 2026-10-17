@@ -3,7 +3,10 @@ use super::{
     theme::*,
     window::{MainWindow, Shortcut},
 };
-use gpui::{AppContext, Context, Entity, IntoElement, Styled, Window, div, prelude::*, px};
+use gpui::{
+    AppContext, Context, Entity, FontWeight, IntoElement, Styled, Window, div, point, prelude::*,
+    px,
+};
 use gpui_kit::component::{
     IndexPath, Sizable,
     input::{Input, InputEvent, InputState},
@@ -18,6 +21,8 @@ use typeaside::{
     local::Status,
 };
 
+const FIELD: f32 = 280.;
+const GROUPS: [&str; 4] = ["General", "Dictation", "AI models", "System"];
 const LANGUAGES: [(&str, &str); 12] = [
     ("English", "en"),
     ("Hindi", "hi"),
@@ -243,7 +248,7 @@ pub fn input(state: &Entity<InputState>, p: Palette) -> impl IntoElement {
     Input::new(state)
         .min_h(px(30.))
         .max_h(px(30.))
-        .w_full()
+        .w(px(FIELD))
         .rounded(px(6.))
         .text_size(px(13.))
         .bg(p.bg)
@@ -260,7 +265,7 @@ fn select(state: &Entity<SelectState<Vec<String>>>, p: Palette) -> impl IntoElem
         .small()
         .min_h(px(30.))
         .max_h(px(30.))
-        .w(px(280.))
+        .w(px(FIELD))
         .bg(p.bg)
         .text_size(px(13.))
 }
@@ -604,10 +609,10 @@ impl MainWindow {
         })
         .detach();
     }
-    fn account_row(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn account(&self, cx: &mut Context<Self>) -> Setting {
         let p = palette(cx);
         let s = self.state.read(cx);
-        let row = div().flex().items_center().gap(px(12.)).text_size(px(12.));
+        let row = Setting::new("Account");
         if s.signing_in.is_some() {
             return row
                 .child(div().text_color(p.muted).child("Waiting for browser..."))
@@ -624,105 +629,98 @@ impl MainWindow {
                         })),
                 );
         }
-        if let Some(account) = &s.account {
-            let limit = account.at_limit();
-            let plan = if limit {
-                let resets = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
-                    .map(|date| {
-                        date.with_timezone(&chrono::Local)
-                            .format("%a %-I:%M %p")
-                            .to_string()
-                    })
-                    .unwrap_or_default();
-                format!("Weekly limit reached, resets {resets}")
-            } else if account.plan == typeaside::account::Plan::Pro {
-                "Pro".into()
-            } else {
-                format!(
-                    "Free, {} of {} words this week",
-                    grouped(account.usage.words),
-                    grouped(account.usage.cap.unwrap_or(2000))
-                )
-            };
-            let account_row = row
-                .flex_wrap()
-                .child(div().text_color(p.fg).child(account.email.clone()))
-                .child(
-                    div()
-                        .text_color(if limit { p.red } else { p.muted })
-                        .child(plan),
-                )
-                .child(div().flex_1())
-                .child(
-                    button(if limit { "Upgrade" } else { "Manage" }, false, p)
-                        .id("manage-account")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if this.state.read(cx).is_demo {
-                                return;
-                            }
-                            cx.background_executor()
-                                .spawn(async {
-                                    let _ = typeaside::account::open(format!(
-                                        "{}/account",
-                                        typeaside::account::web_url()
-                                    ));
-                                })
-                                .detach();
-                        })),
-                )
-                .child(
-                    button("Sign out", false, p)
-                        .id("sign-out")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.state.update(cx, |s, _| s.account_revision += 1);
-                            let mut config = this.state.read(cx).config.clone();
-                            let demo = this.state.read(cx).is_demo;
-                            let task = cx.background_executor().spawn(async move {
-                                if !demo {
-                                    typeaside::account::sign_out(&mut config)?;
-                                }
-                                Ok::<_, anyhow::Error>(config.transcription)
-                            });
-                            cx.spawn(async move |this, cx| {
-                                let result = task.await;
-                                let _ = this.update(cx, |this, cx| {
-                                    this.state.update(cx, |s, cx| {
-                                        match result {
-                                            Ok(source) => {
-                                                s.account_revision += 1;
-                                                s.account = None;
-                                                s.config.settings_sync = None;
-                                                s.config.transcription = source;
-                                                s.persist();
-                                            }
-                                            Err(error) => s.save_error = Some(error.to_string()),
-                                        }
-                                        cx.notify();
-                                    });
-                                });
-                            })
-                            .detach();
-                        })),
-                );
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(account_row)
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(p.muted)
-                        .child("Dictionary, snippets and styles sync across your devices"),
-                )
-        } else {
-            row.child(div().text_color(p.muted).child("Not signed in"))
+        let Some(account) = &s.account else {
+            return row
+                .description("Sign in to use hosted transcription and sync.")
+                .child(div().text_color(p.muted).child("Not signed in"))
                 .child(
                     button("Sign in", true, p)
                         .id("sign-in")
                         .on_click(cx.listener(|this, _, _, cx| this.sign_in(cx))),
+                );
+        };
+        let limit = account.at_limit();
+        let plan = if limit {
+            let resets = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
+                .map(|date| {
+                    date.with_timezone(&chrono::Local)
+                        .format("%a %-I:%M %p")
+                        .to_string()
+                })
+                .unwrap_or_default();
+            format!("Weekly limit reached, resets {resets}")
+        } else if account.plan == typeaside::account::Plan::Pro {
+            "Pro".into()
+        } else {
+            format!(
+                "Free, {} of {} words this week",
+                grouped(account.usage.words),
+                grouped(account.usage.cap.unwrap_or(2000))
+            )
+        };
+        row.description(
+            div()
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_x(px(8.))
+                        .child(div().text_color(p.fg).child(account.email.clone()))
+                        .child(div().when(limit, |plan| plan.text_color(p.red)).child(plan)),
                 )
-        }
+                .child("Dictionary, snippets and styles sync across your devices"),
+        )
+        .child(
+            button(if limit { "Upgrade" } else { "Manage" }, false, p)
+                .id("manage-account")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if this.state.read(cx).is_demo {
+                        return;
+                    }
+                    cx.background_executor()
+                        .spawn(async {
+                            let _ = typeaside::account::open(format!(
+                                "{}/account",
+                                typeaside::account::web_url()
+                            ));
+                        })
+                        .detach();
+                })),
+        )
+        .child(
+            button("Sign out", false, p)
+                .id("sign-out")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.state.update(cx, |s, _| s.account_revision += 1);
+                    let mut config = this.state.read(cx).config.clone();
+                    let demo = this.state.read(cx).is_demo;
+                    let task = cx.background_executor().spawn(async move {
+                        if !demo {
+                            typeaside::account::sign_out(&mut config)?;
+                        }
+                        Ok::<_, anyhow::Error>(config.transcription)
+                    });
+                    cx.spawn(async move |this, cx| {
+                        let result = task.await;
+                        let _ = this.update(cx, |this, cx| {
+                            this.state.update(cx, |s, cx| {
+                                match result {
+                                    Ok(source) => {
+                                        s.account_revision += 1;
+                                        s.account = None;
+                                        s.config.settings_sync = None;
+                                        s.config.transcription = source;
+                                        s.persist();
+                                    }
+                                    Err(error) => s.save_error = Some(error.to_string()),
+                                }
+                                cx.notify();
+                            });
+                        });
+                    })
+                    .detach();
+                })),
+        )
     }
     fn download_model(&mut self, cx: &mut Context<Self>) {
         let cancel = Arc::new(AtomicBool::new(false));
@@ -802,6 +800,18 @@ impl MainWindow {
         .detach();
     }
 
+    /// Sets the offset directly rather than through `scroll_to_top_of_item`, which applies after
+    /// this frame renders and would leave the old link highlighted. The clicked group stays
+    /// highlighted until the offset changes, since a group near the end may not reach the top.
+    fn jump(&mut self, group: usize, cx: &mut Context<Self>) {
+        let scroll = &self.settings_scroll;
+        if let Some(bounds) = scroll.bounds_for_item(group) {
+            let y = (scroll.bounds().top() - bounds.top()).clamp(-scroll.max_offset().y, px(0.));
+            scroll.set_offset(point(px(0.), y));
+            self.settings_jump = Some((group, y));
+            cx.notify();
+        }
+    }
     pub fn settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let s = self.state.read(cx);
@@ -873,278 +883,261 @@ impl MainWindow {
             cx,
             |this, value, _, cx| this.state.update(cx, |s, _| s.config.transcription = value),
         );
-        let mut advanced = Some(
-            div()
-                .child(section("Transcription"))
-                .child(form_row("Source", div().flex().child(source), p))
-                .when(c.transcription == Source::Local, |col| {
-                    col.child(form_row(
-                        "",
-                        div().text_size(px(12.)).text_color(p.muted).child(
-                            "Audio never leaves this computer. Cleanup and translation are off.",
-                        ),
-                        p,
-                    ))
-                })
-                .when(typeaside::local::AVAILABLE, |col| {
-                    col.child(form_row(
-                        "On-device model",
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(if model == Status::Failed {
-                                        p.red
-                                    } else {
-                                        p.muted
-                                    })
-                                    .child(model_text),
-                            )
-                            .child(button(model_label, false, p).id("model-action").on_click(
-                                cx.listener(move |this, _, _, cx| {
-                                    if !this.state.read(cx).is_demo {
-                                        model_action(this, cx);
-                                    }
-                                }),
-                            )),
-                        p,
-                    ))
-                })
-                .when(c.transcription == Source::OwnKey, |col| {
-                    col.child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
-                        .child(form_row(
-                            "Model",
-                            model_field(&self.settings.stt_models, &self.settings.model, p),
-                            p,
-                        ))
-                        .child(form_row("API key", input(&self.settings.key, p), p))
-                })
-                .when(c.transcription != Source::Hosted, |col| {
-                    col.child(section("Editing")).child(form_row(
-                        "AI editing",
-                        self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx),
-                        p,
-                    ))
-                })
-                .when(c.transcription == Source::OwnKey, |col| {
-                    col.child(form_row(
-                        "Endpoint",
-                        input(&self.settings.cleanup_endpoint, p),
-                        p,
-                    ))
-                    .child(form_row(
-                        "Model",
-                        model_field(
-                            &self.settings.cleanup_models,
-                            &self.settings.cleanup_model,
-                            p,
-                        ),
-                        p,
-                    ))
-                    .child(form_row(
-                        "API key",
-                        input(&self.settings.cleanup_key, p),
-                        p,
-                    ))
-                }),
-        );
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .child(header("Settings", p))
-            .child(
+        let model_row = Setting::new("On-device model")
+            .description(
                 div()
-                    .id("settings-scroll")
-                    .track_scroll(&self.settings_scroll)
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px(px(INSET))
-                    .pb(px(24.))
-                    .child(section("Account"))
-                    .child(form_row("Account", self.account_row(cx), p))
-                    .child(section("Appearance"))
-                    .child(form_row("Theme", div().flex().child(theme), p))
-                    .child(section("Shortcuts"))
-                    .child(form_row(
-                        "Dictate",
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
-                            .child(mode),
-                        p,
-                    ))
-                    .child(form_row(
-                        "Command",
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(10.))
-                            .child(self.shortcut(
-                                Shortcut::Command,
-                                c.command_hotkey.as_deref(),
-                                cx,
-                            ))
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .line_height(px(17.4))
-                                    .text_color(p.muted)
-                                    .child("Edits selected text by voice"),
-                            ),
-                        p,
-                    ))
-                    .child(form_row(
-                        "Paste last",
-                        self.shortcut(Shortcut::Paste, c.paste_last_hotkey.as_deref(), cx),
-                        p,
-                    ))
-                    .child(form_row(
-                        "Cancel",
-                        self.shortcut(Shortcut::Cancel, c.cancel_hotkey.as_deref(), cx),
-                        p,
-                    ))
-                    .child(section("Microphone"))
-                    .child(form_row(
-                        "Input",
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(16.))
-                            .child(select(&self.settings.device, p))
-                            .child(div().flex_1())
-                            .when(testing, |row| row.child(meter(level, 7, 18., p)))
-                            .child(
-                                button("Test", false, p)
-                                    .id("test-mic")
-                                    .on_click(cx.listener(|this, _, _, cx| this.start_mic(cx))),
-                            ),
-                        p,
-                    ))
-                    .child(section("Language"))
-                    .child(form_row("Spoken", select(&self.settings.spoken, p), p))
-                    .child(form_row(
-                        "Translate to",
-                        select(&self.settings.translation, p),
-                        p,
-                    ))
-                    .when(!managed, |col| {
-                        col.child(advanced.take().unwrap_or_else(div))
+                    .when(model == Status::Failed, |text| text.text_color(p.red))
+                    .child(model_text),
+            )
+            .child(
+                button(model_label, false, p)
+                    .id("model-action")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.state.read(cx).is_demo {
+                            model_action(this, cx);
+                        }
+                    })),
+            );
+        let own_key = c.transcription == Source::OwnKey;
+        let mut transcription = Vec::new();
+        if managed {
+            transcription.push(
+                Setting::new("Transcription")
+                    .description("Handled by your TypeAside account")
+                    .child(
+                        button(
+                            if self.settings.customize {
+                                "Done"
+                            } else {
+                                "Customize"
+                            },
+                            false,
+                            p,
+                        )
+                        .id("customize")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings.customize = !this.settings.customize;
+                            cx.notify();
+                        })),
+                    ),
+            );
+        }
+        if !managed || self.settings.customize {
+            transcription.push(
+                Setting::new("Source")
+                    .when(c.transcription == Source::Local, |row| {
+                        row.description(
+                            "Audio never leaves this computer. Cleanup and translation are off.",
+                        )
                     })
-                    .child(section("Behavior"))
-                    .child(form_row(
-                        "Sound cues",
-                        self.toggle("sounds", c.sounds, Toggle::Sounds, cx),
+                    .child(source),
+            );
+            if typeaside::local::AVAILABLE {
+                transcription.push(model_row);
+            }
+            if own_key {
+                transcription.extend([
+                    Setting::new("Endpoint").child(input(&self.settings.endpoint, p)),
+                    Setting::new("Model").child(model_field(
+                        &self.settings.stt_models,
+                        &self.settings.model,
                         p,
-                    ))
-                    .child(form_row(
-                        "Lower media volume",
-                        self.toggle("duck", c.duck_media, Toggle::Duck, cx),
+                    )),
+                    Setting::new("API key").child(input(&self.settings.key, p)),
+                ]);
+            }
+        }
+        let mut models = vec![panel("Transcription", transcription, p)];
+        if c.transcription != Source::Hosted {
+            let mut editing = vec![
+                Setting::new("AI editing")
+                    .description("Clean up fillers, punctuation and lists.")
+                    .child(self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx)),
+            ];
+            if own_key {
+                editing.extend([
+                    Setting::new("Endpoint").child(input(&self.settings.cleanup_endpoint, p)),
+                    Setting::new("Model").child(model_field(
+                        &self.settings.cleanup_models,
+                        &self.settings.cleanup_model,
                         p,
-                    ))
-                    .child(form_row(
-                        "Press Enter after paste",
-                        self.toggle("submit", c.auto_submit, Toggle::Submit, cx),
-                        p,
-                    ))
-                    .child(form_row(
-                        "Use names on screen",
-                        self.toggle(
+                    )),
+                    Setting::new("API key").child(input(&self.settings.cleanup_key, p)),
+                ]);
+            }
+            models.push(panel("Editing", editing, p));
+        }
+        let general = vec![
+            panel("Account", [self.account(cx)], p),
+            panel("Appearance", [Setting::new("Theme").child(theme)], p),
+            panel(
+                "Startup and sound",
+                [
+                    Setting::new("Launch at login")
+                        .description("Start hidden when you log in.")
+                        .child(self.toggle("login", c.launch_at_login, Toggle::Login, cx)),
+                    Setting::new("Sound cues")
+                        .description("Short tones when recording starts and stops.")
+                        .child(self.toggle("sounds", c.sounds, Toggle::Sounds, cx)),
+                    Setting::new("Lower media volume")
+                        .description("Duck music and video while you dictate.")
+                        .child(self.toggle("duck", c.duck_media, Toggle::Duck, cx)),
+                ],
+                p,
+            ),
+        ];
+        let dictation = vec![
+            panel(
+                "Shortcuts",
+                [
+                    Setting::new("Dictate")
+                        .description("Hold to talk, or tap to start and stop.")
+                        .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
+                        .child(mode),
+                    Setting::new("Command")
+                        .description("Edit selected text by voice.")
+                        .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),
+                    Setting::new("Paste last")
+                        .description("Paste the previous dictation again.")
+                        .child(self.shortcut(Shortcut::Paste, c.paste_last_hotkey.as_deref(), cx)),
+                    Setting::new("Cancel")
+                        .description("Discard the current recording.")
+                        .child(self.shortcut(Shortcut::Cancel, c.cancel_hotkey.as_deref(), cx)),
+                ],
+                p,
+            ),
+            panel(
+                "Microphone",
+                [Setting::new("Input")
+                    .when(testing, |row| row.child(meter(level, 7, 18., p)))
+                    .child(select(&self.settings.device, p))
+                    .child(
+                        button("Test", false, p)
+                            .id("test-mic")
+                            .on_click(cx.listener(|this, _, _, cx| this.start_mic(cx))),
+                    )],
+                p,
+            ),
+            panel(
+                "Language",
+                [
+                    Setting::new("Spoken").child(select(&self.settings.spoken, p)),
+                    Setting::new("Translate to")
+                        .description("Write the result in another language.")
+                        .child(select(&self.settings.translation, p)),
+                ],
+                p,
+            ),
+            panel(
+                "Behavior",
+                [
+                    Setting::new("Press Enter after paste")
+                        .description("Send chat messages right away.")
+                        .child(self.toggle("submit", c.auto_submit, Toggle::Submit, cx)),
+                    Setting::new("Use names on screen")
+                        .description("Pass visible names to transcription for this dictation.")
+                        .child(self.toggle(
                             "screen-context",
                             c.screen_context,
                             Toggle::ScreenContext,
                             cx,
-                        ),
-                        p,
-                    ))
-                    .child(form_row(
-                        "Learn words from your edits",
-                        self.toggle("auto-learn", c.auto_learn, Toggle::AutoLearn, cx),
-                        p,
-                    ))
-                    .child(form_row(
-                        "Launch at login",
-                        self.toggle("login", c.launch_at_login, Toggle::Login, cx),
-                        p,
-                    ))
-                    .child(form_row(
-                        "Share anonymous usage stats",
-                        self.toggle("share-usage", c.share_usage, Toggle::ShareUsage, cx),
-                        p,
-                    ))
-                    .when(managed, |col| {
-                        col.child(section("Advanced"))
-                            .child(form_row(
-                                "Transcription",
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .text_color(p.muted)
-                                            .child("Handled by your TypeAside account"),
-                                    )
-                                    .child(
-                                        button(
-                                            if self.settings.customize {
-                                                "Done"
-                                            } else {
-                                                "Customize"
-                                            },
-                                            false,
-                                            p,
-                                        )
-                                        .id("customize")
-                                        .on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                this.settings.customize = !this.settings.customize;
-                                                cx.notify();
-                                            }),
-                                        ),
-                                    ),
-                                p,
-                            ))
-                            .when(self.settings.customize, |col| {
-                                col.child(advanced.take().unwrap_or_else(div))
-                            })
-                    })
-                    .child(section("About"))
-                    .child(form_row(
-                        "Version",
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .line_height(px(17.4))
-                                    .text_color(p.muted)
-                                    .child(env!("CARGO_PKG_VERSION")),
-                            )
-                            .child(
-                                button("Open config folder", false, p)
-                                    .id("config-folder")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        let folder = this.state.read(cx).paths.config_dir.clone();
-                                        cx.background_executor()
-                                            .spawn(async move {
-                                                let _ = typeaside::account::open(folder);
-                                            })
-                                            .detach();
-                                    })),
-                            ),
-                        p,
-                    )),
-            )
+                        )),
+                    Setting::new("Learn words from your edits")
+                        .description("Add fixed words to your dictionary.")
+                        .child(self.toggle("auto-learn", c.auto_learn, Toggle::AutoLearn, cx)),
+                ],
+                p,
+            ),
+        ];
+        let system = vec![
+            panel(
+                "Privacy",
+                [Setting::new("Share anonymous usage stats")
+                    .description("Counts and timings only, never text or audio.")
+                    .child(self.toggle("share-usage", c.share_usage, Toggle::ShareUsage, cx))],
+                p,
+            ),
+            panel(
+                "About",
+                [Setting::new("Version")
+                    .description(env!("CARGO_PKG_VERSION"))
+                    .child(
+                        button("Open config folder", false, p)
+                            .id("config-folder")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let folder = this.state.read(cx).paths.config_dir.clone();
+                                cx.background_executor()
+                                    .spawn(async move {
+                                        let _ = typeaside::account::open(folder);
+                                    })
+                                    .detach();
+                            })),
+                    )],
+                p,
+            ),
+        ];
+        let scroll = &self.settings_scroll;
+        let top = scroll.bounds().top() - scroll.offset().y;
+        let bottom = -scroll.max_offset().y;
+        // A short last group can never reach the top, so the end of the page selects it.
+        let active = if let Some((group, _)) =
+            (self.settings_jump).filter(|&(_, y)| y == scroll.offset().y)
+        {
+            group
+        } else if bottom < px(0.) && scroll.offset().y <= bottom {
+            GROUPS.len() - 1
+        } else {
+            (0..GROUPS.len())
+                .rev()
+                .find(|&i| {
+                    scroll
+                        .bounds_for_item(i)
+                        .is_some_and(|group| group.top() <= top + px(1.))
+                })
+                .unwrap_or(0)
+        };
+        page(
+            FORM_WIDTH,
+            header("Settings").child(div().flex().gap(px(4.)).children(
+                GROUPS.into_iter().enumerate().map(|(index, title)| {
+                    div()
+                        .id(title)
+                        .px(px(10.))
+                        .py(px(3.))
+                        .rounded(px(6.))
+                        .text_size(px(12.))
+                        .line_height(px(17.4))
+                        .cursor_pointer()
+                        .when(index == active, |link| link.bg(p.tint))
+                        .text_color(if index == active { p.fg } else { p.muted })
+                        .hover(|link| link.text_color(p.fg))
+                        .child(title)
+                        .on_click(cx.listener(move |this, _, _, cx| this.jump(index, cx)))
+                }),
+            )),
+            div()
+                .id("settings-scroll")
+                .track_scroll(&self.settings_scroll)
+                .pb(px(24.))
+                .children(
+                    GROUPS
+                        .into_iter()
+                        .zip([general, dictation, models, system])
+                        .map(|(title, panels)| {
+                            column(FORM_WIDTH)
+                                .child(
+                                    div()
+                                        .pt(px(24.))
+                                        .text_size(px(15.))
+                                        .line_height(px(21.75))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(title),
+                                )
+                                .children(panels)
+                        }),
+                ),
+            p,
+        )
     }
 }
 
