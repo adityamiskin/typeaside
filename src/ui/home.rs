@@ -318,7 +318,12 @@ impl MainWindow {
                     .rounded(px(6.))
                     .bg(if hovered { p.hover } else { p.bg })
                     .on_hover(cx.listener(move |this, hovered, _, cx| {
-                        this.hovered_history = if *hovered { Some(index) } else { None };
+                        // The next row's hover-in can arrive before this row's hover-out.
+                        if *hovered {
+                            this.hovered_history = Some(index);
+                        } else if this.hovered_history == Some(index) {
+                            this.hovered_history = None;
+                        }
                         cx.notify();
                     }))
                     .child(
