@@ -51,6 +51,7 @@ pub(super) enum Toggle {
     Sounds,
     Duck,
     Submit,
+    AutoLearn,
     Login,
     ShareUsage,
 }
@@ -529,6 +530,7 @@ impl MainWindow {
                             Toggle::Sounds => s.config.sounds = !on,
                             Toggle::Duck => s.config.duck_media = !on,
                             Toggle::Submit => s.config.auto_submit = !on,
+                            Toggle::AutoLearn => s.config.auto_learn = !on,
                             Toggle::ShareUsage => {
                                 if let Err(error) = s.config.set_share_usage(!on) {
                                     s.save_error = Some(error.to_string());
@@ -1047,6 +1049,11 @@ impl MainWindow {
                     .child(form_row(
                         "Press Enter after paste",
                         self.toggle("submit", c.auto_submit, Toggle::Submit, cx),
+                        p,
+                    ))
+                    .child(form_row(
+                        "Learn words from your edits",
+                        self.toggle("auto-learn", c.auto_learn, Toggle::AutoLearn, cx),
                         p,
                     ))
                     .child(form_row(
