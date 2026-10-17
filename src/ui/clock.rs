@@ -3,14 +3,10 @@ use std::sync::OnceLock;
 pub fn time_format() -> &'static str {
     static FORMAT: OnceLock<&'static str> = OnceLock::new();
     FORMAT.get_or_init(|| {
-        let twelve = if std::env::args().any(|arg| arg == "--demo") {
-            match std::env::var("TYPEASIDE_DEMO_CLOCK").as_deref() {
-                Ok("12") => true,
-                Ok("24") => false,
-                _ => system_uses_twelve_hours(),
-            }
-        } else {
-            system_uses_twelve_hours()
+        let twelve = match std::env::var("TYPEASIDE_DEMO_CLOCK").as_deref() {
+            Ok("12") => true,
+            Ok("24") => false,
+            _ => system_uses_twelve_hours(),
         };
         if twelve { "%-I:%M %p" } else { "%H:%M" }
     })

@@ -2,13 +2,9 @@ use super::{theme::*, window::MainWindow};
 use gpui::{Context, IntoElement, Styled, div, prelude::*, px};
 use std::time::Duration;
 
-pub struct Toast {
-    message: &'static str,
-}
-
 impl MainWindow {
     pub fn show_toast(&mut self, message: &'static str, cx: &mut Context<Self>) {
-        self.toast = Some(Toast { message });
+        self.toast = Some(message);
         self.toast_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(2500))
@@ -45,7 +41,7 @@ impl MainWindow {
 
     pub fn history_toast(&self, cx: &Context<Self>) -> Option<impl IntoElement> {
         let p = palette(cx);
-        self.toast.as_ref().map(|toast| {
+        self.toast.map(|message| {
             div()
                 .absolute()
                 .bottom(px(16.))
@@ -66,7 +62,7 @@ impl MainWindow {
                         .border_color(p.pill_border)
                         .text_size(px(13.))
                         .text_color(p.fg)
-                        .child(toast.message),
+                        .child(message),
                 )
         })
     }

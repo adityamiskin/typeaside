@@ -48,7 +48,7 @@ pub struct MainWindow {
     pub settings: SettingsInputs,
     pub word_input: Entity<InputState>,
     pub search_input: Entity<InputState>,
-    pub toast: Option<super::toast::Toast>,
+    pub toast: Option<&'static str>,
     pub toast_task: Option<gpui::Task<()>>,
     pub history_tab: super::home::HistoryTab,
     pub menu_history: Option<std::time::SystemTime>,
