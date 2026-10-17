@@ -16,9 +16,12 @@ export const Route = createFileRoute("/releases/$")({
         if (!object) return new Response("Not found", { status: 404 });
         return new Response(object.body, {
           headers: {
-            "content-type": file === "latest.json" ? "application/json" : "application/octet-stream",
+            "content-type":
+              file === "latest.json" ? "application/json" : "application/octet-stream",
             "content-length": String(object.size),
-            ...(file === "latest.json" ? {} : { "content-disposition": `attachment; filename="${file}"` }),
+            ...(file === "latest.json"
+              ? {}
+              : { "content-disposition": `attachment; filename="${file}"` }),
             etag: object.httpEtag,
             "cache-control": "public, max-age=300",
           },
