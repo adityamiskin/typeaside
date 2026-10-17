@@ -4,9 +4,9 @@ use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use std::{thread, time::Duration};
 
 #[cfg(target_os = "macos")]
-pub use super::macos::focused_app_id;
+pub use super::macos::{focused_app_id, has_focused_window};
 #[cfg(target_os = "windows")]
-pub use super::windows::focused_app_id;
+pub use super::windows::{focused_app_id, has_focused_window};
 
 #[cfg(target_os = "macos")]
 pub(crate) const INJECTED_EVENT_TAG: i64 = 0x4845524d4553;
@@ -155,4 +155,9 @@ pub(crate) fn primary_selection() -> String {
         eprintln!("typeaside: cannot copy selection: {error:#}");
         String::new()
     })
+}
+
+pub fn set_clipboard(text: &str) -> Result<()> {
+    Clipboard::new()?.set_text(text)?;
+    Ok(())
 }

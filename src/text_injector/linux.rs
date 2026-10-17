@@ -8,6 +8,10 @@ use std::{
 };
 
 pub fn focused_app_id() -> Option<String> {
+    focused_window()?.get("app_id")?.as_str().map(str::to_owned)
+}
+
+fn focused_window() -> Option<serde_json::Value> {
     let output = Command::new("niri")
         .args(["msg", "--json", "focused-window"])
         .output()
@@ -15,11 +19,11 @@ pub fn focused_app_id() -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    serde_json::from_slice::<serde_json::Value>(&output.stdout)
-        .ok()?
-        .get("app_id")?
-        .as_str()
-        .map(str::to_owned)
+    serde_json::from_slice(&output.stdout).ok()
+}
+
+pub fn has_focused_window() -> bool {
+    focused_window().is_none_or(|window| !window.is_null())
 }
 
 pub struct TextInjector {
@@ -148,7 +152,7 @@ fn read_clipboard() -> Result<Option<String>> {
     Ok(Some(String::from_utf8(output.stdout)?))
 }
 
-fn set_clipboard(text: &str) -> Result<()> {
+pub fn set_clipboard(text: &str) -> Result<()> {
     let mut child = Command::new("wl-copy")
         .args(["--type", "text/plain;charset=utf-8"])
         .stdin(Stdio::piped())

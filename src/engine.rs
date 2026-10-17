@@ -63,6 +63,7 @@ pub enum Event {
     /// Mic level in 0.0..=1.0, sent at ~30 Hz while listening.
     Level(f32),
     Done(Dictation),
+    Copied(String),
     Failed(Option<FailedRecording>),
 }
 
@@ -342,33 +343,13 @@ fn run(
                             }
                             let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
                         } else {
-                            let injected = (|| -> Result<()> {
-                                let started = Instant::now();
-                                let injector = match &mut injector {
-                                    Some(injector) => injector,
-                                    slot => slot.insert(TextInjector::new()?),
-                                };
-                                injector.inject_text(
-                                    &dictation.cleaned,
-                                    dictation.app_id.as_deref(),
-                                    config.auto_submit,
-                                )?;
-                                if std::env::var_os("TYPEASIDE_TRACE")
-                                    .is_some_and(|value| value == "1")
-                                {
-                                    eprintln!(
-                                        "typeaside: inject={}ms",
-                                        started.elapsed().as_millis()
-                                    );
-                                }
-                                Ok(())
-                            })();
-                            if let Err(error) = injected {
-                                eprintln!("typeaside: paste failed: {error:#}");
-                                report_error(&events, "Couldn't paste. Saved to Home.");
-                                if config.sounds {
-                                    crate::cues::play(crate::cues::Cue::Error);
-                                }
+                            if !deliver(
+                                &mut injector,
+                                &dictation.cleaned,
+                                dictation.app_id.as_deref(),
+                                &config,
+                                &events,
+                            ) {
                                 continue;
                             }
                         }
@@ -550,19 +531,13 @@ fn run(
             }
             Command::PasteLast => {
                 if let Some(text) = &last {
-                    let result = (|| -> Result<()> {
-                        let injector = match &mut injector {
-                            Some(injector) => injector,
-                            slot => slot.insert(TextInjector::new()?),
-                        };
-                        injector.inject_text(text, focused_app_id().as_deref(), config.auto_submit)
-                    })();
-                    if let Err(error) = result {
-                        report_error(&events, error);
-                        if config.sounds {
-                            crate::cues::play(crate::cues::Cue::Error);
-                        }
-                    }
+                    deliver(
+                        &mut injector,
+                        text,
+                        focused_app_id().as_deref(),
+                        &config,
+                        &events,
+                    );
                 }
             }
             Command::MicTest(false) => {
@@ -607,5 +582,30 @@ fn stop_effects(
 ) {
     if let Some(effects) = effects.take() {
         restoring.push(effects.finish());
+    }
+}
+
+fn deliver(
+    injector: &mut Option<TextInjector>,
+    text: &str,
+    app_id: Option<&str>,
+    config: &AppConfig,
+    events: &async_channel::Sender<Event>,
+) -> bool {
+    use crate::text_injector::{Delivery, deliver_text};
+    match deliver_text(injector, text, app_id, config.auto_submit) {
+        Ok(Delivery::Pasted) => true,
+        Ok(Delivery::Copied) => {
+            let _ = events.try_send(Event::Copied(text.to_owned()));
+            true
+        }
+        Err(error) => {
+            eprintln!("typeaside: delivery failed: {error:#}");
+            report_error(events, "Couldn't paste. Saved to Home.");
+            if config.sounds {
+                crate::cues::play(crate::cues::Cue::Error);
+            }
+            false
+        }
     }
 }
