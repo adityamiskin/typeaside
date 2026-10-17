@@ -6,7 +6,8 @@ use windows::Win32::{
     },
     UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-        IUIAutomationValuePattern, UIA_E_NOTSUPPORTED, UIA_TextPatternId, UIA_ValuePatternId,
+        IUIAutomationTextRange, IUIAutomationValuePattern, TextPatternRangeEndpoint_End,
+        TextPatternRangeEndpoint_Start, UIA_E_NOTSUPPORTED, UIA_TextPatternId, UIA_ValuePatternId,
     },
 };
 
@@ -82,6 +83,27 @@ impl FocusedElement {
                 }
                 Err(_) => None,
             }
+        }
+    }
+
+    /// UTF-16 start and length.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        unsafe {
+            let pattern = self
+                .element
+                .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                .ok()?;
+            let selection = pattern.GetSelection().ok()?.GetElement(0).ok()?;
+            let before = pattern.DocumentRange().ok()?;
+            before
+                .MoveEndpointByRange(
+                    TextPatternRangeEndpoint_End,
+                    &selection,
+                    TextPatternRangeEndpoint_Start,
+                )
+                .ok()?;
+            let length = |range: &IUIAutomationTextRange| Some(range.GetText(-1).ok()?.len());
+            Some((length(&before)?, length(&selection)?))
         }
     }
 }
