@@ -7,6 +7,7 @@ pub enum HotkeyEvent {
     Main(bool),
     Cancel(bool),
     Command(bool),
+    Translate(bool),
     PasteLast(bool),
     /// A key pressed while Fn is held: Fn+Left is Home, not dictation.
     #[cfg(target_os = "macos")]
@@ -38,6 +39,7 @@ impl State {
             ),
             (config.cancel_hotkey.as_ref(), HotkeyEvent::Cancel),
             (config.command_hotkey.as_ref(), HotkeyEvent::Command),
+            (config.translate_hotkey.as_ref(), HotkeyEvent::Translate),
             (config.paste_last_hotkey.as_ref(), HotkeyEvent::PasteLast),
         ] {
             if let Some(value) = value {

@@ -10,6 +10,7 @@ use anyhow::Result;
 use std::time::{Duration, Instant};
 
 pub const LOCAL_COMMAND: &str = "Commands need a TypeAside account or your own key";
+pub const LOCAL_TRANSLATE: &str = "Translation needs a TypeAside account or your own key";
 
 pub struct Output {
     pub raw: String,
@@ -40,10 +41,11 @@ pub fn run(
     let started = Instant::now();
     let (raw, local) = match config.transcription {
         Source::Local if mode == Mode::Command => anyhow::bail!(LOCAL_COMMAND),
+        Source::Local if mode == Mode::Translate => anyhow::bail!(LOCAL_TRANSLATE),
         Source::Local => (crate::local::transcribe(audio)?, true),
         Source::Hosted | Source::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),
-            Err(error) if mode != Mode::Command && offline(&error) && crate::local::installed() => {
+            Err(error) if mode == Mode::Dictate && offline(&error) && crate::local::installed() => {
                 (crate::local::transcribe(audio)?, true)
             }
             Err(error) => return Err(error),
@@ -59,11 +61,11 @@ pub fn run(
         cleaning();
         cleanup::command(config, &raw, selection)?
     } else {
-        if config.editing() || config.translate_to.is_some() {
+        if config.editing() || mode == Mode::Translate {
             cleaning();
         }
         snippets::expand(
-            &cleanup::cleanup(config, &raw, app, names),
+            &cleanup::cleanup(config, &raw, app, names, mode == Mode::Translate),
             &config.snippets,
         )
     };

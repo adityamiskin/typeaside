@@ -38,6 +38,7 @@ impl Page {
 pub enum Shortcut {
     Dictate,
     Command,
+    Translate,
     Paste,
     Cancel,
 }
@@ -191,13 +192,17 @@ impl MainWindow {
                 this.hovered_word = Some(3);
             }
             if page == Page::Settings {
-                if std::env::var("TYPEASIDE_DEMO_SETTINGS_SCROLL").as_deref() == Ok("bottom") {
+                if let Ok(scroll) = std::env::var("TYPEASIDE_DEMO_SETTINGS_SCROLL") {
                     cx.spawn(async move |this, cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(150))
                             .await;
                         let _ = this.update(cx, |this, cx| {
-                            this.settings_scroll.scroll_to_bottom();
+                            if scroll == "dictation" {
+                                this.settings_scroll.scroll_to_top_of_item(1);
+                            } else if scroll == "bottom" {
+                                this.settings_scroll.scroll_to_bottom();
+                            }
                             cx.notify();
                         });
                     })
