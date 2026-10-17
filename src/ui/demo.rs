@@ -53,7 +53,7 @@ pub fn config() -> AppConfig {
 pub fn history() -> Vec<Dictation> {
     use chrono::{Local, TimeZone};
     let today = Local::now().date_naive();
-    [
+    let mut items: Vec<Dictation> = [
         ("Let's push the release to Thursday so QA has a full day with the new build. I'll update the ticket.", "let's push the release to thursday so qa has a full day with the new build i'll update the ticket", "slack", 0, 14, 32, 412),
         ("Can you send me the deck before the 3 pm call?", "um can you send me the uh deck before the 2 actually 3 pm call", "slack", 0, 14, 5, 388),
         ("Hi Priya, thanks for the quick turnaround. The numbers look right to me, so feel free to send it to the client.", "hi priya thanks for the quick turnaround the numbers look right to me so feel free to send it to the client", "thunderbird", 0, 11, 48, 440),
@@ -62,14 +62,21 @@ pub fn history() -> Vec<Dictation> {
         let date = today - chrono::Duration::days(ago);
         let at = Local.from_local_datetime(&date.and_hms_opt(h,m,0).unwrap()).earliest().unwrap().into();
         Dictation {at, raw:raw.into(), cleaned:cleaned.into(), app_id:Some(app.into()), audio_ms:4200, latency_ms, mode:Mode::Dictate}
-    }).collect()
+    }).collect();
+    if std::env::var_os("TYPEASIDE_DEMO_EDIT").is_some() {
+        items[0].cleaned = "Send the huggingface model to q drant after review.".into();
+        items[0].raw = items[0].cleaned.clone();
+    }
+    items
 }
 
 pub fn spawn() -> async_channel::Receiver<Event> {
     let (tx, rx) = async_channel::unbounded();
     std::thread::spawn(move || {
-        if std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() == Ok("onboarding") {
-            // Keep the onboarding fixture static and avoid creating an overlay window.
+        if std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() == Ok("onboarding")
+            || std::env::var_os("TYPEASIDE_DEMO_EDIT").is_some()
+        {
+            // Keep interactive fixtures static and avoid creating an overlay window.
             std::thread::park();
             return;
         }

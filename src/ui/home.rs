@@ -210,11 +210,28 @@ impl MainWindow {
             let text = item.cleaned.clone();
             let raw = item.raw.clone();
             let timestamp = item.at;
+            let editing = self
+                .correction_editor
+                .as_ref()
+                .is_some_and(|editor| editor.at == timestamp);
+            let notice = self
+                .learned_notice
+                .as_ref()
+                .filter(|(at, _, _)| *at == timestamp);
             let actions = div()
                 .flex()
                 .gap(px(14.))
                 .text_size(px(12.))
                 .line_height(px(19.))
+                .child(
+                    div()
+                        .id(("edit", index))
+                        .cursor_pointer()
+                        .child("Edit")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.edit_history(timestamp, window, cx)
+                        })),
+                )
                 .child(
                     div()
                         .id(("copy", index))
@@ -287,14 +304,26 @@ impl MainWindow {
                             .text_color(p.muted)
                             .child(at.format("%H:%M").to_string()),
                     )
-                    .child(
+                    .child(if editing {
+                        self.correction_form(cx).into_any_element()
+                    } else {
                         div()
                             .flex_1()
                             .min_w_0()
                             .line_clamp(2)
-                            .child(item.cleaned.clone()),
-                    )
-                    .child(if hovered {
+                            .child(item.cleaned.clone())
+                            .into_any_element()
+                    })
+                    .child(if editing {
+                        div().into_any_element()
+                    } else if let Some((_, _, message)) = notice {
+                        div()
+                            .text_size(px(12.))
+                            .line_height(px(19.))
+                            .text_color(p.muted)
+                            .child(message.clone())
+                            .into_any_element()
+                    } else if hovered {
                         actions.into_any_element()
                     } else {
                         div()
