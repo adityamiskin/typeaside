@@ -227,6 +227,7 @@ pub struct AppConfig {
     pub language: Option<String>,
     pub cleanup: Cleanup,
     pub dictionary: Vec<String>,
+    pub settings_sync: Option<crate::settings_sync::SyncState>,
     pub auto_submit: bool,
     /// Rewrites the selected text by voice instruction.
     pub command_hotkey: Option<String>,
@@ -256,6 +257,7 @@ impl Default for AppConfig {
             language: None,
             cleanup: Cleanup::default(),
             dictionary: Vec::new(),
+            settings_sync: None,
             auto_submit: false,
             command_hotkey: Some("RIGHTALT".into()),
             paste_last_hotkey: Some("LEFTALT+LEFTSHIFT+V".into()),

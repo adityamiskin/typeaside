@@ -101,6 +101,7 @@ pub fn sign_in(cancel: &AtomicBool) -> Result<Account> {
 pub fn sign_out(config: &mut AppConfig) -> Result<()> {
     let hosted = credentials::endpoint_host(&hosted_url())?;
     credentials::delete_credential(&hosted)?;
+    config.settings_sync = None;
     config.transcription = Source::Hosted;
     if let Ok(own) = credentials::endpoint_host(&config.stt.base_url)
         && own != hosted

@@ -23,6 +23,8 @@ use typeaside::{config::AppConfig, credentials, paths::AppPaths};
 pub struct AppState {
     account: Option<typeaside::account::Account>,
     account_revision: u64,
+    sync_requested: bool,
+    sync_focus_at: Option<std::time::Instant>,
     update: Option<typeaside::update::Release>,
     update_status: typeaside::update::Status,
     signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -176,6 +178,8 @@ fn start_ui(
     let state = cx.new(|_| AppState {
         account: if is_demo { demo::account() } else { None },
         account_revision: 0,
+        sync_requested: true,
+        sync_focus_at: None,
         update: None,
         update_status: typeaside::update::Status::Available,
         signing_in: None,
@@ -259,6 +263,7 @@ fn start_ui(
     .detach();
     if !is_demo {
         schedule_updates(&state, cx);
+        schedule_settings_sync(&state, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
             let stt = key_hint(&config.stt.base_url);
@@ -521,6 +526,74 @@ fn install_update(state: &gpui::Entity<AppState>, cx: &mut App) {
             };
             cx.notify();
         });
+    })
+    .detach();
+}
+
+fn schedule_settings_sync(state: &gpui::Entity<AppState>, cx: &mut App) {
+    use std::time::{Duration, Instant};
+    use typeaside::settings_sync::{Fields, SyncState};
+    let state = state.downgrade();
+    cx.spawn(async move |cx| {
+        let mut observed = None;
+        let mut edited_at = None;
+        let mut next_pull = Instant::now();
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(250))
+                .await;
+            let Some(state) = state.upgrade() else { break };
+            let snapshot = cx.update(|cx| {
+                let s = state.read(cx);
+                (s.config.clone(), s.account_revision, s.sync_requested)
+            });
+            let (config, revision, requested) = snapshot;
+            let fields = Fields::from_config(&config);
+            if observed
+                .as_ref()
+                .is_some_and(|previous| previous != &fields)
+            {
+                edited_at = Some(Instant::now());
+            }
+            observed = Some(fields.clone());
+            let edit_due = edited_at.is_some_and(|at| at.elapsed() >= Duration::from_secs(2));
+            if !requested && !edit_due && Instant::now() < next_pull {
+                continue;
+            }
+            // A focus event must not bypass the edit debounce.
+            if edited_at.is_some() && !edit_due {
+                continue;
+            }
+            state.update(cx, |s, _| s.sync_requested = false);
+            edited_at = None;
+            next_pull = Instant::now() + Duration::from_secs(15 * 60);
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let url = typeaside::account::hosted_url();
+                    let host = credentials::endpoint_host(&url)?;
+                    let Some(token) = credentials::get_credential(&host)? else {
+                        return Ok(None);
+                    };
+                    typeaside::settings_sync::synchronize(&config, &url, &token).map(Some)
+                })
+                .await;
+            if let Ok(Some(remote)) = result {
+                state.update(cx, |s, cx| {
+                    if s.account_revision != revision || Fields::from_config(&s.config) != fields {
+                        return;
+                    }
+                    s.config.settings_sync = Some(SyncState {
+                        updated_at: remote.updated_at,
+                        hash: remote.fields.hash(),
+                    });
+                    observed = Some(remote.fields.clone());
+                    remote.fields.apply(&mut s.config);
+                    s.persist();
+                    cx.notify();
+                });
+            }
+        }
     })
     .detach();
 }

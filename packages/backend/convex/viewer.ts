@@ -126,7 +126,7 @@ export const removalData = internalQuery({
 export const erase = internalMutation({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
-    for (const table of ["daily", "desktopTokens", "subscriptions"] as const) {
+    for (const table of ["daily", "desktopTokens", "subscriptions", "settings"] as const) {
       const rows =
         table === "daily"
           ? await ctx.db

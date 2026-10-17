@@ -26,7 +26,18 @@ export const pingFields = {
   latencyMs: v.number(),
 };
 
+export const settingsFields = {
+  dictionary: v.array(v.string()),
+  snippets: v.array(v.object({ trigger: v.string(), text: v.string() })),
+  styles: v.record(
+    v.string(),
+    v.union(v.literal("formal"), v.literal("casual"), v.literal("very_casual")),
+  ),
+  updatedAt: v.number(),
+};
+
 export default defineSchema({
+  settings: defineTable({ userId: v.id("users"), ...settingsFields }).index("by_user", ["userId"]),
   pings: defineTable(pingFields)
     .index("by_install_day", ["installId", "day"])
     .index("by_day", ["day"]),

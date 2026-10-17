@@ -3,6 +3,7 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction, type ActionCtx } from "./_generated/server";
 import { hashToken } from "./lib";
+import { settingsInput } from "./settings";
 import { pingInput } from "./pings";
 
 const http = httpRouter();
@@ -200,6 +201,40 @@ http.route({
     return Response.json({ email: account.email, plan: account.plan, usage: account.usage });
   }),
 });
+for (const method of ["GET", "PUT"] as const) {
+  http.route({
+    path: "/v1/settings",
+    method,
+    handler: httpAction(async (ctx, request) => {
+      const account = await authenticate(ctx, request);
+      if (!account) return error(401, "authentication", "Invalid desktop token");
+      if (method === "GET")
+        return Response.json({
+          settings: await ctx.runQuery(internal.settings.get, { userId: account.userId }),
+        });
+      const maxBytes = 256 * 1024;
+      if (Number(request.headers.get("Content-Length")) > maxBytes)
+        return error(400, "request", "Settings exceed 256 KB");
+      let input: unknown;
+      try {
+        const body = await request.text();
+        if (new TextEncoder().encode(body).byteLength > maxBytes)
+          return error(400, "request", "Settings exceed 256 KB");
+        input = JSON.parse(body);
+      } catch {
+        return error(400, "request", "Expected JSON");
+      }
+      const parsed = settingsInput.safeParse(input);
+      if (!parsed.success) return error(400, "request", "Invalid settings");
+      const result = await ctx.runMutation(internal.settings.put, {
+        userId: account.userId,
+        ...parsed.data,
+      });
+      if (!result.ok) return error(429, "rate_limit", "Too many settings updates");
+      return Response.json({ settings: result.settings });
+    }),
+  });
+}
 async function saveSubscription(
   ctx: Pick<ActionCtx, "runMutation">,
   payload: { data: Subscription; timestamp: Date },
