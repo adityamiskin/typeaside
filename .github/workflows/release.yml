@@ -94,3 +94,22 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VERSION: ${{ needs.version.outputs.version }}
         run: packaging/upload.sh
+  aur:
+    needs: [version, upload]
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish typeaside-bin to the AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          pacman -Syu --noconfirm --needed git openssh
+          useradd -m builder
+          install -d -m700 -o builder /home/builder/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /home/builder/.ssh/id_ed25519
+          ssh-keyscan aur.archlinux.org > /home/builder/.ssh/known_hosts
+          chown -R builder /home/builder/.ssh && chmod 600 /home/builder/.ssh/id_ed25519
+          # makepkg refuses to run as root.
+          su builder -c "VERSION=$VERSION packaging/aur/publish.sh"
