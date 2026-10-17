@@ -64,6 +64,10 @@ pub enum Event {
     Level(f32),
     Done(Dictation),
     Copied(String),
+    Edited {
+        inserted: String,
+        edited: String,
+    },
     Failed(Option<FailedRecording>),
 }
 
@@ -75,6 +79,7 @@ pub enum Command {
     DiscardFailed,
     Cancel,
     Reload(Box<AppConfig>),
+    Learn(Vec<String>),
     /// Re-pastes the latest dictation into the focused app.
     PasteLast,
     /// Streams Event::Level from the mic without recording, for settings and onboarding.
@@ -229,6 +234,7 @@ fn run(
     let mut pending_audio: Option<Arc<[f32]>> = None;
     let mut retrying = false;
     let mut injector: Option<TextInjector> = None;
+    let mut watch = None;
     let mut last = load_history(&paths).pop().map(|entry| entry.cleaned);
     let mut context = (Mode::Dictate, None, String::new());
     let mut start_mode = Mode::Dictate;
@@ -345,6 +351,7 @@ fn run(
                         } else {
                             if !deliver(
                                 &mut injector,
+                                &mut watch,
                                 &dictation.cleaned,
                                 dictation.app_id.as_deref(),
                                 &config,
@@ -383,6 +390,7 @@ fn run(
         };
         match command {
             Command::Start if recorder.is_none() && busy.is_none() => {
+                watch = None;
                 if config.transcription == crate::config::Source::Local {
                     if start_mode == Mode::Command {
                         report_error(&events, crate::pipeline::LOCAL_COMMAND);
@@ -426,6 +434,7 @@ fn run(
                     continue;
                 }
                 let audio = if retrying {
+                    watch = None;
                     let loaded = std::fs::read(&paths.failed_file)
                         .context("cannot read failed recording")
                         .and_then(|wav| crate::transcribe::decode_wav(&wav));
@@ -523,6 +532,11 @@ fn run(
                 let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
                 phase(&events, Phase::Idle);
             }
+            Command::Learn(words) => {
+                for word in words {
+                    config.add_word(word);
+                }
+            }
             Command::Reload(next) => {
                 recorder = None;
                 monitor = None;
@@ -533,6 +547,9 @@ fn run(
                 drop(hotkeys.take());
                 epoch = epoch.wrapping_add(1);
                 config = *next;
+                if !config.auto_learn {
+                    watch = None;
+                }
                 phase(&events, Phase::Idle);
                 hotkeys = open_hotkeys(&config, &tx, epoch, &events);
             }
@@ -540,6 +557,7 @@ fn run(
                 if let Some(text) = &last {
                     deliver(
                         &mut injector,
+                        &mut watch,
                         text,
                         focused_app().and_then(|app| app.id).as_deref(),
                         &config,
@@ -594,14 +612,21 @@ fn stop_effects(
 
 fn deliver(
     injector: &mut Option<TextInjector>,
+    watch: &mut Option<crate::learn::Watch>,
     text: &str,
     app_id: Option<&str>,
     config: &AppConfig,
     events: &async_channel::Sender<Event>,
 ) -> bool {
     use crate::text_injector::{Delivery, deliver_text};
+    *watch = None;
     match deliver_text(injector, text, app_id, config.auto_submit) {
-        Ok(Delivery::Pasted) => true,
+        Ok(Delivery::Pasted) => {
+            if config.auto_learn {
+                *watch = crate::learn::watch(text.to_owned(), events.clone());
+            }
+            true
+        }
         Ok(Delivery::Copied) => {
             let _ = events.try_send(Event::Copied(text.to_owned()));
             true

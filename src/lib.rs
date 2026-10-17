@@ -7,6 +7,7 @@ pub mod corrections;
 pub mod credentials;
 pub mod engine;
 pub mod hotkeys;
+pub mod learn;
 pub mod paths;
 pub mod text_injector;
 mod transcribe;
