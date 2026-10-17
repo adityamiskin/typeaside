@@ -11,7 +11,7 @@ pub mod hotkeys;
 pub mod learn;
 pub mod paths;
 pub mod text_injector;
-mod transcribe;
+pub mod transcribe;
 
 #[doc(hidden)]
 pub mod cues;

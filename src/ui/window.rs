@@ -557,6 +557,16 @@ impl Render for MainWindow {
             .child(div().flex_1().min_h_0().child(content));
         let root = div()
             .id("main")
+            .on_drop::<gpui::ExternalPaths>(cx.listener(
+                |this, paths: &gpui::ExternalPaths, _, cx| {
+                    if this.page == Page::Home
+                        && this.state.read(cx).config.onboarded
+                        && let Some(path) = paths.0.first()
+                    {
+                        this.transcribe_file(path.clone(), cx);
+                    }
+                },
+            ))
             .relative()
             .track_focus(&self.focus)
             .size_full()

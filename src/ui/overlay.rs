@@ -314,7 +314,7 @@ impl Render for Overlay {
             _ if self.phase != Visual::Listening => None,
             Mode::Command => Some(("✦", p.lilac)),
             Mode::Translate => Some(("⇄", p.blue)),
-            Mode::Dictate => None,
+            Mode::Dictate | Mode::File => None,
         };
         let marked = mark.is_some();
         let (opacity, elapsed, _) = self.advance(window);
