@@ -3,6 +3,7 @@ pub mod audio;
 pub mod autostart;
 mod cleanup;
 pub mod config;
+mod context;
 pub mod corrections;
 pub mod credentials;
 pub mod engine;

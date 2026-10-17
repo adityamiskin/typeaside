@@ -233,6 +233,7 @@ pub struct AppConfig {
     pub settings_sync: Option<crate::settings_sync::SyncState>,
     pub auto_submit: bool,
     pub auto_learn: bool,
+    pub screen_context: bool,
     /// Rewrites the selected text by voice instruction.
     pub command_hotkey: Option<String>,
     pub paste_last_hotkey: Option<String>,
@@ -265,6 +266,7 @@ impl Default for AppConfig {
             settings_sync: None,
             auto_submit: false,
             auto_learn: true,
+            screen_context: true,
             command_hotkey: Some("RIGHTALT".into()),
             paste_last_hotkey: Some("LEFTALT+LEFTSHIFT+V".into()),
             translate_to: None,

@@ -147,6 +147,7 @@ fn fixtures(generate: bool) -> Result<()> {
                 Mode::Dictate
             },
             selection.unwrap_or_default(),
+            &[],
             || {},
         )?;
         let escape = |value: &str| value.replace('|', "\\|").replace('\n', "<br>");
@@ -197,7 +198,7 @@ fn local_benchmark(measure_idle: bool) -> Result<()> {
             config.transcription = source;
             config.cleanup.enabled = false;
             let start = Instant::now();
-            let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", || {});
+            let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", &[], || {});
             let mut item = serde_json::json!({ "clip": name, "source": source, "audio_ms": audio.len() / 16, "elapsed_ms": start.elapsed().as_millis() });
             match result {
                 Ok(output) => {
@@ -285,6 +286,7 @@ fn main() -> Result<()> {
             Mode::Dictate
         },
         selection.as_deref().unwrap_or_default(),
+        &[],
         || {},
     )?;
     println!(

@@ -14,11 +14,11 @@ pub(crate) fn has_speech(audio: &[f32]) -> bool {
         >= 0.003
 }
 
-pub(crate) fn transcribe(config: &AppConfig, audio: &[f32]) -> Result<String> {
-    request(config, audio, &endpoint_key(&config.stt.base_url)?)
+pub(crate) fn transcribe(config: &AppConfig, audio: &[f32], names: &[String]) -> Result<String> {
+    request(config, audio, &endpoint_key(&config.stt.base_url)?, names)
 }
 
-fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {
+fn request(config: &AppConfig, audio: &[f32], key: &str, names: &[String]) -> Result<String> {
     let file = multipart::Part::bytes(encode_wav(audio)?)
         .file_name("dictation.wav")
         .mime_str("audio/wav")?;
@@ -28,8 +28,9 @@ fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {
     if let Some(language) = &config.language {
         form = form.text("language", language.clone());
     }
-    if !config.dictionary.is_empty() {
-        form = form.text("prompt", config.dictionary.join(", "));
+    let prompt = crate::context::prompt(&config.dictionary, names);
+    if !prompt.is_empty() {
+        form = form.text("prompt", prompt);
     }
     // Streaming blocking bodies can hide connection errors behind a closed upload channel.
     let content_type = format!("multipart/form-data; boundary={}", form.boundary());
@@ -173,7 +174,7 @@ mod tests {
                 "audio/wav",
                 "name=\"model\"\r\n\r\ntest-model",
                 "name=\"language\"\r\n\r\nen",
-                "name=\"prompt\"\r\n\r\nTypeAside, Aditya",
+                "name=\"prompt\"\r\n\r\nTypeAside, Aditya, Alice",
             ] {
                 assert!(request.contains(field), "missing {field}");
             }
@@ -193,7 +194,15 @@ mod tests {
         };
         config.language = Some("en".into());
         config.dictionary = vec!["TypeAside".into(), "Aditya".into()];
-        assert_eq!(request(&config, &[0.1; 4800], "test-key")?, "Hello.");
+        assert_eq!(
+            request(
+                &config,
+                &[0.1; 4800],
+                "test-key",
+                &["aditya".into(), "Alice".into()]
+            )?,
+            "Hello."
+        );
         mock.join()
             .map_err(|_| anyhow::anyhow!("mock panicked"))??;
         assert!(is_tap(&[0.2; 3999]));
