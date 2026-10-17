@@ -328,8 +328,7 @@ fn main() -> Result<()> {
     }
     let paths = AppPaths::discover()?;
     if input == "--fixtures" {
-        fixtures(args.any(|arg| arg == "--generate-fixtures"))?;
-        return file_fixture();
+        return fixtures(args.any(|arg| arg == "--generate-fixtures"));
     }
     let mut config = match std::fs::read(&paths.config_file) {
         Ok(bytes) => serde_json::from_slice(&bytes)?,
