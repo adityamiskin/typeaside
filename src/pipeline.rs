@@ -9,6 +9,8 @@ use crate::{
 use anyhow::Result;
 use std::time::{Duration, Instant};
 
+pub const LOCAL_COMMAND: &str = "Commands need a TypeAside account or your own key";
+
 pub struct Output {
     pub raw: String,
     pub text: String,
@@ -36,6 +38,7 @@ pub fn run(
     let config = &effective;
     let started = Instant::now();
     let (raw, local) = match config.transcription {
+        Source::Local if mode == Mode::Command => anyhow::bail!(LOCAL_COMMAND),
         Source::Local => (crate::local::transcribe(audio)?, true),
         Source::Hosted | Source::OwnKey => match transcribe::transcribe(config, audio) {
             Ok(raw) => (raw, false),
