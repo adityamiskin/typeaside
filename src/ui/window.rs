@@ -565,7 +565,21 @@ impl Render for MainWindow {
             .flex()
             .children(trace)
             .when(!onboarding, |root| root.child(side))
-            .child(div().flex_1().min_w_0().h_full().child(content))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .w_full()
+                            .h_full()
+                            .when(!onboarding, |column| column.max_w(px(CONTENT_WIDTH)))
+                            .child(content),
+                    ),
+            )
             .children(self.update_toast(cx));
         let _ = window;
         root.capture_any_mouse_down(cx.listener(|this, _, _, cx| {
