@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use typeaside::{
     account,
     config::{AppCategory, Tone},
-    engine::{Command, Dictation},
+    engine::{Command, Dictation, Mode, Phase},
 };
 
 struct Stats {
@@ -23,12 +23,13 @@ struct Stats {
 }
 impl Stats {
     fn from_history(history: &[Dictation]) -> Self {
+        let history = history.iter().filter(|d| d.mode != Mode::File);
         let words = history
-            .iter()
+            .clone()
             .map(|d| d.cleaned.split_whitespace().count())
             .sum::<usize>();
-        let audio_ms = history.iter().map(|d| u64::from(d.audio_ms)).sum::<u64>();
-        let mut latencies = history.iter().map(|d| d.latency_ms).collect::<Vec<_>>();
+        let audio_ms = history.clone().map(|d| u64::from(d.audio_ms)).sum::<u64>();
+        let mut latencies = history.clone().map(|d| d.latency_ms).collect::<Vec<_>>();
         latencies.sort_unstable();
         let median = if latencies.is_empty() {
             0
@@ -40,7 +41,7 @@ impl Stats {
             latencies[latencies.len() / 2]
         };
         let days = history
-            .iter()
+            .clone()
             .map(|d| DateTime::<Local>::from(d.at).date_naive())
             .collect::<BTreeSet<_>>();
         let today = Local::now().date_naive();
@@ -73,6 +74,12 @@ impl Stats {
     }
 }
 impl MainWindow {
+    pub fn transcribe_file(&self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        let state = self.state.read(cx);
+        if !state.is_demo && state.file_transcribing.is_none() && state.phase == Phase::Idle {
+            state.command(Command::TranscribeFile(path));
+        }
+    }
     pub fn home(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let state = self.state.read(cx);
@@ -104,31 +111,76 @@ impl MainWindow {
         let stats = div()
             .flex()
             .items_center()
-            .gap(px(40.))
+            .gap(px(16.))
             .pt(px(18.))
             .pb(px(16.))
-            .children(values.into_iter().map(|(v, label)| {
+            .child(
                 div()
-                    .child(
+                    .flex()
+                    .items_center()
+                    .gap(px(40.))
+                    .children(values.into_iter().map(|(v, label)| {
                         div()
-                            .text_size(px(20.))
-                            .line_height(px(24.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(v),
-                    )
+                            .child(
+                                div()
+                                    .text_size(px(20.))
+                                    .line_height(px(24.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(v),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(17.4))
+                                    .text_color(p.muted)
+                                    .child(label),
+                            )
+                    })),
+            )
+            .child(
+                div()
+                    .id("transcribe-file")
+                    .ml_auto()
+                    .min_w_0()
+                    .text_ellipsis()
+                    .text_size(px(12.))
+                    .text_color(p.muted)
                     .child(
-                        div()
-                            .text_size(px(12.))
-                            .line_height(px(17.4))
-                            .text_color(p.muted)
-                            .child(label),
+                        state
+                            .file_transcribing
+                            .as_ref()
+                            .map(|name| format!("Transcribing {name}…"))
+                            .unwrap_or_else(|| "Transcribe file".into()),
                     )
-            }))
+                    .when(state.file_transcribing.is_none(), |link| {
+                        link.hover(|style| style.text_color(p.fg))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if this.state.read(cx).is_demo {
+                                    return;
+                                }
+                                let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
+                                    files: true,
+                                    directories: false,
+                                    multiple: false,
+                                    prompt: None,
+                                });
+                                cx.spawn(async move |this, cx| {
+                                    if let Ok(Ok(Some(paths))) = paths.await
+                                        && let Some(path) = paths.into_iter().next()
+                                    {
+                                        let _ = this
+                                            .update(cx, |this, cx| this.transcribe_file(path, cx));
+                                    }
+                                })
+                                .detach();
+                            }))
+                    }),
+            )
             .when_some(share_url, |row, url| {
                 row.child(
                     div()
                         .id("share-stats")
-                        .ml_auto()
                         .text_size(px(12.))
                         .text_color(p.muted)
                         .hover(|style| style.text_color(p.fg))

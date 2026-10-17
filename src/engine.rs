@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::OpenOptions,
     io::{BufRead, BufReader, Write},
+    path::PathBuf,
     sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant, SystemTime},
@@ -27,6 +28,7 @@ pub enum Mode {
     /// Voice instruction or question, optionally applied to selected text.
     Command,
     Translate,
+    File,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,6 +67,7 @@ pub enum Event {
     Level(f32),
     Done(Dictation),
     Copied(String),
+    FileStarted(String),
     Edited {
         inserted: String,
         edited: String,
@@ -77,6 +80,7 @@ pub enum Command {
     Start,
     Stop,
     RetryFailed,
+    TranscribeFile(PathBuf),
     DiscardFailed,
     Cancel,
     Reload(Box<AppConfig>),
@@ -335,13 +339,15 @@ fn run(
                 busy = None;
                 let audio = pending_audio.take();
                 let result = result.and_then(|dictation| {
-                    if !dictation.cleaned.is_empty() {
+                    if dictation.mode == Mode::File || !dictation.cleaned.is_empty() {
                         append_history(&paths, &dictation)?;
                     }
                     Ok(dictation)
                 });
                 match result {
-                    Ok(dictation) if dictation.cleaned.is_empty() => {
+                    Ok(dictation)
+                        if dictation.mode != Mode::File && dictation.cleaned.is_empty() =>
+                    {
                         if retrying {
                             if let Err(error) = discard_failed(&paths) {
                                 report_error(&events, error);
@@ -352,7 +358,15 @@ fn run(
                     Ok(dictation) => {
                         last = Some(dictation.cleaned.clone());
                         let _ = events.try_send(Event::Done(dictation.clone()));
-                        if retrying {
+                        if dictation.mode == Mode::File {
+                            match crate::text_injector::set_clipboard(&dictation.cleaned) {
+                                Ok(()) => {
+                                    let _ =
+                                        events.try_send(Event::Copied(dictation.cleaned.clone()));
+                                }
+                                Err(error) => report_error(&events, error),
+                            }
+                        } else if retrying {
                             if let Err(error) = discard_failed(&paths) {
                                 report_error(&events, error);
                             }
@@ -453,6 +467,48 @@ fn run(
                     report_error(&events, error);
                 }
                 let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+            }
+            Command::TranscribeFile(path) if busy.is_none() && recorder.is_none() => {
+                monitor = None;
+                watch = None;
+                retrying = false;
+                generation = generation.wrapping_add(1);
+                let id = generation;
+                busy = Some(id);
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                let _ = events.try_send(Event::FileStarted(name.clone()));
+                phase(&events, Phase::Transcribing);
+                let config = config.clone();
+                let worker_tx = tx.clone();
+                let spawned = thread::Builder::new()
+                    .name("typeaside-file-transcription".into())
+                    .spawn(move || {
+                        let started = Instant::now();
+                        let result =
+                            crate::transcribe::transcribe_file(&config, &path).map(|raw| {
+                                Dictation {
+                                    at: SystemTime::now(),
+                                    cleaned: raw.clone(),
+                                    raw,
+                                    app_id: Some(name),
+                                    audio_ms: 0,
+                                    latency_ms: started
+                                        .elapsed()
+                                        .as_millis()
+                                        .min(u128::from(u32::MAX))
+                                        as u32,
+                                    mode: Mode::File,
+                                }
+                            });
+                        let _ = worker_tx.send(Message::Finished(id, result));
+                    });
+                if let Err(error) = spawned {
+                    let _ = tx.send(Message::Finished(id, Err(error.into())));
+                }
             }
             Command::Stop | Command::RetryFailed if busy.is_none() => {
                 retrying = matches!(command, Command::RetryFailed);
@@ -624,6 +680,7 @@ fn run(
             Command::Start
             | Command::Stop
             | Command::RetryFailed
+            | Command::TranscribeFile(_)
             | Command::DiscardFailed
             | Command::MicTest(true)
             | Command::MicPreview => {}

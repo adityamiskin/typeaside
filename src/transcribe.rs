@@ -2,7 +2,7 @@ use crate::{config::AppConfig, credentials::endpoint_key};
 use anyhow::{Context, Result};
 use reqwest::blocking::multipart;
 use serde::Deserialize;
-use std::{io::Read, time::Duration};
+use std::{io::Read, path::Path, time::Duration};
 
 /// Presses under 250 ms are accidental taps (the hotkey doubles as a modifier).
 pub(crate) fn is_tap(audio: &[f32]) -> bool {
@@ -15,13 +15,70 @@ pub(crate) fn has_speech(audio: &[f32]) -> bool {
 }
 
 pub(crate) fn transcribe(config: &AppConfig, audio: &[f32], names: &[String]) -> Result<String> {
-    request(config, audio, &endpoint_key(&config.stt.base_url)?, names)
-}
-
-fn request(config: &AppConfig, audio: &[f32], key: &str, names: &[String]) -> Result<String> {
     let file = multipart::Part::bytes(encode_wav(audio)?)
         .file_name("dictation.wav")
         .mime_str("audio/wav")?;
+    request(
+        config,
+        file,
+        &endpoint_key(&config.stt.base_url)?,
+        names,
+        Duration::from_secs(30),
+    )
+}
+
+pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
+    anyhow::ensure!(
+        config.transcription != crate::config::Source::Local,
+        "File transcription needs a TypeAside account or your own key"
+    );
+    let extension = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "flac" => "audio/flac",
+        "mp3" | "mpga" => "audio/mpeg",
+        "mp4" => "video/mp4",
+        "mpeg" => "video/mpeg",
+        "m4a" => "audio/mp4",
+        "ogg" => "audio/ogg",
+        "wav" => "audio/wav",
+        "webm" => "video/webm",
+        _ => anyhow::bail!("Unsupported file type"),
+    };
+    let mut input = std::fs::File::open(path)?;
+    const MAX_BYTES: u64 = 20_000_000;
+    anyhow::ensure!(input.metadata()?.len() <= MAX_BYTES, "Files up to 20 MB");
+    let mut bytes = Vec::new();
+    (&mut input).take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+    anyhow::ensure!(bytes.len() as u64 <= MAX_BYTES, "Files up to 20 MB");
+    let file = multipart::Part::bytes(bytes)
+        .file_name(
+            path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        )
+        .mime_str(mime)?;
+    let config = config.effective();
+    request(
+        &config,
+        file,
+        &endpoint_key(&config.stt.base_url)?,
+        &[],
+        Duration::from_secs(120),
+    )
+}
+
+fn request(
+    config: &AppConfig,
+    file: multipart::Part,
+    key: &str,
+    names: &[String],
+    timeout: Duration,
+) -> Result<String> {
     let mut form = multipart::Form::new()
         .part("file", file)
         .text("model", config.stt.model.clone());
@@ -47,7 +104,7 @@ fn request(config: &AppConfig, audio: &[f32], key: &str, names: &[String]) -> Re
                 config.stt.base_url.trim_end_matches('/')
             ))
             .bearer_auth(key)
-            .timeout(Duration::from_secs(30))
+            .timeout(timeout)
             .header(reqwest::header::CONTENT_TYPE, content_type)
             .body(body)
             .send()?,
@@ -197,9 +254,12 @@ mod tests {
         assert_eq!(
             request(
                 &config,
-                &[0.1; 4800],
+                multipart::Part::bytes(encode_wav(&[0.1; 4800])?)
+                    .file_name("dictation.wav")
+                    .mime_str("audio/wav")?,
                 "test-key",
-                &["aditya".into(), "Alice".into()]
+                &["aditya".into(), "Alice".into()],
+                Duration::from_secs(30)
             )?,
             "Hello."
         );

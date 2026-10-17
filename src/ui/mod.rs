@@ -43,6 +43,7 @@ pub struct AppState {
     devices: Vec<String>,
     history: Vec<Dictation>,
     failed: Option<FailedRecording>,
+    file_transcribing: Option<String>,
     phase: Phase,
     save_error: Option<String>,
     #[cfg(target_os = "macos")]
@@ -220,6 +221,7 @@ fn start_ui(
         paths,
         engine: None,
         is_demo,
+        file_transcribing: None,
         key_hint: if is_demo {
             "Saved in keyring"
         } else {
@@ -393,6 +395,12 @@ fn start_ui(
                         let _ = surface.update(cx, |v, _, cx| v.level(level, cx));
                     }
                 }
+                Event::FileStarted(name) => {
+                    state.update(cx, |s, cx| {
+                        s.file_transcribing = Some(name);
+                        cx.notify();
+                    });
+                }
                 Event::Failed(failed) => {
                     state.update(cx, |s, cx| {
                         s.failed = failed;
@@ -464,6 +472,7 @@ fn start_ui(
                             s.onboarding_transcript = None;
                             s.onboarding_raw = None;
                         }
+                        if phase == Phase::Idle { s.file_transcribing = None; }
                         s.phase = phase.clone();
                         cx.notify();
                     });

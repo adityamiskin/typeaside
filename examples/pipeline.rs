@@ -205,7 +205,47 @@ fn fixtures(generate: bool) -> Result<()> {
             output.llm.as_millis()
         );
     }
+    file_fixture()?;
     println!("Artifact: /tmp/typeaside-perf/pipeline.md");
+    Ok(())
+}
+
+fn file_fixture() -> Result<()> {
+    use typeaside::{config::Source, transcribe::transcribe_file};
+    let mut config = fixture_config();
+    config.transcription = Source::OwnKey;
+    // Invalid credentials and an unreachable endpoint prove validation precedes network access.
+    config.stt.base_url = "http://127.0.0.1:0".into();
+    let path = std::env::temp_dir().join(format!("typeaside-oversize-{}.wav", std::process::id()));
+    let file = std::fs::File::create(&path)?;
+    file.set_len(20_000_001)?;
+    let result = transcribe_file(&config, &path);
+    std::fs::remove_file(&path)?;
+    ensure!(result.unwrap_err().to_string() == "Files up to 20 MB");
+    ensure!(
+        transcribe_file(&config, Path::new("unsupported.txt"))
+            .unwrap_err()
+            .to_string()
+            == "Unsupported file type"
+    );
+    config.transcription = Source::Local;
+    ensure!(
+        transcribe_file(&config, Path::new("tests/fixtures/translation.m4a"))
+            .unwrap_err()
+            .to_string()
+            == "File transcription needs a TypeAside account or your own key"
+    );
+    println!("file validation: size, extension, local source passed without network access");
+    let config = fixture_config();
+    let raw = transcribe_file(&config, Path::new("tests/fixtures/translation.m4a"))?;
+    let words = raw.to_lowercase();
+    for expected in ["meeting", "tomorrow", "three", "afternoon"] {
+        ensure!(
+            words.contains(expected),
+            "file transcript missing {expected}: {raw}"
+        );
+    }
+    println!("compressed file: {raw}");
     Ok(())
 }
 
@@ -288,7 +328,8 @@ fn main() -> Result<()> {
     }
     let paths = AppPaths::discover()?;
     if input == "--fixtures" {
-        return fixtures(args.any(|arg| arg == "--generate-fixtures"));
+        fixtures(args.any(|arg| arg == "--generate-fixtures"))?;
+        return file_fixture();
     }
     let mut config = match std::fs::read(&paths.config_file) {
         Ok(bytes) => serde_json::from_slice(&bytes)?,
