@@ -24,6 +24,18 @@ done
 iconutil -c icns "$iconset" -o "$bundle/Contents/Resources/TypeAside.icns"
 cp "$binary" "$bundle/Contents/MacOS/typeaside"
 cp packaging/macos/Info.plist "$bundle/Contents/Info.plist"
+# macOS 26 tints and glasses only the layers of an Icon Composer icon; the .icns stays for older systems.
+# actool ships with full Xcode, not the Command Line Tools.
+if xcrun --find actool >/dev/null 2>&1 &&
+    xcrun actool assets/TypeAside.icon --compile "$icon_tmp" --platform macosx \
+        --minimum-deployment-target 13.0 --app-icon TypeAside \
+        --output-partial-info-plist "$icon_tmp/icon.plist" >/dev/null &&
+    [ -f "$icon_tmp/Assets.car" ]; then
+    cp "$icon_tmp/Assets.car" "$bundle/Contents/Resources/Assets.car"
+    /usr/libexec/PlistBuddy -c 'Add :CFBundleIconName string TypeAside' "$bundle/Contents/Info.plist"
+else
+    echo 'warning: Xcode actool unavailable; macOS 26 tinted and clear icons will be flattened' >&2
+fi
 version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "typeaside"))')
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $version" "$bundle/Contents/Info.plist"
