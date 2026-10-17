@@ -16,7 +16,8 @@ export const downloads = {
     requirement: "Ubuntu 22.04+ and Fedora, on Wayland.",
     files: [
       { slug: "deb", label: "Ubuntu (.deb)", href: `${release}typeaside.deb` },
-      { slug: "appimage", label: "Fedora (AppImage)", href: `${release}TypeAside.AppImage` },
+      { slug: "rpm", label: "Fedora (.rpm)", href: `${release}typeaside.rpm` },
+      { slug: "appimage", label: "AppImage", href: `${release}TypeAside.AppImage` },
     ],
   },
 } as const;

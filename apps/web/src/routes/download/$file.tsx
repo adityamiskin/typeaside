@@ -38,6 +38,35 @@ const launcher = (
   </Window>
 );
 
+function packageSteps(filename: string, store: string): Step[] {
+  return [
+    [
+      <Downloads name={filename} icon={<Package />} />,
+      <>
+        Open <strong>{filename}</strong> from your <strong>Downloads</strong> folder.
+      </>,
+    ],
+    [
+      <Window>
+        <div className="steps-title">
+          <Logo />
+          TypeAside
+        </div>
+        <span className="steps-mini-button">Install</span>
+      </Window>,
+      <>
+        Click <strong>Install</strong> in <strong>{store}</strong>.
+      </>,
+    ],
+    [
+      launcher,
+      <>
+        Open <strong>TypeAside</strong> from your apps.
+      </>,
+    ],
+  ];
+}
+
 const steps: Record<(typeof downloadFiles)[number]["slug"], Step[]> = {
   mac: [
     [
@@ -99,32 +128,8 @@ const steps: Record<(typeof downloadFiles)[number]["slug"], Step[]> = {
       </>,
     ],
   ],
-  deb: [
-    [
-      <Downloads name="typeaside.deb" icon={<Package />} />,
-      <>
-        Open <strong>typeaside.deb</strong> from your <strong>Downloads</strong> folder.
-      </>,
-    ],
-    [
-      <Window>
-        <div className="steps-title">
-          <Logo />
-          TypeAside
-        </div>
-        <span className="steps-mini-button">Install</span>
-      </Window>,
-      <>
-        Click <strong>Install</strong> in <strong>App Center</strong>.
-      </>,
-    ],
-    [
-      launcher,
-      <>
-        Open <strong>TypeAside</strong> from your apps.
-      </>,
-    ],
-  ],
+  deb: packageSteps("typeaside.deb", "App Center"),
+  rpm: packageSteps("typeaside.rpm", "Software"),
   appimage: [
     [
       <Downloads name="TypeAside.AppImage" icon={<Package />} />,
