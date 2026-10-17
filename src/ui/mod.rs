@@ -1,4 +1,5 @@
 mod assets;
+mod clock;
 mod demo;
 mod dictionary;
 mod home;

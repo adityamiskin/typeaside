@@ -63,7 +63,7 @@ pub fn history() -> Vec<Dictation> {
     ].into_iter().map(|(cleaned,raw,app,ago,h,m,latency_ms)| {
         let date = today - chrono::Duration::days(ago);
         let at = Local.from_local_datetime(&date.and_hms_opt(h,m,0).unwrap()).earliest().unwrap().into();
-        Dictation {at, raw:raw.into(), cleaned:cleaned.into(), app_id:Some(app.into()), audio_ms:4200, latency_ms, mode:Mode::Dictate}
+        Dictation {at, raw:raw.into(), cleaned:cleaned.into(), app_id:Some(app.into()), audio_ms:4200, latency_ms, mode:if ago == 1 { Mode::Command } else { Mode::Dictate }}
     }).collect()
 }
 

@@ -5,11 +5,12 @@ use super::{
 use chrono::{DateTime, Local};
 use gpui::{
     Anchor, App, ClipboardItem, Context, DismissEvent, ElementId, Focusable, FontFeatures,
-    FontWeight, IntoElement, Styled, div, prelude::*, px,
+    FontWeight, IntoElement, Styled, Window, div, prelude::*, px,
 };
 use gpui_kit::component::{
-    Icon, Sizable,
+    Icon, Sizable, WindowExt,
     button::{Button, ButtonCustomVariant, ButtonVariants},
+    dialog::DialogEntrance,
     input::Input,
     menu::{PopupMenu, PopupMenuItem},
     popover::Popover,
@@ -21,6 +22,23 @@ use typeaside::{
     config::{AppCategory, Tone},
     engine::{Command, Dictation, Mode, Phase},
 };
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum HistoryTab {
+    #[default]
+    All,
+    Dictations,
+    AskAnything,
+}
+impl HistoryTab {
+    fn includes(self, mode: Mode) -> bool {
+        match self {
+            Self::All => true,
+            Self::Dictations => mode != Mode::Command,
+            Self::AskAnything => mode == Mode::Command,
+        }
+    }
+}
 
 struct Stats {
     words: usize,
@@ -129,41 +147,29 @@ impl MainWindow {
                     menu
                 } else {
                     let copy = main.clone();
-                    let menu = PopupMenu::build(window, cx, move |menu, _, cx| {
+                    let menu = PopupMenu::build(window, cx, move |menu, _, _| {
                         menu.min_w(px(150.))
                             .item(
-                                PopupMenuItem::new("Copy raw")
-                                    .icon(Icon::default().path("icons/file-text.svg"))
-                                    .on_click(move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(
-                                            raw.clone(),
-                                        ));
-                                        let _ = copy.update(cx, |this, cx| {
-                                            this.show_toast("Copied raw", None, cx)
-                                        });
-                                    }),
+                                PopupMenuItem::element(|_, cx| {
+                                    menu_label("Copy raw", "icons/file-text.svg", palette(cx).fg)
+                                })
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(raw.clone()));
+                                    let _ = copy
+                                        .update(cx, |this, cx| this.show_toast("Copied raw", cx));
+                                }),
                             )
                             .separator()
                             .item(
                                 PopupMenuItem::element(|_, cx| {
-                                    div().text_color(palette(cx).red).child("Delete")
+                                    menu_label("Delete", "icons/trash.svg", palette(cx).red)
                                 })
-                                .icon(
-                                    Icon::default()
-                                        .path("icons/trash.svg")
-                                        .text_color(palette(cx).red),
-                                )
-                                .on_click(move |_, _, cx| {
-                                    let _ = main.update(cx, |this, cx| {
-                                        if let Some(index) = this
-                                            .state
-                                            .read(cx)
-                                            .history
-                                            .iter()
-                                            .position(|item| item.at == timestamp)
-                                        {
-                                            this.delete_history(index, cx);
-                                        }
+                                .on_click(move |_, window, cx| {
+                                    let main = main.clone();
+                                    window.defer(cx, move |window, cx| {
+                                        let _ = main.update(cx, |this, cx| {
+                                            this.confirm_removal(Some(timestamp), window, cx);
+                                        });
                                     });
                                 }),
                             )
@@ -181,6 +187,107 @@ impl MainWindow {
                     menu
                 }
             })
+    }
+    pub fn confirm_removal(
+        &mut self,
+        timestamp: Option<std::time::SystemTime>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let state = self.state.read(cx);
+        let text = if let Some(at) = timestamp {
+            let Some(item) = state.history.iter().find(|item| item.at == at) else {
+                return;
+            };
+            item.cleaned.clone()
+        } else {
+            if state.failed.is_none() {
+                return;
+            }
+            "Recording didn't transcribe".into()
+        };
+        let failed_at = state.failed.as_ref().map(|failed| failed.at);
+        let main = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, window, cx| {
+            let p = palette(cx);
+            let main = main.clone();
+            dialog
+                .title(if timestamp.is_some() {
+                    "Delete this transcript?"
+                } else {
+                    "Discard this recording?"
+                })
+                .w(px(380.))
+                .margin_top((window.viewport_size().height / 2. - px(90.)).max(px(16.)))
+                .entrance(DialogEntrance::None)
+                .close_button(false)
+                .bg(p.pill)
+                .text_color(p.fg)
+                .border_color(p.pill_border)
+                .rounded(px(8.))
+                .on_ok(|_, _, _| false)
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .text_color(p.muted)
+                        .line_clamp(2)
+                        .child(text.clone()),
+                )
+                .footer(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(px(8.))
+                        .child(
+                            Button::new("cancel-removal")
+                                .secondary()
+                                .label("Cancel")
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            Button::new("confirm-removal")
+                                .label(if timestamp.is_some() {
+                                    "Delete"
+                                } else {
+                                    "Discard"
+                                })
+                                .danger()
+                                .on_click(move |_, window, cx| {
+                                    let _ = main.update(cx, |this, cx| {
+                                        if let Some(at) = timestamp {
+                                            let index = this
+                                                .state
+                                                .read(cx)
+                                                .history
+                                                .iter()
+                                                .position(|item| item.at == at);
+                                            if let Some(index) = index {
+                                                this.delete_history(index, cx);
+                                            }
+                                        } else if this
+                                            .state
+                                            .read(cx)
+                                            .failed
+                                            .as_ref()
+                                            .map(|failed| failed.at)
+                                            == failed_at
+                                        {
+                                            this.state.update(cx, |s, cx| {
+                                                if s.is_demo {
+                                                    s.failed = None;
+                                                } else {
+                                                    s.command(Command::DiscardFailed);
+                                                }
+                                                cx.notify();
+                                            });
+                                            this.show_toast("Discarded", cx);
+                                        }
+                                    });
+                                    window.close_dialog(cx);
+                                }),
+                        ),
+                )
+        });
     }
     pub fn home(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
@@ -316,16 +423,8 @@ impl MainWindow {
                     )
                     .child(
                         history_button("discard-failed", "icons/trash.svg", "Discard", false, cx)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.state.update(cx, |s, cx| {
-                                    if s.is_demo {
-                                        s.failed = None;
-                                    } else {
-                                        s.command(Command::DiscardFailed);
-                                    }
-                                    cx.notify();
-                                });
-                                this.show_toast("Discarded", None, cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_removal(None, window, cx);
                             })),
                     )
             };
@@ -350,18 +449,59 @@ impl MainWindow {
                                 "{}:{:02} · {}",
                                 seconds / 60,
                                 seconds % 60,
-                                at.format("%H:%M")
+                                at.format(super::clock::time_format())
                             ))),
                     )
                     .child(actions)
                     .into_any_element(),
             );
         }
+        rows.push(
+            div()
+                .flex()
+                .pt(px(12.))
+                .child(
+                    div().flex().bg(p.hover).rounded(px(8.)).p(px(3.)).children(
+                        [
+                            (HistoryTab::All, "All"),
+                            (HistoryTab::Dictations, "Dictations"),
+                            (HistoryTab::AskAnything, "Ask anything"),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (tab, label))| {
+                            div()
+                                .id(("history-tab", index))
+                                .cursor_pointer()
+                                .px(px(10.))
+                                .py(px(4.))
+                                .rounded(px(6.))
+                                .text_size(px(12.))
+                                .text_color(if self.history_tab == tab {
+                                    p.fg
+                                } else {
+                                    p.muted
+                                })
+                                .when(self.history_tab == tab, |tab| tab.bg(p.bg))
+                                .hover(|tab| tab.text_color(p.fg))
+                                .child(label)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.history_tab = tab;
+                                    this.hovered_history = None;
+                                    cx.notify();
+                                }))
+                        }),
+                    ),
+                )
+                .into_any_element(),
+        );
         let mut previous = None;
         let today = Local::now().date_naive();
         let query = state.search.to_lowercase();
         for (index, item) in state.history.iter().enumerate().filter(|(_, d)| {
-            d.cleaned.to_lowercase().contains(&query) || d.raw.to_lowercase().contains(&query)
+            self.history_tab.includes(d.mode)
+                && (d.cleaned.to_lowercase().contains(&query)
+                    || d.raw.to_lowercase().contains(&query))
         }) {
             let at: DateTime<Local> = item.at.into();
             let day = at.date_naive();
@@ -401,7 +541,7 @@ impl MainWindow {
                     history_button(("copy", index), "icons/copy.svg", "Copy", false, cx).on_click(
                         cx.listener(move |this, _, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-                            this.show_toast("Copied", None, cx);
+                            this.show_toast("Copied", cx);
                         }),
                     ),
                 )
@@ -447,13 +587,17 @@ impl MainWindow {
                     }))
                     .child(
                         div()
-                            .w(px(52.))
+                            .w(px(if super::clock::time_format() == "%H:%M" {
+                                52.
+                            } else {
+                                72.
+                            }))
                             .flex_shrink_0()
                             .font_family(MONO)
                             .text_size(px(12.))
                             .line_height(px(19.))
                             .text_color(p.muted)
-                            .child(at.format("%H:%M").to_string()),
+                            .child(at.format(super::clock::time_format()).to_string()),
                     )
                     .child(
                         div()
@@ -532,7 +676,18 @@ impl MainWindow {
                 rows.push(details.into_any_element());
             }
         }
-        if state.history.is_empty() {
+        if self.history_tab != HistoryTab::All && previous.is_none() {
+            rows.push(
+                div()
+                    .pt(px(18.))
+                    .text_color(p.muted)
+                    .child(match self.history_tab {
+                        HistoryTab::Dictations => "No dictations yet",
+                        _ => "Nothing asked yet",
+                    })
+                    .into_any_element(),
+            );
+        } else if state.history.is_empty() {
             rows.push(
                 div()
                     .pt(px(18.))
@@ -545,7 +700,7 @@ impl MainWindow {
                     .child("and speak.")
                     .into_any_element(),
             );
-        } else if rows.is_empty() {
+        } else if previous.is_none() {
             rows.push(
                 div()
                     .pt(px(18.))
@@ -652,4 +807,14 @@ fn history_button(
                 })
                 .child(Icon::default().path(icon).size(px(15.))),
         )
+}
+
+fn menu_label(label: &'static str, icon: &'static str, color: gpui::Hsla) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .text_color(color)
+        .child(Icon::default().path(icon).size(px(14.)).flex_shrink_0())
+        .child(label)
 }

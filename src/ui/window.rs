@@ -50,6 +50,7 @@ pub struct MainWindow {
     pub search_input: Entity<InputState>,
     pub toast: Option<super::toast::Toast>,
     pub toast_task: Option<gpui::Task<()>>,
+    pub history_tab: super::home::HistoryTab,
     pub menu_history: Option<std::time::SystemTime>,
     pub snippet_editor: Option<super::snippets::SnippetEditor>,
     pub style_category: AppCategory,
@@ -148,6 +149,7 @@ impl MainWindow {
             toast: None,
             toast_task: None,
             menu_history: None,
+            history_tab: super::home::HistoryTab::default(),
             style_category: AppCategory::Work,
             hovered_history: None,
             hovered_word: None,
@@ -166,6 +168,23 @@ impl MainWindow {
                 let at = this.state.read(cx).history.get(1).map(|d| d.at);
                 this.state.update(cx, |s, _| s.expanded = at);
                 this.hovered_history = Some(0);
+                this.history_tab = match std::env::var("TYPEASIDE_DEMO_TAB").as_deref() {
+                    Ok("ask") => super::home::HistoryTab::AskAnything,
+                    Ok("dictations") => super::home::HistoryTab::Dictations,
+                    _ => super::home::HistoryTab::All,
+                };
+                if let Ok(kind) = std::env::var("TYPEASIDE_DEMO_DIALOG") {
+                    let timestamp = (kind == "delete").then(|| this.state.read(cx).history[0].at);
+                    cx.spawn_in(window, async move |this, cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(150))
+                            .await;
+                        let _ = this.update_in(cx, |this, window, cx| {
+                            this.confirm_removal(timestamp, window, cx)
+                        });
+                    })
+                    .detach();
+                }
                 if let Ok(message) = std::env::var("TYPEASIDE_DEMO_TOAST") {
                     if message == "deleted" {
                         this.delete_history(0, cx);
@@ -176,7 +195,6 @@ impl MainWindow {
                                 "discarded" => "Discarded",
                                 _ => "Copied",
                             },
-                            None,
                             cx,
                         );
                     }

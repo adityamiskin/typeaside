@@ -641,7 +641,7 @@ impl MainWindow {
             let resets = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
                 .map(|date| {
                     date.with_timezone(&chrono::Local)
-                        .format("%a %-I:%M %p")
+                        .format(&format!("%a {}", super::clock::time_format()))
                         .to_string()
                 })
                 .unwrap_or_default();
