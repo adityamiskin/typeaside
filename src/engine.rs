@@ -506,7 +506,6 @@ fn run(
                         let result =
                             crate::transcribe::transcribe_file(&config, &path).and_then(|raw| {
                                 anyhow::ensure!(!raw.is_empty(), "No speech found");
-                                let delivery = Delivery::Insert;
                                 Ok((
                                     Dictation {
                                         at: SystemTime::now(),
@@ -521,7 +520,7 @@ fn run(
                                             as u32,
                                         mode: Mode::File,
                                     },
-                                    delivery,
+                                    Delivery::Insert,
                                 ))
                             });
                         let _ = worker_tx.send(Message::Finished(id, result));

@@ -1,5 +1,5 @@
 use crate::{
-    cleanup::{self, CommandAnswer},
+    cleanup::{self, Answer},
     config::{AppConfig, Source},
     engine::Mode,
     snippets,
@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 pub const LOCAL_COMMAND: &str = "Commands need a TypeAside account or your own key";
 pub const LOCAL_TRANSLATE: &str = "Translation needs a TypeAside account or your own key";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Delivery {
     Insert,
     Reply,
@@ -62,11 +63,13 @@ pub fn run(
     let stt = started.elapsed();
     let started = Instant::now();
     let answer = if raw.is_empty() {
-        CommandAnswer::Insert {
+        Answer {
+            delivery: Delivery::Insert,
             text: String::new(),
         }
     } else if local {
-        CommandAnswer::Insert {
+        Answer {
+            delivery: Delivery::Insert,
             text: snippets::expand(&cleanup::remove_fillers(&raw), &config.snippets),
         }
     } else if mode == Mode::Command {
@@ -76,7 +79,8 @@ pub fn run(
         if config.editing() || mode == Mode::Translate {
             cleaning();
         }
-        CommandAnswer::Insert {
+        Answer {
+            delivery: Delivery::Insert,
             text: snippets::expand(
                 &cleanup::cleanup(config, &raw, app, names, mode == Mode::Translate),
                 &config.snippets,
@@ -91,15 +95,10 @@ pub fn run(
             llm.as_millis()
         );
     }
-    let delivery = match &answer {
-        CommandAnswer::Insert { .. } => Delivery::Insert,
-        CommandAnswer::Reply { .. } => Delivery::Reply,
-        CommandAnswer::Open { .. } => Delivery::Open,
-    };
     Ok(Output {
         raw,
-        text: answer.content().to_owned(),
-        delivery,
+        text: answer.text,
+        delivery: answer.delivery,
         stt,
         llm,
     })

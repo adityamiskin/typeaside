@@ -372,25 +372,19 @@ impl Render for Overlay {
         };
         let clickable = matches!(&self.phase, Visual::Notice(_, _, words) if !words.is_empty());
         // Each region change commits the surface, so only send it when Undo appears or goes.
+        #[cfg(target_os = "linux")]
         if self.clickable != Some(clickable) {
             self.clickable = Some(clickable);
-            #[cfg(target_os = "macos")]
-            borderless(window, clickable);
-            #[cfg(target_os = "windows")]
-            windows_interactivity(window, "pill", clickable);
-            #[cfg(target_os = "linux")]
-            {
-                let target = self.width.target;
-                let region = Bounds::new(
-                    point(
-                        px((SURFACE_WIDTH - target) / 2.),
-                        px(SURFACE_HEIGHT - SHADOW_SPACE - PILL_HEIGHT),
-                    ),
-                    size(px(target), px(PILL_HEIGHT)),
-                );
-                let regions = [region];
-                window.set_input_region(Some(if clickable { &regions[..] } else { &[] }));
-            }
+            let target = self.width.target;
+            let region = Bounds::new(
+                point(
+                    px((SURFACE_WIDTH - target) / 2.),
+                    px(SURFACE_HEIGHT - SHADOW_SPACE - PILL_HEIGHT),
+                ),
+                size(px(target), px(PILL_HEIGHT)),
+            );
+            let regions = [region];
+            window.set_input_region(Some(if clickable { &regions[..] } else { &[] }));
         }
         let mut pill = div()
             .absolute()
@@ -634,17 +628,13 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
         },
     )?;
     #[cfg(target_os = "macos")]
-    handle.update(cx, |_, window, _| borderless(window, false))?;
-    #[cfg(target_os = "windows")]
-    handle.update(cx, |_, window, _| {
-        windows_interactivity(window, "pill", false)
-    })?;
+    handle.update(cx, |_, window, _| borderless(window))?;
     Ok(handle)
 }
 
 /// GPUI gives untitled windows a titled frame, whose border and shadow outline the whole surface.
 #[cfg(target_os = "macos")]
-fn borderless(window: &Window, interactive: bool) {
+fn borderless(window: &Window) {
     use objc2_app_kit::{NSView, NSWindowStyleMask};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     let Ok(handle) = HasWindowHandle::window_handle(window) else {
@@ -657,7 +647,6 @@ fn borderless(window: &Window, interactive: bool) {
     if let Some(window) = view.window() {
         window.setStyleMask(NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel);
         window.setHasShadow(false);
-        window.setIgnoresMouseEvents(!interactive);
     }
 }
 
@@ -716,7 +705,7 @@ impl Render for AnswerCard {
             window.request_animation_frame();
         }
         #[cfg(target_os = "linux")]
-        let (left, top) = (24., 8. + self.rise.value);
+        let (left, top) = (40., 24. + self.rise.value);
         #[cfg(not(target_os = "linux"))]
         let (left, top) = (0., self.rise.value);
         #[cfg(target_os = "linux")]
@@ -903,7 +892,7 @@ pub fn open_answer(
             #[cfg(target_os = "linux")]
             window_bounds: Some(WindowBounds::Windowed(Bounds::new(
                 point(px(0.), px(0.)),
-                size(px(ANSWER_WIDTH + 48.), px(height + 56.)),
+                size(px(ANSWER_WIDTH + 80.), px(height + 72.)),
             ))),
             #[cfg(target_os = "linux")]
             kind: WindowKind::LayerShell(LayerShellOptions {
@@ -958,30 +947,6 @@ pub fn open_answer(
         },
     )?;
     #[cfg(target_os = "macos")]
-    handle.update(cx, |_, window, _| borderless(window, true))?;
-    #[cfg(target_os = "windows")]
-    handle.update(cx, |_, window, _| {
-        windows_interactivity(window, "answer", true)
-    })?;
+    handle.update(cx, |_, window, _| borderless(window))?;
     Ok(handle)
-}
-
-#[cfg(target_os = "windows")]
-fn windows_interactivity(window: &mut Window, kind: &str, interactive: bool) {
-    use windows::{Win32::UI::WindowsAndMessaging::*, core::PCWSTR};
-    let title = format!("TypeAside {kind} {}", std::process::id());
-    window.set_window_title(&title);
-    let title = title.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
-    // GPUI exposes raw handles through a macOS-only dependency in this app.
-    if let Ok(handle) = unsafe { FindWindowW(None, PCWSTR(title.as_ptr())) } {
-        unsafe {
-            let mut style = GetWindowLongPtrW(handle, GWL_EXSTYLE) | WS_EX_NOACTIVATE.0 as isize;
-            if interactive {
-                style &= !(WS_EX_TRANSPARENT.0 as isize);
-            } else {
-                style |= WS_EX_TRANSPARENT.0 as isize;
-            }
-            SetWindowLongPtrW(handle, GWL_EXSTYLE, style);
-        }
-    }
 }
