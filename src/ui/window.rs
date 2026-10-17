@@ -280,9 +280,9 @@ impl Render for MainWindow {
             .size(px(1.))
         });
         let state = self.state.read(cx);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         let permission_notice = state.permission_notice.clone();
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         let permission_help = super::permissions::help(state);
         let onboarding = !state.config.onboarded;
         let (color, status) = if let Some(error) = &state.save_error {
@@ -509,7 +509,7 @@ impl Render for MainWindow {
                 Page::Settings | Page::Onboarding => self.settings(cx).into_any_element(),
             }
         };
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         let content = div()
             .size_full()
             .flex()
@@ -534,7 +534,11 @@ impl Render for MainWindow {
                                             .cursor_pointer()
                                             .text_color(p.fg)
                                             .underline()
-                                            .child("Open Settings")
+                                            .child(if cfg!(target_os = "linux") {
+                                                "Allow"
+                                            } else {
+                                                "Open Settings"
+                                            })
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 let missing = super::permissions::statuses()
                                                     .into_iter()

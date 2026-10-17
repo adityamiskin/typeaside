@@ -7,7 +7,7 @@ mod instance;
 mod motion;
 mod onboarding;
 mod overlay;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod permissions;
 mod settings;
 mod snippets;
@@ -46,7 +46,7 @@ pub struct AppState {
     file_transcribing: Option<String>,
     phase: Phase,
     save_error: Option<String>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     permission_notice: Option<String>,
     #[cfg(target_os = "macos")]
     permission_help: bool,
@@ -180,8 +180,9 @@ fn start_ui(
     started: std::time::Instant,
     cx: &mut App,
 ) {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     if !is_demo {
+        #[cfg(target_os = "macos")]
         typeaside::hotkeys::globe::follow(&config);
         if config.onboarded {
             permissions::request();
@@ -246,7 +247,7 @@ fn start_ui(
         failed: None,
         phase: Phase::Idle,
         save_error: None,
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         permission_notice: if is_demo { None } else { permissions::notice() },
         #[cfg(target_os = "macos")]
         permission_help: false,
@@ -300,7 +301,7 @@ fn start_ui(
     })
     .detach();
     if !is_demo {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         permissions::watch(&state, cx);
         update::schedule(&state, cx);
         schedule_settings_sync(&state, sync_rx, cx);

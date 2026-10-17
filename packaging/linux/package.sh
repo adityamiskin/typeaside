@@ -8,6 +8,24 @@ mkdir -p dist "$stage/deb/DEBIAN" "$stage/deb/usr/bin" "$stage/deb/usr/share/app
 install -m755 target/release/typeaside "$stage/deb/usr/bin/typeaside"
 install -m644 packaging/typeaside.desktop "$stage/deb/usr/share/applications/typeaside.desktop"
 install -m644 assets/typeaside.svg "$stage/deb/usr/share/icons/hicolor/scalable/apps/typeaside.svg"
+mkdir -p "$stage/deb/usr/lib/udev/rules.d" "$stage/deb/usr/lib/modules-load.d"
+install -m644 packaging/linux/70-typeaside.rules "$stage/deb/usr/lib/udev/rules.d/70-typeaside.rules"
+printf 'uinput\n' > "$stage/deb/usr/lib/modules-load.d/typeaside.conf"
+cat > "$stage/deb/DEBIAN/postinst" <<'POSTINST'
+#!/bin/sh
+set -e
+modprobe uinput || true
+udevadm control --reload-rules || true
+udevadm trigger --subsystem-match=input --subsystem-match=misc || true
+POSTINST
+cat > "$stage/deb/DEBIAN/postrm" <<'POSTRM'
+#!/bin/sh
+set -e
+case "$1" in
+    remove|purge) udevadm control --reload-rules || true ;;
+esac
+POSTRM
+chmod 755 "$stage/deb/DEBIAN/postinst" "$stage/deb/DEBIAN/postrm"
 cat > "$stage/deb/DEBIAN/control" <<CONTROL
 Package: typeaside
 Version: $version
