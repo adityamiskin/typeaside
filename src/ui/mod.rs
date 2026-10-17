@@ -381,6 +381,7 @@ fn start_ui(
                     });
                 }
                 Event::Edited { inserted, edited } => {
+                    let mut learned = Vec::new();
                     state.update(cx, |s, cx| {
                         if !s.config.auto_learn { return; }
                         let words = typeaside::corrections::candidates(&inserted, &edited, s.config.known_words());
@@ -389,12 +390,22 @@ fn start_ui(
                             s.config.add_word(word.clone());
                         }
                         s.save_error = s.config.save(&s.paths).err().map(|error| format!("Could not save learned words: {error}"));
-                        if s.save_error.is_none() {
-                            let _ = s.sync.try_send(());
-                            s.command(Command::Learn(words));
+                        if s.save_error.is_some() {
+                            cx.notify();
+                            return;
                         }
+                        let _ = s.sync.try_send(());
+                        s.command(Command::Learn(words.clone()));
                         cx.notify();
+                        learned = words;
                     });
+                    if !learned.is_empty() {
+                        let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.learned(&learned, w, cx)).is_ok());
+                        if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
+                            let _ = h.update(cx, |v, w, cx| v.learned(&learned, w, cx));
+                            surface = Some(h);
+                        }
+                    }
                 }
                 Event::Copied(text) => {
                     let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.copied(text.clone(), w, cx)).is_ok());

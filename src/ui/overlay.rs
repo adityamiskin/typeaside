@@ -16,7 +16,7 @@ enum Visual {
     Success,
     Cancel,
     Error(String),
-    Copied(String),
+    Notice(&'static str, String),
     Exit,
 }
 
@@ -99,17 +99,32 @@ impl Overlay {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        let available = SURFACE_WIDTH - 48. - 46. - COPIED_GAP - text_width("Copied", window, cx);
-        let mut quoted = format!("“{preview}”");
-        if text_width(&quoted, window, cx) > available {
-            let ends = preview.char_indices().map(|(i, _)| i).collect::<Vec<_>>();
+        self.notice("Copied", &preview, |s| format!("“{s}”"), window, cx);
+    }
+
+    pub fn learned(&mut self, words: &[String], window: &mut Window, cx: &mut Context<Self>) {
+        self.notice("Learned", &words.join(", "), str::to_owned, window, cx);
+    }
+
+    fn notice(
+        &mut self,
+        label: &'static str,
+        text: &str,
+        wrap: impl Fn(&str) -> String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let available = SURFACE_WIDTH - 48. - 46. - COPIED_GAP - text_width(label, window, cx);
+        let mut shown = wrap(text);
+        if text_width(&shown, window, cx) > available {
+            let ends = text.char_indices().map(|(i, _)| i).collect::<Vec<_>>();
             let fits = |end: usize| {
-                text_width(&format!("“{}…”", &preview[..end]), window, cx) <= available
+                text_width(&wrap(&format!("{}…", &text[..end])), window, cx) <= available
             };
             let end = ends[ends.partition_point(|&end| fits(end)).saturating_sub(1)];
-            quoted = format!("“{}…”", &preview[..end]);
+            shown = wrap(&format!("{}…", &text[..end]));
         }
-        self.set(Visual::Copied(quoted), window, cx);
+        self.set(Visual::Notice(label, shown), window, cx);
     }
 
     fn set(&mut self, phase: Visual, window: &mut Window, cx: &mut Context<Self>) {
@@ -120,9 +135,9 @@ impl Overlay {
         self.phase_at = Instant::now();
         let text = match &self.phase {
             Visual::Error(message) => Some(text_width(message, window, cx)),
-            Visual::Copied(preview) => Some(
-                text_width("Copied", window, cx) + COPIED_GAP + text_width(preview, window, cx),
-            ),
+            Visual::Notice(label, text) => {
+                Some(text_width(label, window, cx) + COPIED_GAP + text_width(text, window, cx))
+            }
             _ => None,
         };
         if let Some(text) = text {
@@ -134,7 +149,7 @@ impl Overlay {
             Visual::Success => Some(CHECK_TIME + SUCCESS_HOLD),
             Visual::Cancel => Some(CANCEL_TIME),
             Visual::Error(_) => Some(ERROR_HOLD),
-            Visual::Copied(_) => Some(COPIED_HOLD),
+            Visual::Notice(..) => Some(COPIED_HOLD),
             _ => None,
         };
         if let Some(hold) = hold {
@@ -188,7 +203,7 @@ impl Overlay {
             Visual::Processing => self.width.target = WORK_WIDTH,
             Visual::Success => self.width.target = PILL_HEIGHT,
             Visual::Cancel | Visual::Exit => {}
-            Visual::Error(_) | Visual::Copied(_) => {}
+            Visual::Error(_) | Visual::Notice(..) => {}
         }
         let mut moving = self.width.step(dt, PILL_STIFFNESS, PILL_DAMPING);
         moving |= self.rise.step(dt, PILL_STIFFNESS, PILL_DAMPING);
@@ -243,7 +258,7 @@ impl Render for Overlay {
             Visual::Processing => "processing",
             Visual::Success => "success",
             Visual::Error(_) => "error",
-            Visual::Copied(_) => "copied",
+            Visual::Notice(..) => "notice",
             Visual::Cancel => "cancel",
             Visual::Exit => "exit",
         };
@@ -295,8 +310,12 @@ impl Render for Overlay {
             .items_center()
             .justify_center()
             .overflow_hidden();
-        if let Visual::Error(message) | Visual::Copied(message) = &self.phase {
-            let copied = matches!(self.phase, Visual::Copied(_));
+        if let Visual::Error(message) | Visual::Notice(_, message) = &self.phase {
+            let label = match self.phase {
+                Visual::Notice(label, _) => Some(label),
+                _ => None,
+            };
+            let notice = label.is_some();
             let text_progress = (elapsed / ERROR_TEXT_TIME).min(1.);
             pill = pill.child(
                 div()
@@ -309,7 +328,7 @@ impl Render for Overlay {
                             .size(px(6. * self.dot.value.max(0.)))
                             .flex_shrink_0()
                             .rounded_full()
-                            .bg(if copied { p.blue } else { p.red }),
+                            .bg(if notice { p.blue } else { p.red }),
                     )
                     .child(
                         div()
@@ -321,10 +340,10 @@ impl Render for Overlay {
                             .flex()
                             .gap(px(COPIED_GAP))
                             .whitespace_nowrap()
-                            .when(copied, |el| el.child("Copied"))
+                            .children(label)
                             .child(
                                 div()
-                                    .when(copied, |el| el.text_color(p.muted))
+                                    .when(notice, |el| el.text_color(p.muted))
                                     .child(message.clone()),
                             ),
                     ),
