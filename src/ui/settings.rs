@@ -65,10 +65,19 @@ pub struct SettingsInputs {
     pub device: Entity<SelectState<Vec<String>>>,
     pub spoken: Entity<SelectState<Vec<String>>>,
     pub translation: Entity<SelectState<Vec<String>>>,
+    stt_models: ModelList,
+    cleanup_models: ModelList,
     devices: Vec<String>,
     stt_hint: String,
     editing_hint: String,
 }
+/// Models offered by an own-key endpoint; the text input stays until a list loads.
+struct ModelList {
+    select: Entity<SelectState<Vec<String>>>,
+    fetched_for: String,
+    loaded: bool,
+}
+
 impl SettingsInputs {
     pub fn new(
         c: &AppConfig,
@@ -96,6 +105,13 @@ impl SettingsInputs {
             cx.new(|cx| SelectState::new(values, Some(IndexPath::default().row(index)), w, cx))
         };
         let device = select(devices.to_vec(), c.input_device.as_deref());
+        let mut models = || ModelList {
+            select: select(Vec::new(), None),
+            fetched_for: String::new(),
+            loaded: false,
+        };
+        let stt_models = models();
+        let cleanup_models = models();
         let spoken_name = c.language.as_deref().and_then(|code| {
             LANGUAGES
                 .iter()
@@ -126,6 +142,8 @@ impl SettingsInputs {
             device,
             spoken,
             translation,
+            stt_models,
+            cleanup_models,
             devices: devices.to_vec(),
             stt_hint: String::new(),
             editing_hint: String::new(),
@@ -140,6 +158,16 @@ impl SettingsInputs {
         let s = state.read(cx);
         let stt = s.key_hint.clone();
         let editing = s.editing_key_hint.clone();
+        let endpoints = (s.config.transcription == Source::OwnKey).then(|| {
+            [
+                (false, s.config.stt.base_url.clone(), stt.clone()),
+                (
+                    true,
+                    s.config.cleanup.endpoint.base_url.clone(),
+                    editing.clone(),
+                ),
+            ]
+        });
         if self.devices != s.devices {
             self.devices = s.devices.clone();
             let devices = self.devices.clone();
@@ -158,6 +186,53 @@ impl SettingsInputs {
             self.cleanup_key
                 .update(cx, |v, cx| v.set_placeholder(editing, w, cx));
         }
+        for (editing, base_url, hint) in endpoints.into_iter().flatten() {
+            let list = self.models(editing);
+            let fetch = format!("{base_url} {hint}");
+            if list.fetched_for == fetch {
+                continue;
+            }
+            list.fetched_for = fetch.clone();
+            list.loaded = false;
+            let task = cx
+                .background_executor()
+                .spawn(async move { typeaside::http::models(&base_url) });
+            cx.spawn_in(w, async move |this, cx| {
+                let Ok((speech, chat)) = task.await else {
+                    return;
+                };
+                let _ = this.update_in(cx, |this, w, cx| {
+                    let c = &this.state.read(cx).config;
+                    let current = if editing {
+                        c.cleanup.endpoint.model.clone()
+                    } else {
+                        c.stt.model.clone()
+                    };
+                    let mut ids = if editing { chat } else { speech };
+                    let list = this.settings.models(editing);
+                    if list.fetched_for != fetch || ids.is_empty() {
+                        return;
+                    }
+                    if !current.is_empty() && !ids.contains(&current) {
+                        ids.insert(0, current.clone());
+                    }
+                    list.select.update(cx, |v, cx| {
+                        v.set_items(ids, w, cx);
+                        v.set_selected_value(&current, w, cx);
+                    });
+                    list.loaded = true;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
+    fn models(&mut self, editing: bool) -> &mut ModelList {
+        if editing {
+            &mut self.cleanup_models
+        } else {
+            &mut self.stt_models
+        }
     }
 }
 pub fn input(state: &Entity<InputState>, p: Palette) -> impl IntoElement {
@@ -168,6 +243,13 @@ pub fn input(state: &Entity<InputState>, p: Palette) -> impl IntoElement {
         .rounded(px(6.))
         .text_size(px(13.))
         .bg(p.bg)
+}
+fn model_field(list: &ModelList, fallback: &Entity<InputState>, p: Palette) -> gpui::AnyElement {
+    if list.loaded {
+        select(&list.select, p).into_any_element()
+    } else {
+        input(fallback, p).into_any_element()
+    }
 }
 fn select(state: &Entity<SelectState<Vec<String>>>, p: Palette) -> impl IntoElement {
     Select::new(state)
@@ -225,6 +307,32 @@ impl MainWindow {
                 if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
                     this.save_key(editing, w, cx);
                 }
+            })
+            .detach();
+        }
+        for (entity, editing) in [
+            (&self.settings.stt_models.select, false),
+            (&self.settings.cleanup_models.select, true),
+        ] {
+            cx.subscribe_in(entity, window, move |this, _, event, w, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                let input = if editing {
+                    &this.settings.cleanup_model
+                } else {
+                    &this.settings.model
+                };
+                input.update(cx, |v, cx| v.set_value(value.clone(), w, cx));
+                this.state.update(cx, |s, cx| {
+                    if editing {
+                        s.config.cleanup.endpoint.model = value.clone();
+                    } else {
+                        s.config.stt.model = value.clone();
+                    }
+                    s.persist();
+                    cx.notify();
+                });
             })
             .detach();
         }
@@ -878,7 +986,11 @@ impl MainWindow {
                     })
                     .when(c.transcription == Source::OwnKey, |col| {
                         col.child(form_row("Endpoint", input(&self.settings.endpoint, p), p))
-                            .child(form_row("Model", input(&self.settings.model, p), p))
+                            .child(form_row(
+                                "Model",
+                                model_field(&self.settings.stt_models, &self.settings.model, p),
+                                p,
+                            ))
                             .child(form_row("API key", input(&self.settings.key, p), p))
                     })
                     .child(section("Editing"))
@@ -893,7 +1005,11 @@ impl MainWindow {
                             input(&self.settings.cleanup_endpoint, p),
                             p,
                         ))
-                        .child(form_row("Model", input(&self.settings.cleanup_model, p), p))
+                        .child(form_row(
+                            "Model",
+                            model_field(&self.settings.cleanup_models, &self.settings.cleanup_model, p),
+                            p,
+                        ))
                         .child(form_row(
                             "API key",
                             input(&self.settings.cleanup_key, p),
