@@ -5,6 +5,10 @@ fn main() {
     #[cfg(target_os = "linux")]
     prefer_integrated_gpu();
     let demo = std::env::args().any(|arg| arg == "--demo");
+    #[cfg(target_os = "linux")]
+    if !demo {
+        typeaside::icons::install();
+    }
     let hidden = std::env::args().any(|arg| arg == "--hidden");
     #[cfg(target_os = "linux")]
     let hidden = hidden && !typeaside::update::restarted_for_update();

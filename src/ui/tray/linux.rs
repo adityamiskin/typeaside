@@ -20,14 +20,9 @@ impl Tray for TypeAsideTray {
         "typeaside".into()
     }
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        let mut pixels = vec![0; 32 * 32 * 4];
-        for (index, height) in [4, 11, 18, 11, 4].into_iter().enumerate() {
-            for x in (7 + index * 4)..(9 + index * 4) {
-                for y in (16 - height / 2)..(16 + height / 2) {
-                    pixels[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4]
-                        .copy_from_slice(&[255, 214, 180, 124]);
-                }
-            }
+        let mut pixels = typeaside::icons::TRAY_RGBA.to_vec();
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            pixel.rotate_right(1);
         }
         vec![ksni::Icon {
             width: 32,

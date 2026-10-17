@@ -400,10 +400,10 @@ impl MainWindow {
                         .relative()
                         .top(px(10. * (1. - reveal(2.35))))
                         .child(
-                            div()
+                            gpui::svg()
+                                .path("icons/typeaside.svg")
                                 .size(px(64. * (0.92 + 0.08 * reveal(2.35))))
-                                .rounded(px(16.))
-                                .bg(p.blue)
+                                .text_color(p.fg)
                                 .opacity(reveal(2.35)),
                         ),
                 )
