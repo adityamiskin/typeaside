@@ -277,6 +277,11 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Account (hosted) users always get AI editing; the toggle only exists for their own keys.
+    pub fn editing(&self) -> bool {
+        self.cleanup.enabled || self.transcription == Source::Hosted
+    }
+
     pub fn set_share_usage(&mut self, enabled: bool) -> Result<()> {
         if enabled && self.install_id.is_none() {
             let mut bytes = [0; 16];

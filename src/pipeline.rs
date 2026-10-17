@@ -55,7 +55,7 @@ pub fn run(
         cleaning();
         cleanup::command(config, &raw, selection)?
     } else {
-        if config.cleanup.enabled || config.translate_to.is_some() {
+        if config.editing() || config.translate_to.is_some() {
             cleaning();
         }
         snippets::expand(&cleanup::cleanup(config, &raw, app), &config.snippets)

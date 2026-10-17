@@ -918,12 +918,13 @@ impl MainWindow {
                         ))
                         .child(form_row("API key", input(&self.settings.key, p), p))
                 })
-                .child(section("Editing"))
-                .child(form_row(
-                    "AI editing",
-                    self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx),
-                    p,
-                ))
+                .when(c.transcription != Source::Hosted, |col| {
+                    col.child(section("Editing")).child(form_row(
+                        "AI editing",
+                        self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx),
+                        p,
+                    ))
+                })
                 .when(c.transcription == Source::OwnKey, |col| {
                     col.child(form_row(
                         "Endpoint",
