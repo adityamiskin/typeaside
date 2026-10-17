@@ -83,7 +83,7 @@ pub fn send(config: &AppConfig, history: &[Dictation]) {
             "installId": install_id,
             "version": env!("CARGO_PKG_VERSION"),
             "os": std::env::consts::OS,
-            "source": if config.transcription == Source::Hosted { "hosted" } else { "own" },
+            "source": match config.transcription { Source::Hosted => "hosted", Source::OwnKey => "own", Source::Local => "local" },
             "days": days,
         }))
         .send();

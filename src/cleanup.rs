@@ -8,7 +8,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{sync::OnceLock, time::Duration};
 
-fn remove_fillers(text: &str) -> String {
+pub(crate) fn remove_fillers(text: &str) -> String {
     static FILLERS: OnceLock<Regex> = OnceLock::new();
     let regex = FILLERS.get_or_init(|| {
         Regex::new(r"(?i)\b(?:um|uh|er)\b[,.:;!?]*").expect("constant filler regex")

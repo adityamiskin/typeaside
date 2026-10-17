@@ -26,6 +26,8 @@ pub struct AppState {
     /// Nudges settings sync; bounded so bursts collapse into one pending wake.
     sync: async_channel::Sender<()>,
     sync_focus_at: Option<std::time::Instant>,
+    model: typeaside::local::Status,
+    model_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     update: Option<typeaside::update::Release>,
     update_status: typeaside::update::Status,
     signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -183,6 +185,12 @@ fn start_ui(
         account_revision: 0,
         sync: sync_tx,
         sync_focus_at: None,
+        model: if is_demo {
+            demo::model()
+        } else {
+            typeaside::local::Status::current()
+        },
+        model_cancel: None,
         update: None,
         update_status: typeaside::update::Status::Available,
         signing_in: None,

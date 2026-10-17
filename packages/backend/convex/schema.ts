@@ -19,7 +19,7 @@ export const pingFields = {
   day: v.number(),
   version: v.string(),
   os: operatingSystem,
-  source: v.union(v.literal("hosted"), v.literal("own")),
+  source: v.union(v.literal("hosted"), v.literal("own"), v.literal("local")),
   dictations: v.number(),
   words: v.number(),
   commands: v.number(),

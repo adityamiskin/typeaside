@@ -12,7 +12,7 @@ export const pingInput = z.strictObject({
     .transform((value) => value.toLowerCase()),
   version: z.string().trim().min(1).max(64),
   os: z.enum(["linux", "macos", "windows"]),
-  source: z.enum(["hosted", "own"]),
+  source: z.enum(["hosted", "own", "local"]),
   days: z
     .array(
       z.strictObject({

@@ -14,6 +14,9 @@ pub(crate) fn client() -> &'static Client {
 }
 
 pub(crate) fn prewarm(config: &AppConfig) {
+    if config.transcription == crate::config::Source::Local {
+        return;
+    }
     let config = config.effective();
     for endpoint in [&config.stt, &config.cleanup.endpoint] {
         let endpoint = endpoint.clone();

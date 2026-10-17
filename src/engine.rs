@@ -383,6 +383,13 @@ fn run(
         };
         match command {
             Command::Start if recorder.is_none() && busy.is_none() => {
+                if config.transcription == crate::config::Source::Local {
+                    if start_mode == Mode::Command {
+                        report_error(&events, "Commands need a TypeAside account or your own key");
+                        continue;
+                    }
+                    crate::local::prewarm();
+                }
                 monitor = None;
                 let app = focused_app();
                 let selection = if start_mode == Mode::Command {

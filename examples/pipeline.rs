@@ -171,9 +171,83 @@ fn fixtures(generate: bool) -> Result<()> {
     Ok(())
 }
 
+fn local_benchmark(measure_idle: bool) -> Result<()> {
+    use typeaside::config::Source;
+    let root = Path::new("/tmp/typeaside-local-stt");
+    std::fs::create_dir_all(root)?;
+    let mut clips = Vec::new();
+    for name in ["cleanup", "command", "snippet", "translation"] {
+        clips.push((
+            name.to_owned(),
+            read_wav(Path::new(&format!("tests/fixtures/{name}.wav")))?,
+        ));
+    }
+    let mut combined = Vec::new();
+    while combined.len() < 30 * 16_000 {
+        for (_, samples) in &clips {
+            combined.extend_from_slice(samples);
+        }
+    }
+    combined.truncate(30 * 16_000);
+    clips.push(("concatenated-30s".into(), combined));
+    let mut results = Vec::new();
+    for (name, audio) in clips {
+        for source in [Source::OwnKey, Source::Local] {
+            let mut config = fixture_config();
+            config.transcription = source;
+            config.cleanup.enabled = false;
+            let start = Instant::now();
+            let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", || {});
+            let mut item = serde_json::json!({ "clip": name, "source": source, "audio_ms": audio.len() / 16, "elapsed_ms": start.elapsed().as_millis() });
+            match result {
+                Ok(output) => {
+                    item["raw"] = output.raw.into();
+                    item["text"] = output.text.into();
+                    item["stt_ms"] = (output.stt.as_millis() as u64).into();
+                }
+                Err(error) => item["error"] = format!("{error:#}").into(),
+            }
+            #[cfg(target_os = "linux")]
+            {
+                item["process_status"] = std::fs::read_to_string("/proc/self/status")?.into();
+            }
+            println!("{item}");
+            results.push(item);
+            std::fs::write(
+                root.join("results.json"),
+                serde_json::to_vec_pretty(&results)?,
+            )?;
+        }
+    }
+    if measure_idle {
+        println!("Waiting 305 seconds for automatic model unload");
+        std::thread::sleep(Duration::from_secs(305));
+    }
+    typeaside::local::unload();
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let input = args.next().context("usage: pipeline WAV [--app ID] [--title TITLE] [--translate LANGUAGE] [--command SELECTION], or --fixtures [--generate-fixtures]")?;
+    if input == "--local-benchmark" {
+        return local_benchmark(args.any(|arg| arg == "--measure-idle"));
+    }
+    if input == "--local-worker" {
+        return typeaside::local::worker_main();
+    }
+    if input == "--download-model" {
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        if let Some(milliseconds) = args.next() {
+            let delay = Duration::from_millis(milliseconds.parse()?);
+            let cancel = cancel.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(delay);
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            });
+        }
+        return typeaside::local::download(&cancel, |percent| eprintln!("Downloading {percent}%"));
+    }
     let paths = AppPaths::discover()?;
     if input == "--fixtures" {
         return fixtures(args.any(|arg| arg == "--generate-fixtures"));
@@ -187,6 +261,10 @@ fn main() -> Result<()> {
     let mut title = None;
     let mut selection = None;
     while let Some(flag) = args.next() {
+        if flag == "--local" {
+            config.transcription = typeaside::config::Source::Local;
+            continue;
+        }
         let value = args.next().context("missing option value")?;
         match flag.as_str() {
             "--app" => app = Some(value),

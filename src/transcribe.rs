@@ -2,7 +2,7 @@ use crate::{config::AppConfig, credentials::endpoint_key};
 use anyhow::{Context, Result};
 use reqwest::blocking::multipart;
 use serde::Deserialize;
-use std::time::Duration;
+use std::{io::Read, time::Duration};
 
 /// Presses under 250 ms are accidental taps (the hotkey doubles as a modifier).
 pub(crate) fn is_tap(audio: &[f32]) -> bool {
@@ -31,6 +31,10 @@ fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {
     if !config.dictionary.is_empty() {
         form = form.text("prompt", config.dictionary.join(", "));
     }
+    // Streaming blocking bodies can hide connection errors behind a closed upload channel.
+    let content_type = format!("multipart/form-data; boundary={}", form.boundary());
+    let mut body = Vec::new();
+    form.into_reader().read_to_end(&mut body)?;
     #[derive(Deserialize)]
     struct Response {
         text: String,
@@ -43,7 +47,8 @@ fn request(config: &AppConfig, audio: &[f32], key: &str) -> Result<String> {
             ))
             .bearer_auth(key)
             .timeout(Duration::from_secs(30))
-            .multipart(form)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body)
             .send()?,
     )?
     .json::<Response>()?;
