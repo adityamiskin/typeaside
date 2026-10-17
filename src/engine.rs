@@ -339,15 +339,13 @@ fn run(
                 busy = None;
                 let audio = pending_audio.take();
                 let result = result.and_then(|dictation| {
-                    if dictation.mode == Mode::File || !dictation.cleaned.is_empty() {
+                    if !dictation.cleaned.is_empty() {
                         append_history(&paths, &dictation)?;
                     }
                     Ok(dictation)
                 });
                 match result {
-                    Ok(dictation)
-                        if dictation.mode != Mode::File && dictation.cleaned.is_empty() =>
-                    {
+                    Ok(dictation) if dictation.cleaned.is_empty() => {
                         if retrying {
                             if let Err(error) = discard_failed(&paths) {
                                 report_error(&events, error);
@@ -489,8 +487,9 @@ fn run(
                     .spawn(move || {
                         let started = Instant::now();
                         let result =
-                            crate::transcribe::transcribe_file(&config, &path).map(|raw| {
-                                Dictation {
+                            crate::transcribe::transcribe_file(&config, &path).and_then(|raw| {
+                                anyhow::ensure!(!raw.is_empty(), "No speech found");
+                                Ok(Dictation {
                                     at: SystemTime::now(),
                                     cleaned: raw.clone(),
                                     raw,
@@ -502,7 +501,7 @@ fn run(
                                         .min(u128::from(u32::MAX))
                                         as u32,
                                     mode: Mode::File,
-                                }
+                                })
                             });
                         let _ = worker_tx.send(Message::Finished(id, result));
                     });

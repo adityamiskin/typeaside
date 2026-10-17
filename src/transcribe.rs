@@ -48,12 +48,12 @@ pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
         "webm" => "video/webm",
         _ => anyhow::bail!("Unsupported file type"),
     };
-    let mut input = std::fs::File::open(path)?;
-    const MAX_BYTES: u64 = 20_000_000;
-    anyhow::ensure!(input.metadata()?.len() <= MAX_BYTES, "Files up to 20 MB");
-    let mut bytes = Vec::new();
-    (&mut input).take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    anyhow::ensure!(bytes.len() as u64 <= MAX_BYTES, "Files up to 20 MB");
+    // Convex HTTP actions, which back the hosted proxy, reject bodies over 20 MB.
+    anyhow::ensure!(
+        std::fs::metadata(path)?.len() <= 20_000_000,
+        "Files up to 20 MB"
+    );
+    let bytes = std::fs::read(path)?;
     let file = multipart::Part::bytes(bytes)
         .file_name(
             path.file_name()
