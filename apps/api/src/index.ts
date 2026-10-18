@@ -4,6 +4,7 @@ import { stream } from "./stream";
 import { error } from "./errors";
 
 const accountInput = z.object({
+  plan: z.enum(["free", "pro"]),
   usage: z.object({ words: z.number(), cap: z.number().nullable(), resetsAt: z.number() }),
 });
 type Account = z.infer<typeof accountInput>;
@@ -94,7 +95,7 @@ export default {
         return failed(error(400, "request", "Expected WebSocket upgrade"));
       return stream(ctx, (input) =>
         finish(
-          dictate(env.GROQ_API_KEY, input).catch(() => null),
+          dictate(env, input, Promise.resolve(account.plan === "pro")).catch(() => null),
           account,
           env,
           authorization,
@@ -107,7 +108,9 @@ export default {
     const auth = authorize(env, authorization);
     const input = await readInput(request);
     if (!input) return failed(error(400, "request", "Invalid dictation input"));
-    const work = dictate(env.GROQ_API_KEY, input).catch(() => null);
+    // Only audio waits on the plan, since paid accounts transcribe with a different provider.
+    const pro = auth.then((account) => !("error" in account) && account.plan === "pro");
+    const work = dictate(env, input, pro).catch(() => null);
     const account = await auth;
     if ("error" in account) return failed(account);
     const result = await finish(work, account, env, authorization, ctx);
