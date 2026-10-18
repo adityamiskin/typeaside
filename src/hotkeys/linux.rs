@@ -6,8 +6,23 @@ use std::{
     collections::HashSet,
     io::Write,
     os::{fd::AsFd, unix::net::UnixStream},
+    sync::Mutex,
     thread::{self, JoinHandle},
 };
+
+/// Side-specific keys of the latest chord, in press order. The shortcut recorder reads
+/// it because toolkit modifier events cannot tell Right Shift from Left Shift.
+static CHORD: Mutex<Vec<KeyCode>> = Mutex::new(Vec::new());
+
+pub fn chord() -> String {
+    CHORD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|code| format!("{code:?}").trim_start_matches("KEY_").to_owned())
+        .collect::<Vec<_>>()
+        .join("+")
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum HotkeyEvent {
@@ -140,6 +155,14 @@ impl HotkeyService {
                             if let EventSummary::Key(_, code, value) = event.destructure() {
                                 match value {
                                     1 => {
+                                        let mut chord =
+                                            CHORD.lock().unwrap_or_else(|e| e.into_inner());
+                                        if pressed.iter().all(HashSet::is_empty) {
+                                            chord.clear();
+                                        }
+                                        if !chord.contains(&code) {
+                                            chord.push(code);
+                                        }
                                         pressed[index].insert(code);
                                     }
                                     0 => {

@@ -610,11 +610,11 @@ impl Render for MainWindow {
                 return;
             }
             if let Some(target) = this.capture.take() {
-                this.save_shortcut(
-                    target,
-                    super::settings::shortcut_combo(&event.keystroke),
-                    cx,
-                );
+                #[cfg(target_os = "linux")]
+                let combo = typeaside::hotkeys::chord();
+                #[cfg(not(target_os = "linux"))]
+                let combo = super::settings::shortcut_combo(&event.keystroke);
+                this.save_shortcut(target, combo, cx);
                 cx.stop_propagation();
             } else if !this.state.read(cx).config.onboarded {
                 match event.keystroke.key.as_str() {
@@ -632,31 +632,14 @@ impl Render for MainWindow {
                 }
                 if this.capture.is_some() {
                     if event.modifiers.modified() {
-                        #[cfg(target_os = "linux")]
-                        {
-                            this.capture_modifiers = event.modifiers;
-                        }
-                        #[cfg(not(target_os = "linux"))]
-                        {
-                            this.capture_modifiers.control |= event.modifiers.control;
-                            this.capture_modifiers.alt |= event.modifiers.alt;
-                            this.capture_modifiers.shift |= event.modifiers.shift;
-                            this.capture_modifiers.platform |= event.modifiers.platform;
-                            this.capture_modifiers.function |= event.modifiers.function;
-                        }
+                        this.capture_modifiers.control |= event.modifiers.control;
+                        this.capture_modifiers.alt |= event.modifiers.alt;
+                        this.capture_modifiers.shift |= event.modifiers.shift;
+                        this.capture_modifiers.platform |= event.modifiers.platform;
+                        this.capture_modifiers.function |= event.modifiers.function;
                     } else if let Some(target) = this.capture.take() {
                         #[cfg(target_os = "linux")]
-                        let key = if this.capture_modifiers.control {
-                            "RIGHTCTRL"
-                        } else if this.capture_modifiers.alt {
-                            "RIGHTALT"
-                        } else if this.capture_modifiers.shift {
-                            "LEFTSHIFT"
-                        } else {
-                            "LEFTMETA"
-                        };
-                        #[cfg(target_os = "linux")]
-                        this.save_shortcut(target, key.into(), cx);
+                        this.save_shortcut(target, typeaside::hotkeys::chord(), cx);
                         #[cfg(not(target_os = "linux"))]
                         {
                             let modifiers = this.capture_modifiers;
