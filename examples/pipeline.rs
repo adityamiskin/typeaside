@@ -158,6 +158,7 @@ fn fixtures(generate: bool) -> Result<()> {
             selection.unwrap_or_default(),
             &[],
             None,
+            None,
             || {},
         )?;
         if name == "translation" {
@@ -225,6 +226,7 @@ fn selection_fixture() -> Result<()> {
         Mode::Translate,
         selection,
         &[],
+        None,
         None,
         || {},
     )?;
@@ -310,7 +312,17 @@ fn local_benchmark(measure_idle: bool) -> Result<()> {
             config.transcription = source;
             config.cleanup.enabled = false;
             let start = Instant::now();
-            let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", &[], None, || {});
+            let result = pipeline::run(
+                &config,
+                &audio,
+                None,
+                Mode::Dictate,
+                "",
+                &[],
+                None,
+                None,
+                || {},
+            );
             let mut item = serde_json::json!({ "clip": name, "source": source, "audio_ms": audio.len() / 16, "elapsed_ms": start.elapsed().as_millis() });
             match result {
                 Ok(output) => {
@@ -376,9 +388,14 @@ fn main() -> Result<()> {
     let mut mode = Mode::Dictate;
     let mut file = false;
     let mut json = false;
+    let mut realtime = false;
     let mut text = None;
     let mut caret: Option<(String, String)> = None;
     while let Some(flag) = args.next() {
+        if flag == "--realtime" {
+            realtime = true;
+            continue;
+        }
         if flag == "--local" {
             config.transcription = typeaside::config::Source::Local;
             continue;
@@ -426,6 +443,26 @@ fn main() -> Result<()> {
     } else {
         read_wav(Path::new(&input))?
     };
+    let stream = if realtime
+        && config.transcription == typeaside::config::Source::Hosted
+        && !audio.is_empty()
+    {
+        let session = typeaside::stream::Session::start()?;
+        let sink = session.audio();
+        let recording = Instant::now();
+        let mut sent = 0;
+        for chunk in audio.chunks(1600) {
+            sent += chunk.len();
+            std::thread::sleep(
+                Duration::from_secs_f64(sent as f64 / 16_000.0).saturating_sub(recording.elapsed()),
+            );
+            sink.send(chunk);
+        }
+        Some(session)
+    } else {
+        None
+    };
+    let released = Instant::now();
     let output = pipeline::run(
         &config,
         &audio,
@@ -434,12 +471,14 @@ fn main() -> Result<()> {
         text.as_deref().or(selection.as_deref()).unwrap_or_default(),
         &[],
         caret.as_ref(),
+        stream,
         || {},
     )?;
     if json {
         println!(
             "{}",
             serde_json::json!({
+                "release_ms": released.elapsed().as_millis(),
                 "raw": output.raw,
                 "output": output.text,
                 "delivery": output.delivery,

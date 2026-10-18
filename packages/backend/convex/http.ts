@@ -1,11 +1,11 @@
 import { createDodoWebhookHandler, type Subscription } from "@dodopayments/convex";
 import { httpRouter } from "convex/server";
+import { z } from "zod";
 import { internal } from "./_generated/api";
 import { httpAction, type ActionCtx } from "./_generated/server";
 import { hashToken } from "./lib";
 import { settingsInput } from "./settings";
 import { pingInput } from "./pings";
-import { dictate, readInput } from "./dictate";
 
 const http = httpRouter();
 http.route({
@@ -46,36 +46,21 @@ async function authenticate(ctx: ActionCtx, request: Request) {
   if (!token) return null;
   return ctx.runQuery(internal.proxy.lookup, { hash: await hashToken(token) });
 }
-function limit(account: NonNullable<Awaited<ReturnType<typeof authenticate>>>) {
-  return account.usage.cap !== null && account.usage.words >= account.usage.cap
-    ? error(402, "limit", "Weekly free limit reached", { resets_at: account.usage.resetsAt })
-    : null;
-}
+const usageInput = z.object({ words: z.number().int().min(0).max(20_000) });
 http.route({
-  path: "/v1/dictate",
+  path: "/v1/usage",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const startedAt = Date.now();
     const account = await authenticate(ctx, request);
     if (!account) return error(401, "authentication", "Invalid desktop token");
-    const blocked = limit(account);
-    if (blocked) return blocked;
-    const input = await readInput(request);
-    if (!input) return error(400, "request", "Invalid dictation input");
-    const key = process.env.GROQ_API_KEY;
-    if (!key) return error(503, "configuration", "Dictation is unavailable");
-    let result: Awaited<ReturnType<typeof dictate>>;
-    try {
-      result = await dictate(key, input);
-    } catch {
-      return error(502, "provider", "Dictation provider is unavailable");
-    }
+    const usage = usageInput.safeParse(await request.json().catch(() => null));
+    if (!usage.success) return error(400, "request", "Invalid usage");
     await ctx.scheduler.runAfter(0, internal.proxy.record, {
       tokenId: account.tokenId,
-      startedAt,
-      words: result.text.trim() ? result.text.trim().split(/\s+/u).length : 0,
+      startedAt: Date.now(),
+      words: usage.data.words,
     });
-    return Response.json(result);
+    return new Response(null, { status: 204 });
   }),
 });
 http.route({

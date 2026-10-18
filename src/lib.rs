@@ -24,3 +24,5 @@ pub mod update;
 
 pub mod local;
 pub mod settings_sync;
+
+pub mod stream;

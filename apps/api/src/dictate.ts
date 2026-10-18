@@ -17,22 +17,25 @@ const contextInput = z.strictObject({
 });
 type Context = z.infer<typeof contextInput>;
 
-export async function readInput(request: Request) {
-  const form = await request.formData().catch(() => null);
-  const field = form?.get("context");
-  if (!form || typeof field !== "string") return null;
+export function readContext(field: string): Context | null {
   let json: unknown;
   try {
     json = JSON.parse(field);
   } catch {
     return null;
   }
-  const parsed = contextInput.safeParse(json);
+  return contextInput.safeParse(json).data ?? null;
+}
+
+export async function readInput(request: Request) {
+  const form = await request.formData().catch(() => null);
+  const field = form?.get("context");
+  if (!form || typeof field !== "string") return null;
+  const context = readContext(field);
   const audio = form.get("audio");
-  if (!parsed.success || (audio !== null && !(audio instanceof Blob && audio.size > 0)))
-    return null;
-  if ((audio === null) === (parsed.data.text === undefined)) return null;
-  return { context: parsed.data, audio };
+  if (!context || (audio !== null && !(audio instanceof Blob && audio.size > 0))) return null;
+  if ((audio === null) === (context.text === undefined)) return null;
+  return { context, audio };
 }
 
 function prompt(dictionary: string[], names: string[]) {
@@ -174,10 +177,10 @@ async function command(key: string, instruction: string, selection: string): Pro
   return answer;
 }
 
-export async function dictate(
-  key: string,
-  { context, audio }: NonNullable<Awaited<ReturnType<typeof readInput>>>,
-) {
+export type Input = NonNullable<Awaited<ReturnType<typeof readInput>>>;
+export type Result = Awaited<ReturnType<typeof dictate>>;
+
+export async function dictate(key: string, { context, audio }: Input) {
   let raw = context.text ?? "";
   if (audio) {
     const body = new FormData();
