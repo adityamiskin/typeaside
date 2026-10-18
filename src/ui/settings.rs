@@ -602,35 +602,50 @@ impl MainWindow {
         })
         .detach();
     }
-    fn account(&self, cx: &mut Context<Self>) -> Setting {
+    pub fn account_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
+        page(
+            FORM_WIDTH,
+            header("Account"),
+            div().id("account-scroll").child(
+                column(FORM_WIDTH)
+                    .pt(px(14.))
+                    .child(panel(self.account(cx), p)),
+            ),
+            p,
+        )
+    }
+    fn account(&self, cx: &mut Context<Self>) -> Vec<Setting> {
         let p = palette(cx);
         let s = self.state.read(cx);
-        let row = Setting::new("Account");
         if s.signing_in.is_some() {
-            return row
-                .child(div().text_color(p.muted).child("Waiting for browser..."))
-                .child(
-                    button("Cancel", false, p)
-                        .id("cancel-sign-in")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.state.update(cx, |s, cx| {
-                                if let Some(cancel) = s.signing_in.take() {
-                                    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-                                }
-                                cx.notify();
-                            });
-                        })),
-                );
+            return vec![
+                Setting::new("Account")
+                    .child(div().text_color(p.muted).child("Waiting for browser..."))
+                    .child(
+                        button("Cancel", false, p)
+                            .id("cancel-sign-in")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.state.update(cx, |s, cx| {
+                                    if let Some(cancel) = s.signing_in.take() {
+                                        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                                    }
+                                    cx.notify();
+                                });
+                            })),
+                    ),
+            ];
         }
         let Some(account) = &s.account else {
-            return row
-                .description("Sign in to use hosted transcription and sync.")
-                .child(div().text_color(p.muted).child("Not signed in"))
-                .child(
-                    button("Sign in", true, p)
-                        .id("sign-in")
-                        .on_click(cx.listener(|this, _, _, cx| this.sign_in(cx))),
-                );
+            return vec![
+                Setting::new("Account")
+                    .description("Sign in to use hosted transcription and sync.")
+                    .child(
+                        button("Sign in", true, p)
+                            .id("sign-in")
+                            .on_click(cx.listener(|this, _, _, cx| this.sign_in(cx))),
+                    ),
+            ];
         };
         let limit = account.at_limit();
         let plan = if limit {
@@ -651,69 +666,65 @@ impl MainWindow {
                 grouped(account.usage.cap.unwrap_or(2000))
             )
         };
-        row.description(
-            div()
+        vec![
+            Setting::new("Plan")
+                .description(div().when(limit, |plan| plan.text_color(p.red)).child(plan))
                 .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_x(px(8.))
-                        .child(div().text_color(p.fg).child(account.email.clone()))
-                        .child(div().when(limit, |plan| plan.text_color(p.red)).child(plan)),
-                )
-                .child("Dictionary, snippets and styles sync across your devices"),
-        )
-        .child(
-            button(if limit { "Upgrade" } else { "Manage" }, false, p)
-                .id("manage-account")
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if this.state.read(cx).is_demo {
-                        return;
-                    }
-                    cx.background_executor()
-                        .spawn(async {
-                            let _ = typeaside::account::open(format!(
-                                "{}/account",
-                                typeaside::account::web_url()
-                            ));
-                        })
-                        .detach();
-                })),
-        )
-        .child(
-            button("Sign out", false, p)
-                .id("sign-out")
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.state.update(cx, |s, _| s.account_revision += 1);
-                    let mut config = this.state.read(cx).config.clone();
-                    let demo = this.state.read(cx).is_demo;
-                    let task = cx.background_executor().spawn(async move {
-                        if !demo {
-                            typeaside::account::sign_out(&mut config)?;
-                        }
-                        Ok::<_, anyhow::Error>(config.transcription)
-                    });
-                    cx.spawn(async move |this, cx| {
-                        let result = task.await;
-                        let _ = this.update(cx, |this, cx| {
-                            this.state.update(cx, |s, cx| {
-                                match result {
-                                    Ok(source) => {
-                                        s.account_revision += 1;
-                                        s.account = None;
-                                        s.config.settings_sync = None;
-                                        s.config.transcription = source;
-                                        s.persist();
-                                    }
-                                    Err(error) => s.save_error = Some(error.to_string()),
+                    button(if limit { "Upgrade" } else { "Manage" }, false, p)
+                        .id("manage-account")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if this.state.read(cx).is_demo {
+                                return;
+                            }
+                            cx.background_executor()
+                                .spawn(async {
+                                    let _ = typeaside::account::open(format!(
+                                        "{}/account",
+                                        typeaside::account::web_url()
+                                    ));
+                                })
+                                .detach();
+                        })),
+                ),
+            Setting::new("Sync")
+                .description("Dictionary, snippets and styles sync across your devices."),
+            Setting::new("Email")
+                .description(account.email.clone())
+                .child(
+                    button("Sign out", false, p)
+                        .id("sign-out")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.state.update(cx, |s, _| s.account_revision += 1);
+                            let mut config = this.state.read(cx).config.clone();
+                            let demo = this.state.read(cx).is_demo;
+                            let task = cx.background_executor().spawn(async move {
+                                if !demo {
+                                    typeaside::account::sign_out(&mut config)?;
                                 }
-                                cx.notify();
+                                Ok::<_, anyhow::Error>(config.transcription)
                             });
-                        });
-                    })
-                    .detach();
-                })),
-        )
+                            cx.spawn(async move |this, cx| {
+                                let result = task.await;
+                                let _ = this.update(cx, |this, cx| {
+                                    this.state.update(cx, |s, cx| {
+                                        match result {
+                                            Ok(source) => {
+                                                s.account_revision += 1;
+                                                s.account = None;
+                                                s.config.settings_sync = None;
+                                                s.config.transcription = source;
+                                                s.persist();
+                                            }
+                                            Err(error) => s.save_error = Some(error.to_string()),
+                                        }
+                                        cx.notify();
+                                    });
+                                });
+                            })
+                            .detach();
+                        })),
+                ),
+        ]
     }
     fn download_model(&mut self, cx: &mut Context<Self>) {
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1027,7 +1038,6 @@ impl MainWindow {
         let dictation = std::iter::once(behavior).chain(models).collect::<Vec<_>>();
         let general = vec![panel(
             [
-                self.account(cx),
                 Setting::new("Appearance").child(theme),
                 Setting::new("Launch at login")
                     .description("Start hidden when you log in.")

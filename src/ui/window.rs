@@ -8,10 +8,7 @@ use gpui::{
     Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
-use typeaside::{
-    config::AppCategory,
-    engine::{Command, Phase},
-};
+use typeaside::{config::AppCategory, engine::Command};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
@@ -20,6 +17,7 @@ pub enum Page {
     Snippets,
     Style,
     Settings,
+    Account,
     Onboarding,
 }
 impl Page {
@@ -29,6 +27,7 @@ impl Page {
             Ok("snippets") => Self::Snippets,
             Ok("style") => Self::Style,
             Ok("settings") => Self::Settings,
+            Ok("account") => Self::Account,
             Ok("onboarding") => Self::Onboarding,
             _ => Self::Home,
         }
@@ -228,7 +227,7 @@ impl MainWindow {
                 this.edit_snippet(Some(1), window, cx);
             }
         }
-        if page == Page::Settings {
+        if matches!(page, Page::Settings | Page::Account) {
             super::refresh_account(&this.state, cx);
         }
         this.init_onboarding(window, cx);
@@ -297,18 +296,11 @@ impl Render for MainWindow {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         let permission_help = super::permissions::help(state);
         let onboarding = !state.config.onboarded;
-        let (color, status) = if let Some(error) = &state.save_error {
-            (p.red, error.clone())
-        } else {
-            match &state.phase {
-                Phase::Idle => (p.green, "Ready".into()),
-                Phase::Listening(_) => (p.blue, "Listening".into()),
-                Phase::Transcribing => (p.blue, "Transcribing".into()),
-                Phase::Cleaning => (p.blue, "Cleaning".into()),
-                Phase::Error(e) => (p.red, e.clone()),
-            }
-        };
-        let hotkey = &state.config.hotkey;
+        let save_error = state.save_error.clone();
+        let account_label = state
+            .account
+            .as_ref()
+            .map_or("Sign in".to_owned(), |account| account.email.clone());
         let usage = state
             .account
             .as_ref()
@@ -495,21 +487,43 @@ impl Render for MainWindow {
                             .detach();
                     })),
             )
-            .when_some(usage, |side, usage| side.child(usage))
-            .child(
+            .child({
+                let selected = self.page == Page::Account;
                 div()
+                    .id("account")
+                    .h(px(30.))
+                    .flex_shrink_0()
+                    .px(px(10.))
+                    .rounded(px(6.))
                     .flex()
                     .items_center()
-                    .gap(px(7.))
-                    .px(px(10.))
-                    .py(px(8.))
-                    .text_size(px(12.))
-                    .line_height(px(17.4))
-                    .text_color(p.muted)
-                    .child(div().size(px(6.)).flex_shrink_0().rounded_full().bg(color))
-                    .child(div().min_w_0().text_ellipsis().child(format!("{status} ·")))
-                    .child(kbd(hotkey, p)),
-            );
+                    .gap(px(10.))
+                    .cursor_pointer()
+                    .when(selected, |row| row.bg(p.tint))
+                    .text_color(if selected { p.fg } else { p.muted })
+                    .hover(|s| s.bg(p.hover))
+                    .child(
+                        gpui::svg()
+                            .path("icons/circle-user.svg")
+                            .size(px(15.))
+                            .flex_shrink_0()
+                            .text_color(if selected { p.blue } else { p.muted }),
+                    )
+                    .child(div().min_w_0().text_ellipsis().child(account_label))
+                    .on_click(cx.listener(|this, _, w, cx| this.set_page(Page::Account, w, cx)))
+            })
+            .when_some(usage, |side, usage| side.child(usage))
+            .when_some(save_error, |side, error| {
+                side.child(
+                    div()
+                        .px(px(10.))
+                        .py(px(8.))
+                        .text_size(px(12.))
+                        .line_height(px(17.4))
+                        .text_color(p.red)
+                        .child(error),
+                )
+            });
         let content = if onboarding {
             self.onboarding(window, cx).into_any_element()
         } else {
@@ -518,6 +532,7 @@ impl Render for MainWindow {
                 Page::Dictionary => self.dictionary(cx).into_any_element(),
                 Page::Snippets => self.snippets(cx).into_any_element(),
                 Page::Style => self.style(cx).into_any_element(),
+                Page::Account => self.account_page(cx).into_any_element(),
                 Page::Settings | Page::Onboarding => self.settings(cx).into_any_element(),
             }
         };
