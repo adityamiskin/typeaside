@@ -1151,6 +1151,7 @@ pub fn meter(level: f32, bars: usize, height: f32, p: Palette) -> impl IntoEleme
                 .bg(p.accent)
         }))
 }
+#[cfg(not(target_os = "linux"))]
 pub fn shortcut_combo(k: &gpui::Keystroke) -> String {
     let key = match k.key.as_str() {
         "escape" => "ESCAPE",
@@ -1185,12 +1186,7 @@ pub fn shortcut_combo(k: &gpui::Keystroke) -> String {
         "alt_l" => "LEFTALT",
         other => other,
     };
-    // Linux binds evdev codes, which are side-specific; elsewhere either side matches.
-    let [ctrl, alt, shift, meta] = if cfg!(target_os = "linux") {
-        ["LEFTCTRL", "LEFTALT", "LEFTSHIFT", "LEFTMETA"]
-    } else {
-        ["CTRL", "ALT", "SHIFT", "META"]
-    };
+    let [ctrl, alt, shift, meta] = ["CTRL", "ALT", "SHIFT", "META"];
     let mut parts = Vec::new();
     if k.modifiers.control && !key.ends_with("CTRL") {
         parts.push(ctrl.into());
