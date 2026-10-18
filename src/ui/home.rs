@@ -655,7 +655,7 @@ impl MainWindow {
                                     .text_color(p.muted)
                                     .child(label),
                             )
-                            .child(div().flex_1().child(text)),
+                            .child(div().flex_1().min_w_0().child(text)),
                     );
                 }
                 details = details.child(
