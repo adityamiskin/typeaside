@@ -7,13 +7,14 @@ use cpal::{FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig};
 use serde::Serialize;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
 pub struct AudioRecorder {
     stream: Stream,
     buffer: Arc<Mutex<Vec<f32>>>,
     level: Arc<AtomicU32>,
+    paused: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
     sample_rate: u32,
     realtime: Option<Arc<Mutex<Realtime>>>,
@@ -99,6 +100,7 @@ impl AudioRecorder {
         });
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let level = Arc::new(AtomicU32::new(0));
+        let paused = Arc::new(AtomicBool::new(false));
         let error = Arc::new(Mutex::new(None));
         let stream = match supported.sample_format() {
             SampleFormat::F32 => capture::<f32>(
@@ -106,6 +108,7 @@ impl AudioRecorder {
                 &stream_config,
                 buffer.clone(),
                 level.clone(),
+                paused.clone(),
                 error.clone(),
                 retain,
                 realtime.clone(),
@@ -115,6 +118,7 @@ impl AudioRecorder {
                 &stream_config,
                 buffer.clone(),
                 level.clone(),
+                paused.clone(),
                 error.clone(),
                 retain,
                 realtime.clone(),
@@ -124,6 +128,7 @@ impl AudioRecorder {
                 &stream_config,
                 buffer.clone(),
                 level.clone(),
+                paused.clone(),
                 error.clone(),
                 retain,
                 realtime.clone(),
@@ -135,6 +140,7 @@ impl AudioRecorder {
             stream,
             buffer,
             level,
+            paused,
             error,
             sample_rate: stream_config.sample_rate,
             realtime,
@@ -143,6 +149,14 @@ impl AudioRecorder {
 
     pub(crate) fn take_error(&self) -> Option<String> {
         self.error.lock().ok()?.take()
+    }
+
+    pub fn toggle_paused(&self) -> bool {
+        !self.paused.fetch_xor(true, Ordering::Relaxed)
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::Relaxed)
     }
 
     pub fn current_level(&self) -> f32 {
@@ -178,6 +192,7 @@ fn capture<T: SizedSample + Sample>(
     config: &StreamConfig,
     buffer: Arc<Mutex<Vec<f32>>>,
     level: Arc<AtomicU32>,
+    paused: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
     retain: bool,
     realtime: Option<Arc<Mutex<Realtime>>>,
@@ -193,6 +208,11 @@ where
         config,
         move |samples: &[T], _| {
             if let Ok(mut buffer) = buffer.lock() {
+                if paused.load(Ordering::Relaxed) {
+                    power = 0.;
+                    level.store(0, Ordering::Relaxed);
+                    return;
+                }
                 for frame in samples.chunks_exact(channels) {
                     let mono = frame
                         .iter()

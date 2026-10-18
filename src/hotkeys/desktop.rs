@@ -8,6 +8,7 @@ pub enum HotkeyEvent {
     Cancel(bool),
     Command(bool),
     Translate(bool),
+    Pause(bool),
     /// A key pressed while Fn is held: Fn+Left is Home, not dictation.
     #[cfg(target_os = "macos")]
     Interrupt,
@@ -39,6 +40,7 @@ impl State {
             (Some("ESCAPE"), HotkeyEvent::Cancel),
             (config.command_hotkey.as_deref(), HotkeyEvent::Command),
             (config.translate_hotkey.as_deref(), HotkeyEvent::Translate),
+            (config.pause_hotkey.as_deref(), HotkeyEvent::Pause),
         ] {
             if let Some(value) = value {
                 let keys = value
@@ -76,7 +78,13 @@ impl State {
     }
 
     #[cfg(target_os = "macos")]
-    pub(super) fn interrupt_fn(&self) {
+    pub(super) fn interrupt_fn(&self, code: u16) {
+        if self.combos.iter().any(|combo| {
+            matches!((combo.event)(true), HotkeyEvent::Pause(_))
+                && combo.keys.iter().any(|group| group.contains(&code))
+        }) {
+            return;
+        }
         if self
             .combos
             .iter()
@@ -86,13 +94,13 @@ impl State {
         }
     }
 
-    /// Whether `code` belongs to a combo that is now held. Escape is only claimed while
-    /// there is something to cancel, so it keeps working in other apps.
+    /// Whether `code` belongs to a held combo that can act in the current session.
     #[cfg(target_os = "windows")]
-    pub(super) fn claims(&self, code: u16, cancelable: bool) -> bool {
+    pub(super) fn claims(&self, code: u16, cancelable: bool, recording: bool) -> bool {
         self.combos.iter().any(|combo| {
             combo.active
                 && (cancelable || !matches!((combo.event)(true), HotkeyEvent::Cancel(_)))
+                && (recording || !matches!((combo.event)(true), HotkeyEvent::Pause(_)))
                 && combo.keys.iter().any(|group| group.contains(&code))
         })
     }

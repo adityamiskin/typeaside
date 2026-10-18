@@ -56,7 +56,7 @@ impl HotkeyService {
                     } else {
                         let down = matches!(kind, CGEventType::KeyDown);
                         if down {
-                            state.borrow().interrupt_fn();
+                            state.borrow().interrupt_fn(code);
                         }
                         state.borrow_mut().key(code, down);
                     }
