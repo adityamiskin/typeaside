@@ -239,7 +239,7 @@ pub enum Source {
 pub struct AppConfig {
     pub hotkey: String,
     pub mode: RecordingMode,
-    pub input_device: Option<String>,
+    pub input_devices: Vec<String>,
     pub transcription: Source,
     pub stt: Endpoint,
     pub language: Option<String>,
@@ -278,7 +278,7 @@ impl Default for AppConfig {
             }
             .into(),
             mode: RecordingMode::Hold,
-            input_device: None,
+            input_devices: Vec::new(),
             transcription: Source::OwnKey,
             stt: Endpoint::new("https://api.groq.com/openai/v1", "whisper-large-v3-turbo"),
             language: None,

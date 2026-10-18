@@ -5,7 +5,7 @@ use super::{
     window::{MainWindow, Page, Shortcut},
 };
 use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, img, prelude::*, px};
-use gpui_kit::component::{Sizable, input::Input, select::Select};
+use gpui_kit::component::input::Input;
 use std::{sync::atomic::Ordering, time::Instant};
 use typeaside::{
     config::{RecordingMode, Source},
@@ -728,19 +728,7 @@ impl MainWindow {
                     28,
                     p,
                 )))
-                .child(
-                    div().mt(px(28.)).w(px(240.)).child(
-                        Select::new(&self.settings.device)
-                            .small()
-                            .w_full()
-                            .min_h(px(30.))
-                            .max_h(px(30.))
-                            .bg(p.bg)
-                            .text_left()
-                            .text_color(p.muted)
-                            .text_size(px(13.)),
-                    ),
-                )
+                .child(div().mt(px(28.)).w(px(240.)).child(self.microphones(cx)))
                 .child(
                     div()
                         .mt(px(16.))

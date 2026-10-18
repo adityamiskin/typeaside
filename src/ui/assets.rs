@@ -22,6 +22,8 @@ gpui_kit::assets::icon_assets!(
         Ellipsis,
         FileText,
         Trash,
+        ChevronUp,
+        ChevronDown,
         RotateCw
     ]
 );

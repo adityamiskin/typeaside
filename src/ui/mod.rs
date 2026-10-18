@@ -250,14 +250,11 @@ fn start_ui(
             "Checking keyring…"
         }
         .into(),
-        devices: vec![
-            if is_demo && initial_page == window::Page::Onboarding {
-                "MacBook Pro Microphone"
-            } else {
-                "System default"
-            }
-            .into(),
-        ],
+        devices: if is_demo && initial_page == window::Page::Onboarding {
+            vec!["MacBook Pro Microphone".into()]
+        } else {
+            Vec::new()
+        },
         history,
         failed: None,
         phase: Phase::Idle,
@@ -322,26 +319,22 @@ fn start_ui(
         schedule_settings_sync(&state, sync_rx, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
-            let stt = key_hint(&config.stt.base_url);
-            let editing = key_hint(&config.cleanup.endpoint.base_url);
-            let mut devices = vec!["System default".to_owned()];
-            if let Ok(inputs) = typeaside::audio::list_input_devices() {
-                devices.extend(inputs.into_iter().map(|input| input.name));
-            }
-            devices.dedup();
-            (stt, editing, devices)
+            (
+                key_hint(&config.stt.base_url),
+                key_hint(&config.cleanup.endpoint.base_url),
+            )
         });
         let details_state = state.clone();
         cx.spawn(async move |cx| {
-            let (stt, editing, devices) = details.await;
+            let (stt, editing) = details.await;
             details_state.update(cx, |s, cx| {
                 s.key_hint = stt;
                 s.editing_key_hint = editing;
-                s.devices = devices;
                 cx.notify();
             });
         })
         .detach();
+        refresh_devices(&state, cx);
     }
     if !is_demo {
         let telemetry_state = state.clone();
@@ -561,6 +554,33 @@ fn trace(stage: &str, started: std::time::Instant) {
             started.elapsed().as_secs_f64() * 1000.
         );
     }
+}
+
+/// Re-enumerated when Settings opens so docked or unplugged mics show up without polling.
+fn refresh_devices(state: &gpui::Entity<AppState>, cx: &mut App) {
+    if state.read(cx).is_demo {
+        return;
+    }
+    let devices = cx.background_executor().spawn(async {
+        let mut names: Vec<_> = typeaside::audio::list_input_devices()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|input| input.name)
+            .collect();
+        names.dedup();
+        names
+    });
+    let state = state.clone();
+    cx.spawn(async move |cx| {
+        let devices = devices.await;
+        state.update(cx, |s, cx| {
+            if s.devices != devices {
+                s.devices = devices;
+                cx.notify();
+            }
+        });
+    })
+    .detach();
 }
 
 fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
