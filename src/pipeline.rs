@@ -48,6 +48,16 @@ pub fn run(
     let effective = config.effective();
     let config = &effective;
     let started = Instant::now();
+    if mode == Mode::Translate && audio.is_empty() {
+        cleaning();
+        return Ok(Output {
+            raw: selection.into(),
+            text: cleanup::translate(config, selection)?,
+            delivery: Delivery::Insert,
+            stt: Duration::ZERO,
+            llm: started.elapsed(),
+        });
+    }
     let (raw, local) = match config.transcription {
         Source::Local if mode == Mode::Command => anyhow::bail!(LOCAL_COMMAND),
         Source::Local if mode == Mode::Translate => anyhow::bail!(LOCAL_TRANSLATE),

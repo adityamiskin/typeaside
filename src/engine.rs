@@ -319,7 +319,7 @@ fn run(
                     if recorder.is_some() && context.0 != mode {
                         // A chord that extends the held shortcut, like Right Alt then Shift.
                         if pressed && held == Some(context.0) {
-                            if mode == Mode::Command {
+                            if mode != Mode::Dictate && context.2.is_empty() {
                                 context.2 = crate::text_injector::primary_selection();
                             }
                             context.0 = mode;
@@ -464,7 +464,7 @@ fn run(
                     }
                 }
                 let app = focused_app();
-                let selection = if start_mode == Mode::Command {
+                let selection = if start_mode != Mode::Dictate {
                     crate::text_injector::primary_selection()
                 } else {
                     String::new()
@@ -578,18 +578,23 @@ fn run(
                             continue;
                         }
                     };
-                    if crate::transcribe::is_tap(&audio) {
+                    let tap = crate::transcribe::is_tap(&audio);
+                    let silent = tap || !crate::transcribe::has_speech(&audio);
+                    if silent && context.0 == Mode::Translate && !context.2.trim().is_empty() {
+                        // Tapping Translate over a selection translates it in place.
+                        Vec::new()
+                    } else if tap {
                         phase(&events, Phase::Idle);
                         continue;
-                    }
-                    if !crate::transcribe::has_speech(&audio) {
+                    } else if silent {
                         report_error(&events, "No speech detected");
                         if config.sounds {
                             crate::cues::play(crate::cues::Cue::Error);
                         }
                         continue;
+                    } else {
+                        audio
                     }
-                    audio
                 };
                 let audio: Arc<[f32]> = audio.into();
                 pending_audio = Some(audio.clone());

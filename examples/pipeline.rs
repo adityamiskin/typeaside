@@ -205,8 +205,33 @@ fn fixtures(generate: bool) -> Result<()> {
             output.llm.as_millis()
         );
     }
+    selection_fixture()?;
     file_fixture()?;
     println!("Artifact: /tmp/typeaside-perf/pipeline.md");
+    Ok(())
+}
+
+fn selection_fixture() -> Result<()> {
+    let config = AppConfig {
+        translate_to: "Italian".into(),
+        ..fixture_config()
+    };
+    let selection = "I don't get any feedback like when I dictate. No pill or anything, so I don't know what is happening. It should rewrite the text in place.";
+    let output = pipeline::run(&config, &[], None, Mode::Translate, selection, &[], || {})?;
+    let translated = output.text.to_lowercase();
+    ensure!(
+        output.raw == selection
+            && translated.contains("feedback")
+            && translated.contains("non so")
+            && !translated.contains('<'),
+        "expected the selection in Italian: {}",
+        output.text
+    );
+    println!(
+        "translate selection: output={:?} llm={}ms",
+        output.text,
+        output.llm.as_millis()
+    );
     Ok(())
 }
 
