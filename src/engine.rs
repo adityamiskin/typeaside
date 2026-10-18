@@ -92,8 +92,6 @@ pub enum Command {
     Reload(Box<AppConfig>),
     Learn(Vec<String>),
     Unlearn(Vec<String>),
-    /// Re-pastes the latest dictation into the focused app.
-    PasteLast,
     Insert(String),
     DismissReply,
     /// Streams Event::Level from the mic without recording, for settings and onboarding.
@@ -249,7 +247,6 @@ fn run(
     let mut retrying = false;
     let mut injector: Option<TextInjector> = None;
     let mut watch = None;
-    let mut last = load_history(&paths).pop().map(|entry| entry.cleaned);
     let mut context = (Mode::Dictate, None, String::new());
     let mut screen_names = None;
     let mut start_mode = Mode::Dictate;
@@ -305,7 +302,6 @@ fn run(
             }
             Message::Hotkey(source, event) if source == epoch => match event {
                 HotkeyEvent::Cancel(true) => Command::Cancel,
-                HotkeyEvent::PasteLast(true) => Command::PasteLast,
                 #[cfg(target_os = "macos")]
                 HotkeyEvent::Interrupt if recorder.is_some() => Command::Cancel,
                 HotkeyEvent::Main(pressed)
@@ -363,7 +359,6 @@ fn run(
                         }
                     }
                     Ok((dictation, delivery)) => {
-                        last = Some(dictation.cleaned.clone());
                         let _ = events.try_send(Event::Done(dictation.clone()));
                         if dictation.mode == Mode::File {
                             match crate::text_injector::set_clipboard(&dictation.cleaned) {
@@ -688,18 +683,6 @@ fn run(
                     &config,
                     &events,
                 );
-            }
-            Command::PasteLast => {
-                if let Some(text) = &last {
-                    deliver(
-                        &mut injector,
-                        &mut watch,
-                        text,
-                        focused_app().and_then(|app| app.id).as_deref(),
-                        &config,
-                        &events,
-                    );
-                }
             }
             Command::MicTest(false) => {
                 monitor = None;

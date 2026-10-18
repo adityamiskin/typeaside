@@ -8,7 +8,6 @@ pub enum HotkeyEvent {
     Cancel(bool),
     Command(bool),
     Translate(bool),
-    PasteLast(bool),
     /// A key pressed while Fn is held: Fn+Left is Home, not dictation.
     #[cfg(target_os = "macos")]
     Interrupt,
@@ -34,13 +33,12 @@ impl State {
         let mut combos = Vec::new();
         for (value, event) in [
             (
-                Some(&config.hotkey),
+                Some(config.hotkey.as_str()),
                 HotkeyEvent::Main as fn(bool) -> HotkeyEvent,
             ),
-            (config.cancel_hotkey.as_ref(), HotkeyEvent::Cancel),
-            (config.command_hotkey.as_ref(), HotkeyEvent::Command),
-            (config.translate_hotkey.as_ref(), HotkeyEvent::Translate),
-            (config.paste_last_hotkey.as_ref(), HotkeyEvent::PasteLast),
+            (Some("ESCAPE"), HotkeyEvent::Cancel),
+            (config.command_hotkey.as_deref(), HotkeyEvent::Command),
+            (config.translate_hotkey.as_deref(), HotkeyEvent::Translate),
         ] {
             if let Some(value) = value {
                 let keys = value

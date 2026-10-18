@@ -445,8 +445,6 @@ impl MainWindow {
                 Shortcut::Dictate => s.config.hotkey = key,
                 Shortcut::Command => s.config.command_hotkey = Some(key),
                 Shortcut::Translate => s.config.translate_hotkey = Some(key),
-                Shortcut::Paste => s.config.paste_last_hotkey = Some(key),
-                Shortcut::Cancel => s.config.cancel_hotkey = Some(key),
             }
             s.persist();
             cx.notify();
@@ -468,8 +466,6 @@ impl MainWindow {
                 Shortcut::Dictate => "dictate-key",
                 Shortcut::Command => "command-key",
                 Shortcut::Translate => "translate-key",
-                Shortcut::Paste => "paste-key",
-                Shortcut::Cancel => "cancel-key",
             })
             .cursor_pointer()
             .child(if self.capture == Some(target) {
@@ -991,9 +987,6 @@ impl MainWindow {
                         .description("Hold to talk, or tap to start and stop.")
                         .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
                         .child(mode),
-                    Setting::new("Command")
-                        .description("Edit selected text, or ask a question.")
-                        .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),
                     Setting::new("Translate")
                         .description("Translate speech into your chosen language.")
                         .child(self.shortcut(
@@ -1001,12 +994,9 @@ impl MainWindow {
                             c.translate_hotkey.as_deref(),
                             cx,
                         )),
-                    Setting::new("Paste last")
-                        .description("Paste the previous dictation again.")
-                        .child(self.shortcut(Shortcut::Paste, c.paste_last_hotkey.as_deref(), cx)),
-                    Setting::new("Cancel")
-                        .description("Discard the current recording.")
-                        .child(self.shortcut(Shortcut::Cancel, c.cancel_hotkey.as_deref(), cx)),
+                    Setting::new("Ask anything")
+                        .description("Ask a question, or edit selected text.")
+                        .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),
                 ],
                 p,
             ),

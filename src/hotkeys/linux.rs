@@ -15,7 +15,6 @@ pub enum HotkeyEvent {
     Cancel(bool),
     Command(bool),
     Translate(bool),
-    PasteLast(bool),
 }
 
 pub struct HotkeyService {
@@ -61,20 +60,16 @@ impl Combo {
 
 impl HotkeyService {
     pub fn start(config: &AppConfig, emit: impl Fn(HotkeyEvent) + Send + 'static) -> Result<Self> {
-        let mut combos = vec![Combo::parse(&config.hotkey, HotkeyEvent::Main)?];
-        if let Some(cancel) = &config.cancel_hotkey {
-            combos.push(Combo::parse(cancel, HotkeyEvent::Cancel)?);
-        }
+        let mut combos = vec![
+            Combo::parse(&config.hotkey, HotkeyEvent::Main)?,
+            Combo::parse("ESCAPE", HotkeyEvent::Cancel)?,
+        ];
         for (value, event) in [
             (
                 &config.command_hotkey,
                 HotkeyEvent::Command as fn(bool) -> HotkeyEvent,
             ),
             (&config.translate_hotkey, HotkeyEvent::Translate),
-            (
-                &config.paste_last_hotkey,
-                HotkeyEvent::PasteLast as fn(bool) -> HotkeyEvent,
-            ),
         ] {
             if let Some(value) = value {
                 combos.push(Combo::parse(value, event)?);

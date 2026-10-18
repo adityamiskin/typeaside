@@ -228,7 +228,6 @@ pub enum Source {
 pub struct AppConfig {
     pub hotkey: String,
     pub mode: RecordingMode,
-    pub cancel_hotkey: Option<String>,
     pub input_device: Option<String>,
     pub transcription: Source,
     pub stt: Endpoint,
@@ -243,7 +242,6 @@ pub struct AppConfig {
     pub screen_context: bool,
     pub command_hotkey: Option<String>,
     pub translate_hotkey: Option<String>,
-    pub paste_last_hotkey: Option<String>,
     pub translate_to: String,
     pub styles: Styles,
     pub snippets: Vec<Snippet>,
@@ -266,7 +264,6 @@ impl Default for AppConfig {
             }
             .into(),
             mode: RecordingMode::Hold,
-            cancel_hotkey: Some("ESCAPE".into()),
             input_device: None,
             transcription: Source::OwnKey,
             stt: Endpoint::new("https://api.groq.com/openai/v1", "whisper-large-v3-turbo"),
@@ -280,7 +277,6 @@ impl Default for AppConfig {
             screen_context: true,
             command_hotkey: Some("RIGHTALT".into()),
             translate_hotkey: None,
-            paste_last_hotkey: Some("LEFTALT+LEFTSHIFT+V".into()),
             translate_to: "English".into(),
             styles: Styles::default(),
             snippets: Vec::new(),
