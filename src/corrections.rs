@@ -1,32 +1,4 @@
-use crate::{config::AppConfig, engine::Dictation, paths::AppPaths};
-use anyhow::Context;
-use std::{collections::HashSet, time::SystemTime};
-
-pub fn candidates<'a>(
-    old: &str,
-    new: &str,
-    known: impl IntoIterator<Item = &'a String>,
-) -> Vec<String> {
-    let old = old.split_whitespace().collect::<Vec<_>>();
-    let new = new.split_whitespace().collect::<Vec<_>>();
-    let mut seen = known
-        .into_iter()
-        .map(|word| word.to_lowercase())
-        .collect::<HashSet<_>>();
-    let mut result = Vec::new();
-    for (before, after) in diff(&old, &new) {
-        if before.is_empty() || after.is_empty() {
-            continue;
-        }
-        let replaced = old[before].join(" ").to_lowercase();
-        for phrase in phrases(&new[after]) {
-            if !replaced.contains(&phrase.to_lowercase()) && seen.insert(phrase.to_lowercase()) {
-                result.push(phrase);
-            }
-        }
-    }
-    result
-}
+use std::collections::HashSet;
 
 pub fn learned<'a>(
     inserted: &str,
@@ -225,32 +197,10 @@ fn machine_text(word: &str) -> bool {
             .is_some_and(|(_, tld)| TLDS.contains(&tld.to_lowercase().as_str()))
 }
 
-pub fn save(
-    paths: &AppPaths,
-    history: &mut [Dictation],
-    config: &mut AppConfig,
-    at: SystemTime,
-    text: &str,
-    selected: &[String],
-) -> anyhow::Result<Vec<String>> {
-    let item = history
-        .iter_mut()
-        .find(|item| item.at == at)
-        .context("Dictation no longer exists")?;
-    item.cleaned = text.to_owned();
-    crate::engine::save_history(paths, history)?;
-    let added = selected
-        .iter()
-        .filter(|word| config.add_word((*word).clone()))
-        .cloned()
-        .collect::<Vec<_>>();
-    config.save(paths)?;
-    Ok(added)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::AppConfig;
 
     #[test]
     fn automatic_vocabulary_fixes() {
@@ -337,73 +287,9 @@ mod tests {
         assert!(config.add_word("Convex".into()));
         config.remove_word("Convex");
         assert!(config.dictionary.is_empty());
-        assert!(candidates("use old", "use CONVEX", config.known_words()).is_empty());
+        assert!(learned("use conveks today", "use Convex today", config.known_words()).is_empty());
         assert!(config.add_word("convex".into()));
         assert!(config.removed_words.is_empty());
         assert!(!config.add_word("CONVEX".into()));
-    }
-
-    #[test]
-    fn replacement_candidates() {
-        let cases: &[(&str, &str, &[&str], &[&str])] = &[
-            (
-                "use nope and person",
-                "use (Node.js), and O'Brien!",
-                &[],
-                &["Node.js", "O'Brien"],
-            ),
-            (
-                "one and two and three",
-                "Convex and convex and CONVEX",
-                &[],
-                &["Convex"],
-            ),
-            ("use this", "use Hugging Face this", &[], &[]),
-            ("remove this word", "remove word", &[], &[]),
-            (
-                "use huggingface with old",
-                "use Hugging Face with new",
-                &[],
-                &["Hugging Face"],
-            ),
-            (
-                "use old and older",
-                "use Convex and Hugging Face",
-                &["CONVEX", "hugging face"],
-                &[],
-            ),
-            ("say old then old", "say old then Convex", &[], &["Convex"]),
-            ("send it", "Send it", &[], &[]),
-            ("ship it on monday", "ship it on Tuesday", &[], &["Tuesday"]),
-            ("some text", "", &[], &[]),
-            ("", "Convex", &[], &[]),
-            ("same text", "same text", &[], &[]),
-            ("word", "a ! x", &[], &[]),
-            ("old and older", "Éclair and éclair", &[], &["Éclair"]),
-            ("use old word", "use Node.js today", &[], &["Node.js"]),
-            (
-                "see a b c d e f g h i",
-                "see example.com https://typeaside.app/docs src/main.rs adi@x.com 10:30 2026-10-17 3.5 user_id foo()",
-                &[],
-                &[],
-            ),
-            (
-                "try old and old on old",
-                "try GPT-5 and S3 on Typeaside.app",
-                &[],
-                &["GPT-5", "S3"],
-            ),
-        ];
-        for (old, new, dictionary, expected) in cases {
-            let dictionary = dictionary
-                .iter()
-                .map(|s| (*s).to_owned())
-                .collect::<Vec<_>>();
-            assert_eq!(
-                candidates(old, new, &dictionary),
-                *expected,
-                "{old:?} -> {new:?}"
-            );
-        }
     }
 }
