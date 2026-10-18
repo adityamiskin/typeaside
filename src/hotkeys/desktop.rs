@@ -218,6 +218,8 @@ fn key_code(name: &str) -> Result<u16> {
         "DOWN" => (125, 0x28),
         "UP" => (126, 0x26),
         "INSERT" => (114, 0x2d),
+        // macOS reports a PC keyboard's Pause key as F15.
+        "PAUSE" => (113, 0x13),
         "KP0" => (82, 0x60),
         "KP1" => (83, 0x61),
         "KP2" => (84, 0x62),

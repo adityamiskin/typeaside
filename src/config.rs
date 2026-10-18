@@ -292,7 +292,7 @@ impl Default for AppConfig {
             screen_context: true,
             command_hotkey: Some("RIGHTALT".into()),
             translate_hotkey: Some("RIGHTALT+RIGHTSHIFT".into()),
-            pause_hotkey: None,
+            pause_hotkey: Some("PAUSE".into()),
             translate_to: "English".into(),
             styles: Styles::default(),
             snippets: Vec::new(),
