@@ -1,6 +1,24 @@
 use crate::config::Snippet;
 
 pub(crate) fn expand(text: &str, snippets: &[Snippet]) -> String {
+    expand_with(text, snippets, || {
+        crate::text_injector::read_clipboard().ok().flatten()
+    })
+}
+
+fn expand_with(
+    text: &str,
+    snippets: &[Snippet],
+    clipboard: impl FnOnce() -> Option<String>,
+) -> String {
+    let clipboard = std::cell::LazyCell::new(|| clipboard().unwrap_or_default());
+    let render = |text: &str| {
+        if text.contains("{clipboard}") {
+            text.replace("{clipboard}", &clipboard)
+        } else {
+            text.to_owned()
+        }
+    };
     let whole = text
         .trim()
         .trim_end_matches(['.', '!', '?', ','])
@@ -25,7 +43,7 @@ pub(crate) fn expand(text: &str, snippets: &[Snippet]) -> String {
             .find(whole)
             .is_some_and(|found| found.start() == 0 && found.end() == whole.len())
         {
-            return snippet.text.clone();
+            return render(&snippet.text);
         }
     }
     let word = |c: char| c.is_alphanumeric() || c == '_';
@@ -43,7 +61,7 @@ pub(crate) fn expand(text: &str, snippets: &[Snippet]) -> String {
             Some((snippet, found.end()))
         });
         if let Some((snippet, end)) = found {
-            output.push_str(&snippet.text);
+            output.push_str(&render(&snippet.text));
             offset = end;
         } else {
             let c = text[offset..]
@@ -94,7 +112,54 @@ mod tests {
             ("xc++", "xc++"),
             ("calendar calendar", "short short"),
         ] {
-            assert_eq!(expand(input, &snippets), expected, "{input}");
+            assert_eq!(
+                expand_with(input, &snippets, || panic!("unexpected clipboard read")),
+                expected,
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn clipboard_expansion() {
+        let snippets = [
+            Snippet {
+                trigger: "paste".into(),
+                text: "[{clipboard}] {clipboard}".into(),
+            },
+            Snippet {
+                trigger: "plain".into(),
+                text: "unchanged".into(),
+            },
+        ];
+        for (input, clipboard, expected, reads) in [
+            ("PASTE.!", Some("copied"), "[copied] copied", 1),
+            (
+                "paste, paste!",
+                Some("copied"),
+                "[copied] copied, [copied] copied!",
+                1,
+            ),
+            ("paste", None, "[] ", 1),
+            ("paste", Some("{clipboard}"), "[{clipboard}] {clipboard}", 1),
+            ("plain", Some("copied"), "unchanged", 0),
+            (
+                "pasted {clipboard}",
+                Some("copied"),
+                "pasted {clipboard}",
+                0,
+            ),
+        ] {
+            let calls = std::cell::Cell::new(0);
+            assert_eq!(
+                expand_with(input, &snippets, || {
+                    calls.set(calls.get() + 1);
+                    clipboard.map(str::to_owned)
+                }),
+                expected,
+                "{input}"
+            );
+            assert_eq!(calls.get(), reads, "{input}");
         }
     }
 }

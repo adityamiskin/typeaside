@@ -157,6 +157,10 @@ pub(crate) fn primary_selection() -> String {
     })
 }
 
+pub(crate) fn read_clipboard() -> Result<Option<String>> {
+    Ok(Some(Clipboard::new()?.get_text()?))
+}
+
 pub fn set_clipboard(text: &str) -> Result<()> {
     Clipboard::new()?.set_text(text)?;
     Ok(())

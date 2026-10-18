@@ -222,7 +222,7 @@ fn key_event(code: KeyCode, value: i32) -> InputEvent {
 }
 
 /// `None` when the clipboard is empty or holds non-text data, which wl-copy cannot restore.
-fn read_clipboard() -> Result<Option<String>> {
+pub(crate) fn read_clipboard() -> Result<Option<String>> {
     let types = Command::new("wl-paste")
         .arg("--list-types")
         .output()
