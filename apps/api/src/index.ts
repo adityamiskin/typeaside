@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { dictate, readInput } from "./dictate";
+import { stream } from "./stream";
+import { error } from "./errors";
 
 const accountInput = z.object({
   usage: z.object({ words: z.number(), cap: z.number().nullable(), resetsAt: z.number() }),
@@ -10,10 +12,6 @@ type Account = z.infer<typeof accountInput>;
 // The desktop prewarms `/v1/me` when recording starts, which fills this cache before audio arrives.
 const accounts = new Map<string, { account: Account; at: number }>();
 const ACCOUNT_TTL_MS = 60_000;
-
-function error(status: number, type: string, message: string, extra = {}) {
-  return Response.json({ error: { type, message, ...extra } }, { status });
-}
 
 async function me(env: Env, authorization: string) {
   const response = await fetch(`${env.CONVEX_SITE_URL}/v1/me`, {
@@ -37,43 +35,83 @@ async function authenticate(env: Env, authorization: string) {
   return account;
 }
 
+function accountError(account: Account | null | undefined) {
+  if (account === undefined) return error(503, "configuration", "Dictation is unavailable");
+  if (!account) return error(401, "authentication", "Invalid desktop token");
+  if (account.usage.cap !== null && account.usage.words >= account.usage.cap)
+    return error(402, "limit", "Weekly free limit reached", {
+      resets_at: account.usage.resetsAt,
+    });
+  return null;
+}
+
+function errorResponse(failure: ReturnType<typeof error>) {
+  return Response.json({ error: failure.error }, { status: failure.status });
+}
+
+async function finish(
+  work: Promise<Awaited<ReturnType<typeof dictate>> | null>,
+  account: Account,
+  env: Env,
+  authorization: string,
+  ctx: ExecutionContext,
+) {
+  const result = await work;
+  if (!result) return error(502, "provider", "Dictation provider is unavailable");
+  const text = result.text.trim();
+  const words = text ? text.split(/\s+/u).length : 0;
+  account.usage.words += words;
+  ctx.waitUntil(
+    fetch(`${env.CONVEX_SITE_URL}/v1/usage`, {
+      method: "POST",
+      headers: { Authorization: authorization, "Content-Type": "application/json" },
+      body: JSON.stringify({ words }),
+    }),
+  );
+  return result;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const authorization = request.headers.get("Authorization") ?? "";
     if (url.pathname === "/v1/me" && request.method === "GET") return me(env, authorization);
-    if (url.pathname !== "/v1/dictate")
+    const streaming = url.pathname === "/v1/stream";
+    if (!streaming && url.pathname !== "/v1/dictate")
       return fetch(new Request(`${env.CONVEX_SITE_URL}${url.pathname}${url.search}`, request));
-    if (request.method !== "POST") return error(405, "request", "Method not allowed");
+    if (request.method !== (streaming ? "GET" : "POST"))
+      return errorResponse(error(405, "request", "Method not allowed"));
 
     const ip = request.headers.get("CF-Connecting-IP") ?? "";
     if (!(await env.DICTATE_LIMIT.limit({ key: ip })).success)
-      return error(429, "rate_limit", "Too many requests");
-    // Auth reaches Convex across an ocean, so it runs alongside the provider calls.
-    // Nothing is returned until it passes; the rate limit bounds what bad tokens can spend.
+      return errorResponse(error(429, "rate_limit", "Too many requests"));
+    // POST auth overlaps provider calls; streaming authenticates while the user is still speaking.
     const auth = authenticate(env, authorization).catch(() => undefined);
+    if (streaming) {
+      const account = await auth;
+      const failure = accountError(account);
+      if (failure) return errorResponse(failure);
+      if (!account) return errorResponse(error(503, "configuration", "Dictation is unavailable"));
+      if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
+        return errorResponse(error(400, "request", "Expected WebSocket upgrade"));
+      return stream(ctx, (input) =>
+        finish(
+          dictate(env.GROQ_API_KEY, input).catch(() => null),
+          account,
+          env,
+          authorization,
+          ctx,
+        ),
+      );
+    }
     const input = await readInput(request);
-    if (!input) return error(400, "request", "Invalid dictation input");
+    if (!input) return errorResponse(error(400, "request", "Invalid dictation input"));
     const work = dictate(env.GROQ_API_KEY, input).catch(() => null);
     const account = await auth;
-    if (account === undefined) return error(503, "configuration", "Dictation is unavailable");
-    if (!account) return error(401, "authentication", "Invalid desktop token");
-    if (account.usage.cap !== null && account.usage.words >= account.usage.cap)
-      return error(402, "limit", "Weekly free limit reached", {
-        resets_at: account.usage.resetsAt,
-      });
-    const result = await work;
-    if (!result) return error(502, "provider", "Dictation provider is unavailable");
-    const text = result.text.trim();
-    const words = text ? text.split(/\s+/u).length : 0;
-    account.usage.words += words;
-    ctx.waitUntil(
-      fetch(`${env.CONVEX_SITE_URL}/v1/usage`, {
-        method: "POST",
-        headers: { Authorization: authorization, "Content-Type": "application/json" },
-        body: JSON.stringify({ words }),
-      }),
-    );
-    return Response.json(result);
+    const failure = accountError(account);
+    if (failure) return errorResponse(failure);
+    if (!account) return errorResponse(error(503, "configuration", "Dictation is unavailable"));
+    const result = await finish(work, account, env, authorization, ctx);
+    return "error" in result ? errorResponse(result) : Response.json(result);
   },
 } satisfies ExportedHandler<Env>;
