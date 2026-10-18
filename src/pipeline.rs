@@ -1,18 +1,21 @@
 use crate::{
     cleanup::{self, Answer},
-    config::{AppConfig, Source},
+    config::{AppCategory, AppConfig, Source, Tone},
     engine::Mode,
     snippets,
     text_injector::FocusedApp,
     transcribe,
 };
 use anyhow::Result;
+use reqwest::blocking::multipart;
+use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::time::{Duration, Instant};
 
 pub const LOCAL_COMMAND: &str = "Commands need a TypeAside account or your own key";
 pub const LOCAL_TRANSLATE: &str = "Translation needs a TypeAside account or your own key";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Delivery {
     Insert,
@@ -36,6 +39,7 @@ fn offline(error: &anyhow::Error) -> bool {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     config: &AppConfig,
     audio: &[f32],
@@ -43,11 +47,41 @@ pub fn run(
     mode: Mode,
     selection: &str,
     names: &[String],
+    caret: Option<&(String, String)>,
     cleaning: impl FnOnce(),
 ) -> Result<Output> {
-    let effective = config.effective();
-    let config = &effective;
     let started = Instant::now();
+    if config.transcription == Source::Hosted {
+        cleaning();
+        let file = if mode == Mode::Translate && audio.is_empty() {
+            None
+        } else {
+            Some(
+                multipart::Part::bytes(transcribe::encode_wav(audio)?)
+                    .file_name("dictation.wav")
+                    .mime_str("audio/wav")?,
+            )
+        };
+        return match hosted(config, file, app, mode, selection, names, caret) {
+            Ok(mut output) => {
+                if output.delivery == Delivery::Insert {
+                    output.text = snippets::expand(&output.text, &config.snippets);
+                }
+                Ok(output)
+            }
+            Err(error) if mode == Mode::Dictate && offline(&error) && crate::local::installed() => {
+                let raw = crate::local::transcribe(audio)?;
+                Ok(Output {
+                    text: snippets::expand(&cleanup::remove_fillers(&raw), &config.snippets),
+                    raw,
+                    delivery: Delivery::Insert,
+                    stt: started.elapsed(),
+                    llm: Duration::ZERO,
+                })
+            }
+            result => result,
+        };
+    }
     if mode == Mode::Translate && audio.is_empty() {
         cleaning();
         return Ok(Output {
@@ -62,7 +96,8 @@ pub fn run(
         Source::Local if mode == Mode::Command => anyhow::bail!(LOCAL_COMMAND),
         Source::Local if mode == Mode::Translate => anyhow::bail!(LOCAL_TRANSLATE),
         Source::Local => (crate::local::transcribe(audio)?, true),
-        Source::Hosted | Source::OwnKey => match transcribe::transcribe(config, audio, names) {
+        Source::Hosted => unreachable!("hosted requests return above"),
+        Source::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),
             Err(error) if mode == Mode::Dictate && offline(&error) && crate::local::installed() => {
                 (crate::local::transcribe(audio)?, true)
@@ -111,5 +146,122 @@ pub fn run(
         delivery: answer.delivery,
         stt,
         llm,
+    })
+}
+
+pub(crate) fn hosted(
+    config: &AppConfig,
+    audio: Option<multipart::Part>,
+    app: Option<&FocusedApp>,
+    mode: Mode,
+    selection: &str,
+    names: &[String],
+    caret: Option<&(String, String)>,
+) -> Result<Output> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "snake_case")]
+    enum HostedMode {
+        Dictate,
+        Translate,
+        Command,
+        Transcribe,
+    }
+    #[derive(Serialize)]
+    struct Context<'a> {
+        mode: HostedMode,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        app_id: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        selection: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        before_cursor: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        after_cursor: Option<&'a str>,
+        category: AppCategory,
+        dictionary: &'a [String],
+        names: &'a [String],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        language: Option<&'a str>,
+        tone: Tone,
+        translate_to: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Response {
+        raw: String,
+        text: String,
+        delivery: Delivery,
+    }
+    let started = Instant::now();
+    let app_id = app.and_then(|app| app.id.as_deref());
+    let category = AppCategory::of(app_id);
+    let context = Context {
+        mode: match mode {
+            Mode::Dictate => HostedMode::Dictate,
+            Mode::Translate => HostedMode::Translate,
+            Mode::Command => HostedMode::Command,
+            Mode::File => HostedMode::Transcribe,
+        },
+        text: (mode == Mode::Translate && audio.is_none()).then_some(selection),
+        app_id,
+        title: app.and_then(|app| app.title.as_deref()),
+        selection: (mode == Mode::Command).then_some(selection),
+        before_cursor: caret.map(|(before, _)| {
+            before
+                .char_indices()
+                .rev()
+                .nth(999)
+                .map_or(before.as_str(), |(at, _)| &before[at..])
+        }),
+        after_cursor: caret.map(|(_, after)| {
+            after
+                .char_indices()
+                .nth(1000)
+                .map_or(after.as_str(), |(at, _)| &after[..at])
+        }),
+        category,
+        dictionary: &config.dictionary,
+        names,
+        language: config.language.as_deref(),
+        tone: config.styles.get(category),
+        translate_to: &config.translate_to,
+    };
+    let mut form = multipart::Form::new().text("context", serde_json::to_string(&context)?);
+    if let Some(audio) = audio {
+        form = form.part("audio", audio);
+    }
+    // Buffer uploads so connection failures remain detectable for offline fallback.
+    let content_type = format!("multipart/form-data; boundary={}", form.boundary());
+    let mut body = Vec::new();
+    form.into_reader().read_to_end(&mut body)?;
+    let url = crate::account::hosted_url();
+    let response: Response = crate::http::checked(
+        crate::http::client()
+            .post(format!("{url}/v1/dictate"))
+            .bearer_auth(crate::credentials::endpoint_key(&url)?)
+            .timeout(Duration::from_secs(if mode == Mode::File {
+                120
+            } else {
+                30
+            }))
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body)
+            .send()?,
+    )?
+    .json()?;
+    let elapsed = started.elapsed();
+    if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+        eprintln!("typeaside: hosted={}ms", elapsed.as_millis());
+    }
+    Ok(Output {
+        raw: response.raw,
+        text: response.text,
+        delivery: response.delivery,
+        // Hosted STT and editing share one request; only total latency is available.
+        stt: Duration::ZERO,
+        llm: elapsed,
     })
 }

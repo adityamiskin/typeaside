@@ -48,7 +48,7 @@ pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
         "webm" => "video/webm",
         _ => anyhow::bail!("Unsupported file type"),
     };
-    // Convex HTTP actions, which back the hosted proxy, reject bodies over 20 MB.
+    // Convex HTTP actions, which back the hosted route, reject bodies over 20 MB.
     anyhow::ensure!(
         std::fs::metadata(path)?.len() <= 20_000_000,
         "Files up to 20 MB"
@@ -62,9 +62,20 @@ pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
                 .into_owned(),
         )
         .mime_str(mime)?;
-    let config = config.effective();
+    if config.transcription == crate::config::Source::Hosted {
+        return Ok(crate::pipeline::hosted(
+            config,
+            Some(file),
+            None,
+            crate::engine::Mode::File,
+            "",
+            &[],
+            None,
+        )?
+        .text);
+    }
     request(
-        &config,
+        config,
         file,
         &endpoint_key(&config.stt.base_url)?,
         &[],

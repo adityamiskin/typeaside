@@ -10,6 +10,7 @@
 
 import type * as billing from "../billing.js";
 import type * as desktop from "../desktop.js";
+import type * as dictate from "../dictate.js";
 import type * as feedback from "../feedback.js";
 import type * as http from "../http.js";
 import type * as lib from "../lib.js";
@@ -29,6 +30,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   billing: typeof billing;
   desktop: typeof desktop;
+  dictate: typeof dictate;
   feedback: typeof feedback;
   http: typeof http;
   lib: typeof lib;

@@ -250,6 +250,7 @@ fn run(
     let mut context = (Mode::Dictate, None, String::new());
     let mut screen_names = None;
     let mut cursor: Option<mpsc::Receiver<Option<(String, String)>>> = None;
+    let mut around: Option<(String, String)> = None;
     let mut last_paste: Option<(Option<FocusedApp>, Instant, char)> = None;
     let mut start_mode = Mode::Dictate;
     let mut held = None;
@@ -398,9 +399,8 @@ fn run(
                         } else if delivery == Delivery::Open {
                             let _ = events.try_send(Event::Open(dictation.cleaned.clone()));
                         } else {
-                            let around = cursor.take().and_then(|rx| rx.try_recv().ok()).flatten();
                             // Without caret access, assume the caret still follows the last paste in this window.
-                            let (before, after) = match &around {
+                            let (before, after) = match around.take() {
                                 Some((before, after)) => {
                                     (before.chars().last(), after.chars().next())
                                 }
@@ -641,6 +641,8 @@ fn run(
                 let names = if retrying { None } else { screen_names.take() };
                 let pipeline_tx = tx.clone();
                 let (mode, app, selection) = context.clone();
+                around = cursor.take().and_then(|rx| rx.try_recv().ok()).flatten();
+                let caret = around.clone();
                 let spawned = thread::Builder::new()
                     .name("typeaside-transcription".into())
                     .spawn(move || {
@@ -657,6 +659,7 @@ fn run(
                                 mode,
                                 &selection,
                                 &names,
+                                caret.as_ref(),
                                 || {
                                     let _ = tx.send(Message::Cleaning(id));
                                 },
