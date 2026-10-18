@@ -3,7 +3,7 @@
 
 use crate::{
     audio::AudioRecorder,
-    config::RecordingMode,
+    config::{HistoryRetention, RecordingMode},
     hotkeys::{HotkeyEvent, HotkeyService},
     paths::AppPaths,
     text_injector::{FocusedApp, TextInjector, focused_app},
@@ -149,6 +149,27 @@ pub fn load_history(paths: &AppPaths) -> Vec<Dictation> {
         .map_while(std::result::Result::ok)
         .filter_map(|line| serde_json::from_str(&line).ok())
         .collect()
+}
+
+pub fn prune_history(
+    history: &mut Vec<Dictation>,
+    retention: HistoryRetention,
+    now: SystemTime,
+) -> bool {
+    let days = match retention {
+        HistoryRetention::Forever => return false,
+        HistoryRetention::Month => 30,
+        HistoryRetention::Week => 7,
+        HistoryRetention::Off => {
+            let changed = !history.is_empty();
+            history.clear();
+            return changed;
+        }
+    };
+    let cutoff = now.checked_sub(Duration::from_secs(days * 24 * 60 * 60));
+    let before = history.len();
+    history.retain(|entry| cutoff.is_none_or(|cutoff| entry.at >= cutoff));
+    history.len() != before
 }
 
 /// Rewrites history atomically, e.g. after the user deletes an entry.
@@ -403,7 +424,9 @@ fn run(
                 busy = None;
                 let audio = pending_audio.take();
                 let result = result.and_then(|(dictation, delivery)| {
-                    if !dictation.cleaned.is_empty() {
+                    if !dictation.cleaned.is_empty()
+                        && config.history_retention != HistoryRetention::Off
+                    {
                         append_history(&paths, &dictation)?;
                     }
                     Ok((dictation, delivery))
@@ -774,6 +797,14 @@ fn run(
                 }
             }
             Command::Reload(next) => {
+                if next.history_retention != config.history_retention {
+                    let mut history = load_history(&paths);
+                    if prune_history(&mut history, next.history_retention, SystemTime::now())
+                        && let Err(error) = save_history(&paths, &history)
+                    {
+                        report_error(&events, error);
+                    }
+                }
                 recorder = None;
                 stream = None;
                 monitor = None;
@@ -902,7 +933,49 @@ fn deliver(
 
 #[cfg(test)]
 mod tests {
-    use super::spaced;
+    use super::{Dictation, Mode, prune_history, spaced};
+    use crate::config::HistoryRetention;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn history_retention_keeps_the_cutoff_and_newer_entries() {
+        let day = Duration::from_secs(24 * 60 * 60);
+        let now = SystemTime::UNIX_EPOCH + day * 100;
+        let entries = [
+            now - day * 31,
+            now - day * 30 - Duration::from_secs(1),
+            now - day * 30,
+            now - day * 7 - Duration::from_secs(1),
+            now - day * 7,
+            now,
+            now + day,
+        ]
+        .map(|at| Dictation {
+            at,
+            raw: String::new(),
+            cleaned: String::new(),
+            app_id: None,
+            audio_ms: 0,
+            latency_ms: 0,
+            mode: Mode::Dictate,
+        });
+        for (retention, expected) in [
+            (HistoryRetention::Forever, &entries[..]),
+            (HistoryRetention::Month, &entries[2..]),
+            (HistoryRetention::Week, &entries[4..]),
+            (HistoryRetention::Off, &entries[7..]),
+        ] {
+            let mut history = entries.to_vec();
+            assert_eq!(
+                prune_history(&mut history, retention, now),
+                expected.len() != entries.len()
+            );
+            assert_eq!(
+                history.iter().map(|entry| entry.at).collect::<Vec<_>>(),
+                expected.iter().map(|entry| entry.at).collect::<Vec<_>>()
+            );
+        }
+    }
 
     #[cfg(unix)]
     #[test]
