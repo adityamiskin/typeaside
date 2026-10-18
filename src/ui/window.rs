@@ -305,7 +305,7 @@ impl Render for MainWindow {
                 Phase::Error(e) => (p.red, e.clone()),
             }
         };
-        let hotkey = key_label(&state.config.hotkey);
+        let hotkey = &state.config.hotkey;
         let usage = state
             .account
             .as_ref()

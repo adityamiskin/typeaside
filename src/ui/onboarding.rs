@@ -928,12 +928,7 @@ impl MainWindow {
                                     .flex()
                                     .items_center()
                                     .gap(px(12.))
-                                    .child(
-                                        kbd(key_label(key), p)
-                                            .min_w(px(96.))
-                                            .bg(p.kbd)
-                                            .text_center(),
-                                    )
+                                    .child(kbd(key, p).min_w(px(96.)))
                                     .child(text(label, 13., p.muted))
                             })
                         }),

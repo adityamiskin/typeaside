@@ -320,33 +320,65 @@ pub fn button(label: &'static str, primary: bool, p: Palette) -> Div {
         .cursor_pointer()
         .child(label)
 }
-pub fn kbd(value: String, p: Palette) -> Div {
+pub fn kbd(value: &str, p: Palette) -> Div {
     div()
-        .font_family(MONO)
-        .text_size(px(11.))
-        .line_height(px(13.))
-        .border_1()
-        .border_color(p.kbd)
-        .rounded(px(4.))
-        .px(px(5.))
-        .py(px(1.))
-        .child(value)
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .children(key_names(value).map(|key| {
+            div()
+                .text_size(px(11.))
+                .line_height(px(13.))
+                .border_1()
+                .border_color(p.kbd)
+                .rounded(px(4.))
+                .px(px(5.))
+                .py(px(1.))
+                .child(key)
+        }))
 }
 pub fn key_label(value: &str) -> String {
-    value
-        .split('+')
-        .map(|key| match key {
-            "RIGHTCTRL" => "Right Ctrl",
-            "RIGHTALT" => "Right Alt",
-            "LEFTALT" => "Alt",
-            "LEFTSHIFT" => "Shift",
-            "LEFTCTRL" => "Ctrl",
-            "ESCAPE" => "Escape",
+    key_names(value).collect::<Vec<_>>().join(" + ")
+}
+fn key_names(value: &str) -> impl Iterator<Item = String> + '_ {
+    value.split('+').map(|key| {
+        let key = key.trim().to_ascii_uppercase();
+        let key = key.trim_start_matches("KEY_");
+        let modifier = |base: &&str| ["CTRL", "ALT", "SHIFT", "META"].contains(base);
+        let (side, base) = match (key.strip_prefix("RIGHT"), key.strip_prefix("LEFT")) {
+            (Some(base), _) if modifier(&base) => ("Right ", base),
+            (_, Some(base)) if modifier(&base) => ("", base),
+            _ => ("", key),
+        };
+        let name = match base {
+            "CTRL" | "CONTROL" => "Ctrl",
+            "ALT" => "Alt",
+            "SHIFT" => "Shift",
+            "META" | "SUPER" if cfg!(target_os = "macos") => "Cmd",
+            "META" | "SUPER" if cfg!(target_os = "windows") => "Win",
+            "META" | "SUPER" => "Super",
+            "ESC" => "Escape",
+            "PAGEUP" => "Page Up",
+            "PAGEDOWN" => "Page Down",
+            "CAPSLOCK" => "Caps Lock",
+            "LEFTBRACE" => "[",
+            "RIGHTBRACE" => "]",
             "FN" => "Fn",
-            other => other,
-        })
-        .collect::<Vec<_>>()
-        .join("+")
+            "" => "Unbound",
+            other
+                if other.chars().count() == 1
+                    || other.starts_with('F') && other[1..].parse::<u8>().is_ok() =>
+            {
+                return other.to_string();
+            }
+            other => {
+                let mut chars = other.chars();
+                let first = chars.next().unwrap_or_default();
+                return format!("{first}{}", chars.as_str().to_ascii_lowercase());
+            }
+        };
+        format!("{side}{name}")
+    })
 }
 pub const SURFACE_WIDTH: f32 = 640.;
 pub const SURFACE_HEIGHT: f32 = 96.;

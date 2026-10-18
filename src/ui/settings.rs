@@ -474,7 +474,7 @@ impl MainWindow {
                     .child("Press keys…")
                     .into_any_element()
             } else {
-                kbd(key_label(value.unwrap_or("Unbound")), p).into_any_element()
+                kbd(value.unwrap_or_default(), p).into_any_element()
             })
             .on_click(cx.listener(move |this, _, w, cx| {
                 this.capture = Some(target);
