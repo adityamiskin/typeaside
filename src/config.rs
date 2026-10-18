@@ -10,6 +10,16 @@ pub enum RecordingMode {
     Toggle,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryRetention {
+    #[default]
+    Forever,
+    Month,
+    Week,
+    Off,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endpoint {
     pub base_url: String,
@@ -253,6 +263,7 @@ pub struct AppConfig {
     pub theme: Theme,
     pub onboarded: bool,
     pub share_usage: bool,
+    pub history_retention: HistoryRetention,
     pub install_id: Option<String>,
 }
 
@@ -289,6 +300,7 @@ impl Default for AppConfig {
             theme: Theme::System,
             onboarded: false,
             share_usage: false,
+            history_retention: HistoryRetention::Forever,
             install_id: None,
         }
     }

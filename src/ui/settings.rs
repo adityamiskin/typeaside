@@ -17,10 +17,16 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use typeaside::{
-    config::{AppConfig, RecordingMode, Source, Theme},
+    config::{AppConfig, HistoryRetention, RecordingMode, Source, Theme},
     local::Status,
 };
 
+const HISTORY_RETENTION: [(HistoryRetention, &str); 4] = [
+    (HistoryRetention::Forever, "Forever"),
+    (HistoryRetention::Month, "30 days"),
+    (HistoryRetention::Week, "7 days"),
+    (HistoryRetention::Off, "Off"),
+];
 const FIELD: f32 = 280.;
 pub(super) const GROUPS: [&str; 5] = ["Shortcuts", "Language", "Audio", "Dictation", "General"];
 const LANGUAGES: [(&str, &str); 12] = [
@@ -50,6 +56,7 @@ enum Selection {
     Device,
     Spoken,
     Translation,
+    HistoryRetention,
 }
 #[derive(Clone, Copy)]
 pub(super) enum Toggle {
@@ -74,6 +81,7 @@ pub struct SettingsInputs {
     pub device: Entity<SelectState<Vec<String>>>,
     pub spoken: Entity<SelectState<Vec<String>>>,
     pub translation: Entity<SelectState<Vec<String>>>,
+    pub history_retention: Entity<SelectState<Vec<String>>>,
     stt_models: ModelList,
     cleanup_models: ModelList,
     devices: Vec<String>,
@@ -142,6 +150,16 @@ impl SettingsInputs {
             LANGUAGES.iter().map(|(n, _)| (*n).to_owned()).collect(),
             Some(&c.translate_to),
         );
+        let history_retention = select(
+            HISTORY_RETENTION
+                .iter()
+                .map(|(_, label)| (*label).to_owned())
+                .collect(),
+            HISTORY_RETENTION
+                .iter()
+                .find(|(value, _)| *value == c.history_retention)
+                .map(|(_, label)| *label),
+        );
         Self {
             endpoint,
             model,
@@ -153,6 +171,7 @@ impl SettingsInputs {
             device,
             spoken,
             translation,
+            history_retention,
             stt_models,
             cleanup_models,
             devices: devices.to_vec(),
@@ -355,6 +374,10 @@ impl MainWindow {
             (&self.settings.device, Selection::Device),
             (&self.settings.spoken, Selection::Spoken),
             (&self.settings.translation, Selection::Translation),
+            (
+                &self.settings.history_retention,
+                Selection::HistoryRetention,
+            ),
         ] {
             cx.subscribe(entity, move |this, _, event, cx| {
                 let SelectEvent::Confirm(Some(value)) = event else {
@@ -373,6 +396,20 @@ impl MainWindow {
                                 .map(|(_, code)| (*code).into())
                         }
                         Selection::Translation => s.config.translate_to = value,
+                        Selection::HistoryRetention => {
+                            let Some((retention, _)) =
+                                HISTORY_RETENTION.iter().find(|(_, label)| *label == value)
+                            else {
+                                return;
+                            };
+                            s.config.history_retention = *retention;
+                            typeaside::engine::prune_history(
+                                &mut s.history,
+                                *retention,
+                                std::time::SystemTime::now(),
+                            );
+                            s.expanded = None;
+                        }
                     }
                     s.persist();
                     if matches!(field, Selection::Device) && s.mic_testing {
@@ -1030,6 +1067,7 @@ impl MainWindow {
                 Setting::new("Launch at login")
                     .description("Start hidden when you log in.")
                     .child(self.toggle("login", c.launch_at_login, Toggle::Login, cx)),
+                Setting::new("Keep history").child(select(&self.settings.history_retention, p)),
                 Setting::new("Share anonymous usage stats")
                     .description("Counts and timings only, never text or audio.")
                     .child(self.toggle("share-usage", c.share_usage, Toggle::ShareUsage, cx)),

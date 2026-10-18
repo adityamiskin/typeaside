@@ -151,6 +151,16 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                 } else {
                     typeaside::engine::load_history(&load_paths)
                 };
+                if !is_demo
+                    && typeaside::engine::prune_history(
+                        &mut history,
+                        config.history_retention,
+                        std::time::SystemTime::now(),
+                    )
+                {
+                    load_paths.ensure()?;
+                    typeaside::engine::save_history(&load_paths, &history)?;
+                }
                 history.sort_by_key(|item| std::cmp::Reverse(item.at));
                 Ok::<_, anyhow::Error>((config, history))
             });
@@ -490,7 +500,9 @@ fn start_ui(
                             s.onboarding_transcript = Some(dictation.cleaned.clone());
                             s.onboarding_raw = Some(dictation.raw.clone());
                         }
-                        s.history.insert(0, dictation);
+                        if s.config.history_retention != typeaside::config::HistoryRetention::Off {
+                            s.history.insert(0, dictation);
+                        }
                         cx.notify();
                     });
                     if !state.read(cx).config.onboarded { return; }
