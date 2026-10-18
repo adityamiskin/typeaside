@@ -451,6 +451,7 @@ impl Render for MainWindow {
                 }),
             )
             .child(div().flex_1())
+            .when_some(usage, |side, usage| side.child(usage))
             .child(
                 div()
                     .id("feedback")
@@ -512,7 +513,6 @@ impl Render for MainWindow {
                     .child(div().min_w_0().text_ellipsis().child(account_label))
                     .on_click(cx.listener(|this, _, w, cx| this.set_page(Page::Account, w, cx)))
             })
-            .when_some(usage, |side, usage| side.child(usage))
             .when_some(save_error, |side, error| {
                 side.child(
                     div()
