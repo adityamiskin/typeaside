@@ -1,4 +1,4 @@
-import { readContext, type dictate, type readInput } from "./dictate";
+import { readContext, type Input, type Result } from "./dictate";
 import { error } from "./errors";
 
 const MAX_AUDIO_BYTES = 19_200_000;
@@ -26,9 +26,7 @@ function wav(chunks: ArrayBuffer[], bytes: number) {
 
 export function stream(
   ctx: ExecutionContext,
-  run: (
-    input: NonNullable<Awaited<ReturnType<typeof readInput>>>,
-  ) => Promise<Awaited<ReturnType<typeof dictate>> | ReturnType<typeof error>>,
+  run: (input: Input) => Promise<Result | ReturnType<typeof error>>,
 ) {
   const { 0: client, 1: server } = new WebSocketPair();
   server.accept();
@@ -49,14 +47,12 @@ export function stream(
     server.send(JSON.stringify(result));
     server.close(1000);
   };
-  server.addEventListener("close", () => {
+  const end = () => {
     closed = true;
     clear();
-  });
-  server.addEventListener("error", () => {
-    closed = true;
-    clear();
-  });
+  };
+  server.addEventListener("close", end);
+  server.addEventListener("error", end);
   server.addEventListener("message", (event) => {
     if (released || closed) return;
     if (typeof event.data !== "string") {
@@ -71,8 +67,8 @@ export function stream(
       return;
     }
     released = true;
-    const context = readContext(event.data, true);
-    if (!context || bytes === 0) {
+    const context = readContext(event.data);
+    if (!context || context.text !== undefined || bytes === 0) {
       respond(error(400, "request", "Invalid dictation input"));
       return;
     }

@@ -17,16 +17,14 @@ const contextInput = z.strictObject({
 });
 type Context = z.infer<typeof contextInput>;
 
-const audioContextInput = contextInput.omit({ text: true });
-
-export function readContext(field: string, audioOnly = false): Context | null {
+export function readContext(field: string): Context | null {
   let json: unknown;
   try {
     json = JSON.parse(field);
   } catch {
     return null;
   }
-  return (audioOnly ? audioContextInput : contextInput).safeParse(json).data ?? null;
+  return contextInput.safeParse(json).data ?? null;
 }
 
 export async function readInput(request: Request) {
@@ -179,10 +177,10 @@ async function command(key: string, instruction: string, selection: string): Pro
   return answer;
 }
 
-export async function dictate(
-  key: string,
-  { context, audio }: NonNullable<Awaited<ReturnType<typeof readInput>>>,
-) {
+export type Input = NonNullable<Awaited<ReturnType<typeof readInput>>>;
+export type Result = Awaited<ReturnType<typeof dictate>>;
+
+export async function dictate(key: string, { context, audio }: Input) {
   let raw = context.text ?? "";
   if (audio) {
     const body = new FormData();
