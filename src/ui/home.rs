@@ -696,7 +696,7 @@ impl MainWindow {
                     .gap(px(5.))
                     .text_color(p.muted)
                     .child("Hold")
-                    .child(kbd(key_label(&state.config.hotkey), p))
+                    .child(kbd(&state.config.hotkey, p))
                     .child("and speak.")
                     .into_any_element(),
             );
