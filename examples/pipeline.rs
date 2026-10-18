@@ -376,9 +376,14 @@ fn main() -> Result<()> {
     let mut mode = Mode::Dictate;
     let mut file = false;
     let mut json = false;
+    let mut realtime = false;
     let mut text = None;
     let mut caret: Option<(String, String)> = None;
     while let Some(flag) = args.next() {
+        if flag == "--realtime" {
+            realtime = true;
+            continue;
+        }
         if flag == "--local" {
             config.transcription = typeaside::config::Source::Local;
             continue;
@@ -426,7 +431,27 @@ fn main() -> Result<()> {
     } else {
         read_wav(Path::new(&input))?
     };
-    let output = pipeline::run(
+    let stream = if realtime
+        && config.transcription == typeaside::config::Source::Hosted
+        && !audio.is_empty()
+    {
+        let session = typeaside::stream::Session::start()?;
+        let sink = session.audio();
+        let recording = Instant::now();
+        let mut sent = 0;
+        for chunk in audio.chunks(1600) {
+            sent += chunk.len();
+            std::thread::sleep(
+                Duration::from_secs_f64(sent as f64 / 16_000.0).saturating_sub(recording.elapsed()),
+            );
+            sink.send(chunk);
+        }
+        Some(session)
+    } else {
+        None
+    };
+    let released = Instant::now();
+    let output = pipeline::run_with_stream(
         &config,
         &audio,
         Some(&FocusedApp { id: app, title }),
@@ -434,12 +459,14 @@ fn main() -> Result<()> {
         text.as_deref().or(selection.as_deref()).unwrap_or_default(),
         &[],
         caret.as_ref(),
+        stream,
         || {},
     )?;
     if json {
         println!(
             "{}",
             serde_json::json!({
+                "release_ms": released.elapsed().as_millis(),
                 "raw": output.raw,
                 "output": output.text,
                 "delivery": output.delivery,

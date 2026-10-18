@@ -241,6 +241,7 @@ fn run(
     let mut epoch = 0;
     let mut hotkeys = open_hotkeys(&config, &tx, epoch, &events);
     let mut recorder: Option<AudioRecorder> = None;
+    let mut stream = None;
     let mut generation = 0u64;
     let mut busy = None;
     let mut pending_audio: Option<Arc<[f32]>> = None;
@@ -281,6 +282,7 @@ fn run(
                 let _ = events.try_send(Event::Level(capture.current_level()));
                 if let Some(error) = capture.take_error() {
                     recorder = None;
+                    stream = None;
                     monitor = None;
                     stop_effects(&mut effects, &mut restoring);
                     report_error(&events, error);
@@ -505,7 +507,14 @@ fn run(
                     String::new()
                 };
                 crate::http::prewarm(&config);
-                match AudioRecorder::start(&config) {
+                stream = (config.transcription == crate::config::Source::Hosted)
+                    .then(crate::stream::Session::start)
+                    .and_then(Result::ok);
+                let capture = match &stream {
+                    Some(stream) => AudioRecorder::start_streaming(&config, stream.audio()),
+                    None => AudioRecorder::start(&config),
+                };
+                match capture {
                     Ok(capture) => {
                         recorder = Some(capture);
                         context = (start_mode, app, selection);
@@ -514,6 +523,7 @@ fn run(
                         phase(&events, Phase::Listening(start_mode));
                     }
                     Err(error) => {
+                        stream = None;
                         report_error(&events, error);
                         if config.sounds {
                             crate::cues::play(crate::cues::Cue::Error);
@@ -606,6 +616,7 @@ fn run(
                     let audio = match capture.stop() {
                         Ok(audio) => audio,
                         Err(error) => {
+                            stream = None;
                             report_error(&events, error);
                             if config.sounds {
                                 crate::cues::play(crate::cues::Cue::Error);
@@ -617,11 +628,14 @@ fn run(
                     let silent = tap || !crate::transcribe::has_speech(&audio);
                     if silent && context.0 == Mode::Translate && !context.2.trim().is_empty() {
                         // Tapping Translate over a selection translates it in place.
+                        stream = None;
                         Vec::new()
                     } else if tap {
+                        stream = None;
                         phase(&events, Phase::Idle);
                         continue;
                     } else if silent {
+                        stream = None;
                         report_error(&events, "No speech detected");
                         if config.sounds {
                             crate::cues::play(crate::cues::Cue::Error);
@@ -643,6 +657,7 @@ fn run(
                 let (mode, app, selection) = context.clone();
                 around = cursor.take().and_then(|rx| rx.try_recv().ok()).flatten();
                 let caret = around.clone();
+                let stream = stream.take();
                 let spawned = thread::Builder::new()
                     .name("typeaside-transcription".into())
                     .spawn(move || {
@@ -652,7 +667,7 @@ fn run(
                             let names = names
                                 .and_then(|names| names.try_recv().ok())
                                 .unwrap_or_default();
-                            let output = crate::pipeline::run(
+                            let output = crate::pipeline::run_with_stream(
                                 &pipeline_config,
                                 &audio,
                                 app.as_ref(),
@@ -660,6 +675,7 @@ fn run(
                                 &selection,
                                 &names,
                                 caret.as_ref(),
+                                stream,
                                 || {
                                     let _ = tx.send(Message::Cleaning(id));
                                 },
@@ -694,6 +710,7 @@ fn run(
                     let _ = events.try_send(Event::DismissReply);
                 }
                 recorder = None;
+                stream = None;
                 monitor = None;
                 stop_effects(&mut effects, &mut restoring);
                 busy = None;
@@ -713,6 +730,7 @@ fn run(
             }
             Command::Reload(next) => {
                 recorder = None;
+                stream = None;
                 monitor = None;
                 stop_effects(&mut effects, &mut restoring);
                 busy = None;

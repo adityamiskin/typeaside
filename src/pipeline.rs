@@ -50,19 +50,67 @@ pub fn run(
     caret: Option<&(String, String)>,
     cleaning: impl FnOnce(),
 ) -> Result<Output> {
+    run_with_stream(
+        config, audio, app, mode, selection, names, caret, None, cleaning,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_stream(
+    config: &AppConfig,
+    audio: &[f32],
+    app: Option<&FocusedApp>,
+    mode: Mode,
+    selection: &str,
+    names: &[String],
+    caret: Option<&(String, String)>,
+    stream: Option<crate::stream::Session>,
+    cleaning: impl FnOnce(),
+) -> Result<Output> {
     let started = Instant::now();
     if config.transcription == Source::Hosted {
         cleaning();
-        let file = if mode == Mode::Translate && audio.is_empty() {
-            None
+        let streaming = stream.is_some();
+        let streamed = if !audio.is_empty() {
+            stream.and_then(|stream| {
+                let context =
+                    match hosted_context(config, app, mode, selection, names, caret, false) {
+                        Ok(context) => context,
+                        Err(error) => return Some(Err(error)),
+                    };
+                stream
+                    .finish(context)
+                    .map(|result| result.map(|response| response.output(started.elapsed())))
+            })
         } else {
-            Some(
-                multipart::Part::bytes(transcribe::encode_flac(audio)?)
-                    .file_name("dictation.flac")
-                    .mime_str("audio/flac")?,
-            )
+            None
         };
-        return match hosted(config, file, app, mode, selection, names, caret) {
+        if streaming && std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+            eprintln!(
+                "typeaside: stream={}",
+                if streamed.is_some() {
+                    "response"
+                } else {
+                    "POST fallback"
+                }
+            );
+        }
+        let result = match streamed {
+            Some(result) => result,
+            None => {
+                let file = if mode == Mode::Translate && audio.is_empty() {
+                    None
+                } else {
+                    Some(
+                        multipart::Part::bytes(transcribe::encode_flac(audio)?)
+                            .file_name("dictation.flac")
+                            .mime_str("audio/flac")?,
+                    )
+                };
+                hosted(config, file, app, mode, selection, names, caret)
+            }
+        };
+        return match result {
             Ok(mut output) => {
                 if output.delivery == Delivery::Insert {
                     output.text = snippets::expand(&output.text, &config.snippets);
@@ -158,6 +206,71 @@ pub(crate) fn hosted(
     names: &[String],
     caret: Option<&(String, String)>,
 ) -> Result<Output> {
+    let started = Instant::now();
+    let context = hosted_context(
+        config,
+        app,
+        mode,
+        selection,
+        names,
+        caret,
+        mode == Mode::Translate && audio.is_none(),
+    )?;
+    let mut form = multipart::Form::new().text("context", context);
+    if let Some(audio) = audio {
+        form = form.part("audio", audio);
+    }
+    // Buffer uploads so connection failures remain detectable for offline fallback.
+    let content_type = format!("multipart/form-data; boundary={}", form.boundary());
+    let mut body = Vec::new();
+    form.into_reader().read_to_end(&mut body)?;
+    let url = crate::account::hosted_url();
+    let response: HostedResponse = crate::http::checked_hosted(
+        crate::http::client()
+            .post(format!("{url}/v1/dictate"))
+            .bearer_auth(crate::credentials::endpoint_key(&url)?)
+            .timeout(Duration::from_secs(if mode == Mode::File {
+                120
+            } else {
+                30
+            }))
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body)
+            .send()?,
+    )?
+    .json()?;
+    Ok(response.output(started.elapsed()))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct HostedResponse {
+    raw: String,
+    text: String,
+    delivery: Delivery,
+}
+
+impl HostedResponse {
+    fn output(self, elapsed: Duration) -> Output {
+        Output {
+            raw: self.raw,
+            text: self.text,
+            delivery: self.delivery,
+            stt: Duration::ZERO,
+            llm: elapsed,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hosted_context(
+    config: &AppConfig,
+    app: Option<&FocusedApp>,
+    mode: Mode,
+    selection: &str,
+    names: &[String],
+    caret: Option<&(String, String)>,
+    text_only: bool,
+) -> Result<String> {
     #[derive(Serialize)]
     #[serde(rename_all = "snake_case")]
     enum HostedMode {
@@ -189,13 +302,6 @@ pub(crate) fn hosted(
         tone: Tone,
         translate_to: &'a str,
     }
-    #[derive(Deserialize)]
-    struct Response {
-        raw: String,
-        text: String,
-        delivery: Delivery,
-    }
-    let started = Instant::now();
     let app_id = app.and_then(|app| app.id.as_deref());
     let category = AppCategory::of(app_id);
     let context = Context {
@@ -205,7 +311,7 @@ pub(crate) fn hosted(
             Mode::Command => HostedMode::Command,
             Mode::File => HostedMode::Transcribe,
         },
-        text: (mode == Mode::Translate && audio.is_none()).then_some(selection),
+        text: text_only.then_some(selection),
         app_id,
         title: app.and_then(|app| app.title.as_deref()),
         selection: (mode == Mode::Command).then_some(selection),
@@ -229,39 +335,5 @@ pub(crate) fn hosted(
         tone: config.styles.get(category),
         translate_to: &config.translate_to,
     };
-    let mut form = multipart::Form::new().text("context", serde_json::to_string(&context)?);
-    if let Some(audio) = audio {
-        form = form.part("audio", audio);
-    }
-    // Buffer uploads so connection failures remain detectable for offline fallback.
-    let content_type = format!("multipart/form-data; boundary={}", form.boundary());
-    let mut body = Vec::new();
-    form.into_reader().read_to_end(&mut body)?;
-    let url = crate::account::hosted_url();
-    let response: Response = crate::http::checked(
-        crate::http::client()
-            .post(format!("{url}/v1/dictate"))
-            .bearer_auth(crate::credentials::endpoint_key(&url)?)
-            .timeout(Duration::from_secs(if mode == Mode::File {
-                120
-            } else {
-                30
-            }))
-            .header(reqwest::header::CONTENT_TYPE, content_type)
-            .body(body)
-            .send()?,
-    )?
-    .json()?;
-    let elapsed = started.elapsed();
-    if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
-        eprintln!("typeaside: hosted={}ms", elapsed.as_millis());
-    }
-    Ok(Output {
-        raw: response.raw,
-        text: response.text,
-        delivery: response.delivery,
-        // Hosted STT and editing share one request; only total latency is available.
-        stt: Duration::ZERO,
-        llm: elapsed,
-    })
+    Ok(serde_json::to_string(&context)?)
 }

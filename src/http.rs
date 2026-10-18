@@ -14,12 +14,9 @@ pub(crate) fn client() -> &'static Client {
 }
 
 pub(crate) fn prewarm(config: &AppConfig) {
-    let endpoints = match config.transcription {
+    let endpoints: Vec<_> = match config.transcription {
         crate::config::Source::Local => return,
-        crate::config::Source::Hosted => {
-            let url = crate::account::hosted_url();
-            vec![(format!("{url}/v1/me"), url)]
-        }
+        crate::config::Source::Hosted => return,
         crate::config::Source::OwnKey => [&config.stt, &config.cleanup.endpoint]
             .into_iter()
             .map(|endpoint| {
@@ -50,13 +47,49 @@ pub(crate) fn checked(
     response: reqwest::blocking::Response,
 ) -> anyhow::Result<reqwest::blocking::Response> {
     if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
-        let body: serde_json::Value = response.json()?;
-        if body["error"]["type"] == "limit" {
-            anyhow::bail!("Weekly free limit reached. Upgrade in TypeAside.");
-        }
-        anyhow::bail!("Hosted request failed (402)");
+        return Err(hosted_error(402, &response.json()?).into());
     }
     Ok(response.error_for_status()?)
+}
+
+pub(crate) fn checked_hosted(
+    response: reqwest::blocking::Response,
+) -> anyhow::Result<reqwest::blocking::Response> {
+    if response.status().is_client_error() || response.status().is_server_error() {
+        check_status(response.status().as_u16(), &response.bytes()?)?;
+        unreachable!("error status is rejected");
+    }
+    Ok(response)
+}
+
+#[derive(Debug)]
+pub(crate) struct HostedError(String);
+
+impl std::fmt::Display for HostedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for HostedError {}
+
+pub(crate) fn check_status(status: u16, body: &[u8]) -> anyhow::Result<()> {
+    if status < 400 {
+        return Ok(());
+    }
+    let body: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+    Err(hosted_error(status, &body).into())
+}
+
+fn hosted_error(status: u16, body: &serde_json::Value) -> HostedError {
+    let message = match status {
+        402 if body["error"]["type"] == "limit" => {
+            "Weekly free limit reached. Upgrade in TypeAside.".into()
+        }
+        401 => "Sign in to TypeAside again.".into(),
+        _ => format!("Hosted request failed ({status})"),
+    };
+    HostedError(message)
 }
 
 /// Model IDs from an OpenAI-compatible `GET /models`, split into (speech, chat).
