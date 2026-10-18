@@ -39,8 +39,6 @@ pub enum Shortcut {
     Dictate,
     Command,
     Translate,
-    Paste,
-    Cancel,
 }
 
 pub struct MainWindow {
@@ -220,7 +218,7 @@ impl MainWindow {
                     })
                     .detach();
                 }
-                this.capture = Some(Shortcut::Cancel);
+                this.capture = Some(Shortcut::Translate);
                 this.start_mic(cx);
             }
             if page == Page::Snippets {

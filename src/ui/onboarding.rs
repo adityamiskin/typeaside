@@ -917,11 +917,7 @@ impl MainWindow {
                             (Some(s.config.hotkey.as_str()), "Hold to dictate"),
                             (
                                 s.config.command_hotkey.as_deref(),
-                                "Rewrite selected text by voice",
-                            ),
-                            (
-                                s.config.paste_last_hotkey.as_deref(),
-                                "Paste your last dictation",
+                                "Ask anything, or edit selected text",
                             ),
                         ]
                         .into_iter()
