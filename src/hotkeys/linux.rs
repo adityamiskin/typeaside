@@ -30,6 +30,7 @@ pub enum HotkeyEvent {
     Cancel(bool),
     Command(bool),
     Translate(bool),
+    Pause(bool),
 }
 
 pub struct HotkeyService {
@@ -85,6 +86,7 @@ impl HotkeyService {
                 HotkeyEvent::Command as fn(bool) -> HotkeyEvent,
             ),
             (&config.translate_hotkey, HotkeyEvent::Translate),
+            (&config.pause_hotkey, HotkeyEvent::Pause),
         ] {
             if let Some(value) = value {
                 combos.push(Combo::parse(value, event)?);

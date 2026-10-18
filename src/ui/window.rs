@@ -38,6 +38,7 @@ pub enum Shortcut {
     Dictate,
     Command,
     Translate,
+    Pause,
 }
 
 pub struct MainWindow {

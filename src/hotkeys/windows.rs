@@ -21,12 +21,14 @@ use windows::Win32::{
 const MODIFIERS: [u16; 8] = [0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0x5b, 0x5c];
 static PHYSICAL_MODIFIERS: AtomicU8 = AtomicU8::new(0);
 static CANCELABLE: AtomicBool = AtomicBool::new(false);
+static RECORDING: AtomicBool = AtomicBool::new(false);
 // Unassigned virtual key, the same one AutoHotkey uses to mask Alt and Win releases.
 const MASK: u16 = 0xe8;
 
-/// Lets the hook swallow the cancel key only while a recording or transcript is in flight.
-pub(crate) fn set_cancelable(cancelable: bool) {
+/// Claims cancel while a session is active, and pause only while recording.
+pub(crate) fn set_cancelable(cancelable: bool, recording: bool) {
     CANCELABLE.store(cancelable, Ordering::Relaxed);
+    RECORDING.store(recording, Ordering::Relaxed);
 }
 
 pub(crate) fn held_modifiers() -> impl Iterator<Item = u16> {
@@ -89,7 +91,11 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
                     state.key(key, down);
                     modifier.is_none()
                         && down
-                        && state.claims(key, CANCELABLE.load(Ordering::Relaxed))
+                        && state.claims(
+                            key,
+                            CANCELABLE.load(Ordering::Relaxed),
+                            RECORDING.load(Ordering::Relaxed),
+                        )
                 });
                 // Alt and Win are bits 4 to 7 of MODIFIERS.
                 let alt_or_win = PHYSICAL_MODIFIERS.load(Ordering::Relaxed) & 0xf0 != 0;

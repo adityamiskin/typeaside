@@ -491,6 +491,7 @@ impl MainWindow {
                 Shortcut::Dictate => s.config.hotkey = key,
                 Shortcut::Command => s.config.command_hotkey = Some(key),
                 Shortcut::Translate => s.config.translate_hotkey = Some(key),
+                Shortcut::Pause => s.config.pause_hotkey = Some(key),
             }
             s.persist();
             cx.notify();
@@ -512,6 +513,7 @@ impl MainWindow {
                 Shortcut::Dictate => "dictate-key",
                 Shortcut::Command => "command-key",
                 Shortcut::Translate => "translate-key",
+                Shortcut::Pause => "pause-key",
             })
             .cursor_pointer()
             .child(if self.capture == Some(target) {
@@ -521,6 +523,25 @@ impl MainWindow {
                     .into_any_element()
             } else {
                 kbd(value.unwrap_or_default(), p).into_any_element()
+            })
+            .when(target == Shortcut::Pause && value.is_some(), |el| {
+                el.child(
+                    div()
+                        .id("clear-pause-key")
+                        .ml(px(8.))
+                        .text_color(p.muted)
+                        .child("×")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.capture = None;
+                            this.state.update(cx, |s, cx| {
+                                s.config.pause_hotkey = None;
+                                s.persist();
+                                cx.notify();
+                            });
+                            cx.notify();
+                        })),
+                )
             })
             .on_click(cx.listener(move |this, _, w, cx| {
                 this.capture = Some(target);
@@ -1004,6 +1025,9 @@ impl MainWindow {
                 Setting::new("Translate")
                     .description("Translate speech, or tap over selected text.")
                     .child(self.shortcut(Shortcut::Translate, c.translate_hotkey.as_deref(), cx)),
+                Setting::new("Pause / resume")
+                    .description("Tap while recording.")
+                    .child(self.shortcut(Shortcut::Pause, c.pause_hotkey.as_deref(), cx)),
                 Setting::new("Ask anything")
                     .description("Ask a question, or edit selected text.")
                     .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),

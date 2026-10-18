@@ -12,6 +12,7 @@ use typeaside::engine::{Command, Mode, Phase};
 #[derive(Clone, PartialEq)]
 enum Visual {
     Listening,
+    Paused,
     Processing,
     Success,
     Cancel,
@@ -63,6 +64,9 @@ impl Overlay {
     }
 
     pub fn level(&mut self, level: f32, cx: &mut Context<Self>) {
+        if self.phase == Visual::Paused {
+            return;
+        }
         self.levels.rotate_left(1);
         self.levels[BARS - 1] = if level.is_finite() {
             level.clamp(0., 1.)
@@ -80,9 +84,15 @@ impl Overlay {
                 cx.notify();
                 Visual::Listening
             }
+            Phase::Paused(mode) => {
+                self.mode = mode;
+                Visual::Paused
+            }
             Phase::Transcribing | Phase::Cleaning => Visual::Processing,
             Phase::Error(message) => Visual::Error(message),
-            Phase::Idle if self.phase == Visual::Listening => Visual::Cancel,
+            Phase::Idle if matches!(self.phase, Visual::Listening | Visual::Paused) => {
+                Visual::Cancel
+            }
             Phase::Idle if self.phase == Visual::Processing => Visual::Exit,
             Phase::Idle => return,
         };
@@ -197,6 +207,12 @@ impl Overlay {
         }
         self.phase = phase;
         self.phase_at = Instant::now();
+        if self.phase == Visual::Paused {
+            self.width = Spring::new(96.);
+            self.rise = Spring::new(0.);
+            self.scale = Spring::new(1.);
+            self.bars = [Spring::new(0.); BARS];
+        }
         let text = match &self.phase {
             Visual::Error(message) => Some(text_width(message, window, cx)),
             Visual::Notice(label, text, words) => {
@@ -247,6 +263,10 @@ impl Overlay {
     }
 
     fn advance(&mut self, window: &mut Window) -> (f32, f32, f32) {
+        if self.phase == Visual::Paused {
+            self.last_frame = Instant::now();
+            return (1., 0., 0.);
+        }
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.032);
         self.last_frame = now;
@@ -277,7 +297,7 @@ impl Overlay {
             }
             Visual::Processing => self.width.target = WORK_WIDTH,
             Visual::Success => self.width.target = PILL_HEIGHT,
-            Visual::Cancel | Visual::Exit => {}
+            Visual::Paused | Visual::Cancel | Visual::Exit => {}
             Visual::Error(_) | Visual::Notice(..) => {}
         }
         let mut moving = self.width.step(dt, PILL_STIFFNESS, PILL_DAMPING);
@@ -337,6 +357,7 @@ impl Render for Overlay {
             Visual::Listening if self.mode == Mode::Command => "command",
             Visual::Listening if self.mode == Mode::Translate => "translate",
             Visual::Listening => "listening",
+            Visual::Paused => "paused",
             Visual::Processing => "processing",
             Visual::Success => "success",
             Visual::Error(_) => "error",
@@ -408,7 +429,9 @@ impl Render for Overlay {
             .items_center()
             .justify_center()
             .overflow_hidden();
-        if let Visual::Error(message) | Visual::Notice(_, message, _) = &self.phase {
+        if self.phase == Visual::Paused {
+            pill = pill.child(div().text_color(p.fg).text_size(px(13.)).child("Ⅱ Paused"));
+        } else if let Visual::Error(message) | Visual::Notice(_, message, _) = &self.phase {
             let label = match self.phase {
                 Visual::Notice(label, _, _) => Some(label),
                 _ => None,

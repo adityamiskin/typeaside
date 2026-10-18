@@ -36,6 +36,7 @@ pub enum Mode {
 pub enum Phase {
     Idle,
     Listening(Mode),
+    Paused(Mode),
     Transcribing,
     Cleaning,
     Error(String),
@@ -326,7 +327,10 @@ fn run(
             break;
         }
         #[cfg(target_os = "windows")]
-        crate::hotkeys::set_cancelable(recorder.is_some() || busy.is_some() || reply_visible);
+        crate::hotkeys::set_cancelable(
+            recorder.is_some() || busy.is_some() || reply_visible,
+            recorder.is_some(),
+        );
         restoring.retain(|thread: &thread::JoinHandle<()>| !thread.is_finished());
         if tick.elapsed() >= Duration::from_millis(33) {
             tick = Instant::now();
@@ -369,6 +373,21 @@ fn run(
             }
             Message::Hotkey(source, event) if source == epoch => match event {
                 HotkeyEvent::Cancel(true) => Command::Cancel,
+                HotkeyEvent::Pause(true) => {
+                    if let Some(capture) = &recorder {
+                        let paused = capture.toggle_paused();
+                        let _ = events.try_send(Event::Level(0.));
+                        phase(
+                            &events,
+                            if paused {
+                                Phase::Paused(context.0)
+                            } else {
+                                Phase::Listening(context.0)
+                            },
+                        );
+                    }
+                    continue;
+                }
                 #[cfg(target_os = "macos")]
                 HotkeyEvent::Interrupt if recorder.is_some() => Command::Cancel,
                 HotkeyEvent::Main(pressed)
@@ -390,7 +409,14 @@ fn run(
                             }
                             context.0 = mode;
                             held = Some(mode);
-                            phase(&events, Phase::Listening(mode));
+                            phase(
+                                &events,
+                                if recorder.as_ref().is_some_and(AudioRecorder::is_paused) {
+                                    Phase::Paused(mode)
+                                } else {
+                                    Phase::Listening(mode)
+                                },
+                            );
                         }
                         continue;
                     }
