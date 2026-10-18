@@ -8,7 +8,7 @@ pub struct FocusedApp {
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub(crate) use linux::primary_selection;
+pub(crate) use linux::{atspi_connection, primary_selection};
 #[cfg(target_os = "linux")]
 pub use linux::*;
 #[cfg(any(target_os = "macos", target_os = "windows"))]

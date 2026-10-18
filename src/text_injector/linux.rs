@@ -53,19 +53,21 @@ fn atspi_focused_app() -> Option<super::FocusedApp> {
     })
 }
 
-async fn query_atspi_focused_app() -> Result<Option<super::FocusedApp>> {
+pub(crate) async fn atspi_connection() -> Result<&'static zbus::Connection> {
     static CONNECTION: OnceLock<zbus::Connection> = OnceLock::new();
-    let connection = match CONNECTION.get() {
-        Some(connection) => connection,
-        None => {
-            let session = zbus::Connection::session().await?;
-            let address = BusProxy::new(&session).await?.get_address().await?;
-            let connection = zbus::connection::Builder::address(address.as_str())?
-                .build()
-                .await?;
-            CONNECTION.get_or_init(|| connection)
-        }
-    };
+    if let Some(connection) = CONNECTION.get() {
+        return Ok(connection);
+    }
+    let session = zbus::Connection::session().await?;
+    let address = BusProxy::new(&session).await?.get_address().await?;
+    let connection = zbus::connection::Builder::address(address.as_str())?
+        .build()
+        .await?;
+    Ok(CONNECTION.get_or_init(|| connection))
+}
+
+async fn query_atspi_focused_app() -> Result<Option<super::FocusedApp>> {
+    let connection = atspi_connection().await?;
     let registry = AccessibleProxy::builder(connection)
         .destination("org.a11y.atspi.Registry")?
         .cache_properties(CacheProperties::No)

@@ -6,6 +6,12 @@ mod platform;
 #[cfg(target_os = "windows")]
 #[path = "learn/windows.rs"]
 mod platform;
+#[cfg(target_os = "linux")]
+#[path = "learn/linux.rs"]
+mod platform;
+
+#[cfg(target_os = "linux")]
+pub(crate) use platform::enable;
 
 pub struct Watch {
     stop: std::sync::mpsc::Sender<()>,
@@ -20,50 +26,34 @@ impl Drop for Watch {
 /// Starts before the paste: the caret is the only reliable way to find the inserted text
 /// when the same words already appear elsewhere in the field.
 pub fn watch(inserted: String, events: async_channel::Sender<Event>) -> Option<Watch> {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        if inserted.is_empty() {
-            return None;
-        }
-        let (stop, stopped) = std::sync::mpsc::channel();
-        let (ready, captured) = std::sync::mpsc::sync_channel(1);
-        std::thread::Builder::new()
-            .name("typeaside-learn".into())
-            .spawn(move || {
-                let Some((element, prefix, suffix)) = capture() else {
-                    return;
-                };
-                let _ = ready.send(());
-                observe(element, prefix, suffix, inserted, events, stopped);
-            })
-            .map_err(|error| eprintln!("typeaside: cannot watch edits: {error}"))
-            .ok()?;
-        // A hung app can stall accessibility calls; never hold up the paste for one.
-        captured
-            .recv_timeout(std::time::Duration::from_millis(200))
-            .ok()?;
-        Some(Watch { stop })
+    if inserted.is_empty() {
+        return None;
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let _ = (inserted, events);
-        None
-    }
+    let (stop, stopped) = std::sync::mpsc::channel();
+    let (ready, captured) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("typeaside-learn".into())
+        .spawn(move || {
+            let Some((element, prefix, suffix)) = capture() else {
+                return;
+            };
+            let _ = ready.send(());
+            observe(element, prefix, suffix, inserted, events, stopped);
+        })
+        .map_err(|error| eprintln!("typeaside: cannot watch edits: {error}"))
+        .ok()?;
+    // A hung app can stall accessibility calls; never hold up the paste for one.
+    captured
+        .recv_timeout(std::time::Duration::from_millis(200))
+        .ok()?;
+    Some(Watch { stop })
 }
 
 /// Text before and after the caret in the focused field.
 pub fn cursor() -> Option<(String, String)> {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        capture().map(|(_, before, after)| (before, after))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        None
-    }
+    capture().map(|(_, before, after)| (before, after))
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn capture() -> Option<(platform::FocusedElement, String, String)> {
     let element = platform::FocusedElement::capture()?;
     let text = element.value()?;
@@ -82,7 +72,6 @@ fn capture() -> Option<(platform::FocusedElement, String, String)> {
     Some((element, text[..start].into(), text[end..].into()))
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn observe(
     element: platform::FocusedElement,
     prefix: String,

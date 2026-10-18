@@ -240,6 +240,10 @@ fn run(
     let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
     let mut epoch = 0;
     let mut hotkeys = open_hotkeys(&config, &tx, epoch, &events);
+    #[cfg(target_os = "linux")]
+    if config.auto_learn {
+        crate::learn::enable();
+    }
     let mut recorder: Option<AudioRecorder> = None;
     let mut stream = None;
     let mut generation = 0u64;
@@ -741,6 +745,10 @@ fn run(
                 config = *next;
                 if !config.auto_learn {
                     watch = None;
+                }
+                #[cfg(target_os = "linux")]
+                if config.auto_learn {
+                    crate::learn::enable();
                 }
                 phase(&events, Phase::Idle);
                 hotkeys = open_hotkeys(&config, &tx, epoch, &events);
