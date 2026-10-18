@@ -218,30 +218,18 @@ pub fn header(title: &'static str) -> Div {
         )
 }
 /// A titled, bordered group of settings rows separated by hairlines.
-pub fn panel(title: &'static str, rows: impl IntoIterator<Item = Setting>, p: Palette) -> Div {
+pub fn panel(rows: impl IntoIterator<Item = Setting>, p: Palette) -> Div {
     div()
-        .child(
+        .mt(px(10.))
+        .border_1()
+        .border_color(p.border)
+        .rounded(px(8.))
+        .bg(p.panel)
+        .children(rows.into_iter().enumerate().map(|(i, row)| {
             div()
-                .pt(px(18.))
-                .pb(px(8.))
-                .text_size(px(12.))
-                .line_height(px(17.4))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(p.muted)
-                .child(title),
-        )
-        .child(
-            div()
-                .border_1()
-                .border_color(p.border)
-                .rounded(px(8.))
-                .bg(p.panel)
-                .children(rows.into_iter().enumerate().map(|(i, row)| {
-                    div()
-                        .when(i > 0, |cell| cell.border_t_1().border_color(p.divider))
-                        .child(row)
-                })),
-        )
+                .when(i > 0, |cell| cell.border_t_1().border_color(p.divider))
+                .child(row)
+        }))
 }
 /// A settings row: label and optional description on the left, its children as controls on the right.
 #[derive(IntoElement)]
@@ -282,7 +270,12 @@ impl RenderOnce for Setting {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .child(div().font_weight(FontWeight::MEDIUM).child(self.label))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .whitespace_nowrap()
+                            .child(self.label),
+                    )
                     .children(self.description.map(|description| {
                         div()
                             .text_size(px(12.))

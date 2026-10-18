@@ -22,7 +22,7 @@ use typeaside::{
 };
 
 const FIELD: f32 = 280.;
-const GROUPS: [&str; 4] = ["General", "Dictation", "AI models", "System"];
+pub(super) const GROUPS: [&str; 5] = ["Shortcuts", "Language", "Audio", "Dictation", "General"];
 const LANGUAGES: [(&str, &str); 12] = [
     ("English", "en"),
     ("Hindi", "hi"),
@@ -257,7 +257,7 @@ fn model_field(list: &ModelList, fallback: &Entity<InputState>, p: Palette) -> g
         input(fallback, p).into_any_element()
     }
 }
-fn select(state: &Entity<SelectState<Vec<String>>>, p: Palette) -> impl IntoElement {
+fn select(state: &Entity<SelectState<Vec<String>>>, p: Palette) -> Select<Vec<String>> {
     Select::new(state)
         .small()
         .min_h(px(30.))
@@ -940,7 +940,7 @@ impl MainWindow {
                 ]);
             }
         }
-        let mut models = vec![panel("Transcription", transcription, p)];
+        let mut models = vec![panel(transcription, p)];
         if c.transcription != Source::Hosted {
             let mut editing = vec![
                 Setting::new("AI editing")
@@ -958,102 +958,84 @@ impl MainWindow {
                     Setting::new("API key").child(input(&self.settings.cleanup_key, p)),
                 ]);
             }
-            models.push(panel("Editing", editing, p));
+            models.push(panel(editing, p));
         }
-        let general = vec![
-            panel("Account", [self.account(cx)], p),
-            panel("Appearance", [Setting::new("Theme").child(theme)], p),
-            panel(
-                "Startup and sound",
-                [
-                    Setting::new("Launch at login")
-                        .description("Start hidden when you log in.")
-                        .child(self.toggle("login", c.launch_at_login, Toggle::Login, cx)),
-                    Setting::new("Sound cues")
-                        .description("Short tones when recording starts and stops.")
-                        .child(self.toggle("sounds", c.sounds, Toggle::Sounds, cx)),
-                    Setting::new("Lower media volume")
-                        .description("Duck music and video while you dictate.")
-                        .child(self.toggle("duck", c.duck_media, Toggle::Duck, cx)),
-                ],
-                p,
-            ),
-        ];
-        let dictation = vec![
-            panel(
-                "Shortcuts",
-                [
-                    Setting::new("Dictate")
-                        .description("Hold to talk, or tap to start and stop.")
-                        .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
-                        .child(mode),
-                    Setting::new("Translate")
-                        .description("Translate speech into your chosen language.")
-                        .child(self.shortcut(
-                            Shortcut::Translate,
-                            c.translate_hotkey.as_deref(),
-                            cx,
-                        )),
-                    Setting::new("Ask anything")
-                        .description("Ask a question, or edit selected text.")
-                        .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),
-                ],
-                p,
-            ),
-            panel(
-                "Microphone",
-                [Setting::new("Input")
+        let shortcuts = vec![panel(
+            [
+                Setting::new("Dictate")
+                    .description("Hold to talk, or tap to start and stop.")
+                    .child(self.shortcut(Shortcut::Dictate, Some(&c.hotkey), cx))
+                    .child(mode),
+                Setting::new("Translate")
+                    .description("Translate speech, or tap over selected text.")
+                    .child(self.shortcut(Shortcut::Translate, c.translate_hotkey.as_deref(), cx)),
+                Setting::new("Ask anything")
+                    .description("Ask a question, or edit selected text.")
+                    .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),
+            ],
+            p,
+        )];
+        let language = vec![panel(
+            [
+                Setting::new("Spoken")
+                    .description("The language you dictate in.")
+                    .child(select(&self.settings.spoken, p)),
+                Setting::new("Translate to")
+                    .description("Language for the Translate shortcut.")
+                    .child(select(&self.settings.translation, p)),
+            ],
+            p,
+        )];
+        let audio = vec![panel(
+            [
+                Setting::new("Microphone")
                     .when(testing, |row| row.child(meter(level, 7, 18., p)))
-                    .child(select(&self.settings.device, p))
+                    .child(select(&self.settings.device, p).w(px(FIELD - 60.)))
                     .child(
                         button("Test", false, p)
                             .id("test-mic")
                             .on_click(cx.listener(|this, _, _, cx| this.start_mic(cx))),
-                    )],
-                p,
-            ),
-            panel(
-                "Language",
-                [
-                    Setting::new("Spoken").child(select(&self.settings.spoken, p)),
-                    Setting::new("Translate to")
-                        .description("Language for the Translate shortcut.")
-                        .child(select(&self.settings.translation, p)),
-                ],
-                p,
-            ),
-            panel(
-                "Behavior",
-                [
-                    Setting::new("Press Enter after paste")
-                        .description("Send chat messages right away.")
-                        .child(self.toggle("submit", c.auto_submit, Toggle::Submit, cx)),
-                    Setting::new("Use names on screen")
-                        .description("Pass visible names to transcription for this dictation.")
-                        .child(self.toggle(
-                            "screen-context",
-                            c.screen_context,
-                            Toggle::ScreenContext,
-                            cx,
-                        )),
-                    Setting::new("Learn words from your edits")
-                        .description("Add fixed words to your dictionary.")
-                        .child(self.toggle("auto-learn", c.auto_learn, Toggle::AutoLearn, cx)),
-                ],
-                p,
-            ),
-        ];
-        let system = vec![
-            panel(
-                "Privacy",
-                [Setting::new("Share anonymous usage stats")
+                    ),
+                Setting::new("Sound cues")
+                    .description("Short tones when recording starts and stops.")
+                    .child(self.toggle("sounds", c.sounds, Toggle::Sounds, cx)),
+                Setting::new("Lower media volume")
+                    .description("Duck music and video while you dictate.")
+                    .child(self.toggle("duck", c.duck_media, Toggle::Duck, cx)),
+            ],
+            p,
+        )];
+        let behavior = panel(
+            [
+                Setting::new("Press Enter after paste")
+                    .description("Send chat messages right away.")
+                    .child(self.toggle("submit", c.auto_submit, Toggle::Submit, cx)),
+                Setting::new("Use names on screen")
+                    .description("Pass visible names to transcription for this dictation.")
+                    .child(self.toggle(
+                        "screen-context",
+                        c.screen_context,
+                        Toggle::ScreenContext,
+                        cx,
+                    )),
+                Setting::new("Learn words from your edits")
+                    .description("Add fixed words to your dictionary.")
+                    .child(self.toggle("auto-learn", c.auto_learn, Toggle::AutoLearn, cx)),
+            ],
+            p,
+        );
+        let dictation = std::iter::once(behavior).chain(models).collect::<Vec<_>>();
+        let general = vec![panel(
+            [
+                self.account(cx),
+                Setting::new("Appearance").child(theme),
+                Setting::new("Launch at login")
+                    .description("Start hidden when you log in.")
+                    .child(self.toggle("login", c.launch_at_login, Toggle::Login, cx)),
+                Setting::new("Share anonymous usage stats")
                     .description("Counts and timings only, never text or audio.")
-                    .child(self.toggle("share-usage", c.share_usage, Toggle::ShareUsage, cx))],
-                p,
-            ),
-            panel(
-                "About",
-                [Setting::new("Version")
+                    .child(self.toggle("share-usage", c.share_usage, Toggle::ShareUsage, cx)),
+                Setting::new("Version")
                     .description(env!("CARGO_PKG_VERSION"))
                     .child(
                         button("Open config folder", false, p)
@@ -1066,10 +1048,10 @@ impl MainWindow {
                                     })
                                     .detach();
                             })),
-                    )],
-                p,
-            ),
-        ];
+                    ),
+            ],
+            p,
+        )];
         let scroll = &self.settings_scroll;
         let top = scroll.bounds().top() - scroll.offset().y;
         let bottom = -scroll.max_offset().y;
@@ -1116,7 +1098,7 @@ impl MainWindow {
                 .children(
                     GROUPS
                         .into_iter()
-                        .zip([general, dictation, models, system])
+                        .zip([shortcuts, language, audio, dictation, general])
                         .map(|(title, panels)| {
                             column(FORM_WIDTH)
                                 .child(

@@ -208,8 +208,11 @@ impl MainWindow {
                             .timer(std::time::Duration::from_millis(150))
                             .await;
                         let _ = this.update(cx, |this, cx| {
-                            if scroll == "dictation" {
-                                this.settings_scroll.scroll_to_top_of_item(1);
+                            if let Some(group) = super::settings::GROUPS
+                                .iter()
+                                .position(|group| group.eq_ignore_ascii_case(&scroll))
+                            {
+                                this.settings_scroll.scroll_to_top_of_item(group);
                             } else if scroll == "bottom" {
                                 this.settings_scroll.scroll_to_bottom();
                             }
