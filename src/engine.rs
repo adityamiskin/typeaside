@@ -15,6 +15,7 @@ use std::{
     fs::OpenOptions,
     io::{BufRead, BufReader, Write},
     path::PathBuf,
+    process::{Command as ProcessCommand, Stdio},
     sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant, SystemTime},
@@ -182,6 +183,41 @@ fn append_history(paths: &AppPaths, dictation: &Dictation) -> Result<()> {
     file.write_all(&line)?;
     file.sync_data()?;
     Ok(())
+}
+
+fn spawn_dictation_hook(
+    command: &str,
+    dictation: &Dictation,
+) -> std::io::Result<thread::JoinHandle<()>> {
+    #[cfg(unix)]
+    let mut process = ProcessCommand::new("sh");
+    #[cfg(unix)]
+    process.arg("-c");
+    #[cfg(windows)]
+    let mut process = ProcessCommand::new("cmd");
+    #[cfg(windows)]
+    process.arg("/C");
+    let mut child = process
+        .arg(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let input = serde_json::to_vec(dictation)?;
+    thread::Builder::new()
+        .name("typeaside-dictation-hook".into())
+        .spawn(move || {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(&input);
+            }
+            match child.wait() {
+                Ok(status) if !status.success() => {
+                    eprintln!("typeaside: dictation hook exited with {status}");
+                }
+                Err(error) => eprintln!("typeaside: dictation hook failed: {error}"),
+                _ => {}
+            }
+        })
 }
 
 fn discard_failed(paths: &AppPaths) -> Result<()> {
@@ -399,7 +435,7 @@ fn run(
                         } else if delivery == Delivery::Reply {
                             reply_visible = true;
                             let _ = events.try_send(Event::Reply {
-                                prompt: dictation.raw,
+                                prompt: dictation.raw.clone(),
                                 text: dictation.cleaned.clone(),
                             });
                         } else if delivery == Delivery::Open {
@@ -437,6 +473,11 @@ fn run(
                                 .chars()
                                 .last()
                                 .map(|last| (context.1.clone(), Instant::now(), last));
+                        }
+                        if let Some(command) = &config.on_dictation
+                            && let Err(error) = spawn_dictation_hook(command, &dictation)
+                        {
+                            eprintln!("typeaside: cannot run dictation hook: {error}");
                         }
                     }
                     Err(error) => {
@@ -862,6 +903,30 @@ fn deliver(
 #[cfg(test)]
 mod tests {
     use super::spaced;
+
+    #[cfg(unix)]
+    #[test]
+    fn dictation_hook_receives_the_dictation_as_json() {
+        use super::{Dictation, Mode, spawn_dictation_hook};
+        let path = std::env::temp_dir().join(format!("typeaside-hook-{}.json", std::process::id()));
+        let dictation = Dictation {
+            at: std::time::SystemTime::UNIX_EPOCH,
+            raw: "raw speech".into(),
+            cleaned: "Quotes \" ' $(exit 1)".into(),
+            app_id: Some("test.app".into()),
+            audio_ms: 1234,
+            latency_ms: 50,
+            mode: Mode::Dictate,
+        };
+        spawn_dictation_hook(&format!("cat > '{}'", path.display()), &dictation)
+            .unwrap()
+            .join()
+            .unwrap();
+        let received: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(received, serde_json::to_value(&dictation).unwrap());
+    }
 
     #[test]
     fn dictations_join_the_text_around_the_caret() {

@@ -43,6 +43,7 @@ enum TextField {
     Model,
     EditingEndpoint,
     EditingModel,
+    OnDictation,
 }
 #[derive(Clone, Copy)]
 enum Selection {
@@ -69,6 +70,7 @@ pub struct SettingsInputs {
     pub cleanup_endpoint: Entity<InputState>,
     pub cleanup_model: Entity<InputState>,
     pub cleanup_key: Entity<InputState>,
+    pub on_dictation: Entity<InputState>,
     pub device: Entity<SelectState<Vec<String>>>,
     pub spoken: Entity<SelectState<Vec<String>>>,
     pub translation: Entity<SelectState<Vec<String>>>,
@@ -105,6 +107,10 @@ impl SettingsInputs {
         let cleanup_endpoint = text(&c.cleanup.endpoint.base_url, false);
         let cleanup_model = text(&c.cleanup.endpoint.model, false);
         let cleanup_key = text("", true);
+        let on_dictation = text(c.on_dictation.as_deref().unwrap_or_default(), false);
+        on_dictation.update(cx, |input, cx| {
+            input.set_placeholder("notify-send \"$(jq -r .cleaned)\"", w, cx);
+        });
         let mut select = |values: Vec<String>, selected: Option<&str>| {
             let index = selected
                 .and_then(|s| values.iter().position(|v| v == s))
@@ -143,6 +149,7 @@ impl SettingsInputs {
             cleanup_endpoint,
             cleanup_model,
             cleanup_key,
+            on_dictation,
             device,
             spoken,
             translation,
@@ -271,6 +278,7 @@ impl MainWindow {
             (&self.settings.model, TextField::Model),
             (&self.settings.cleanup_endpoint, TextField::EditingEndpoint),
             (&self.settings.cleanup_model, TextField::EditingModel),
+            (&self.settings.on_dictation, TextField::OnDictation),
         ] {
             cx.subscribe(entity, move |this, input, event, cx| {
                 if matches!(event, InputEvent::Change) {
@@ -283,6 +291,9 @@ impl MainWindow {
                                 s.config.cleanup.endpoint.base_url = value
                             }
                             TextField::EditingModel => s.config.cleanup.endpoint.model = value,
+                            TextField::OnDictation => {
+                                s.config.on_dictation = (!value.trim().is_empty()).then_some(value)
+                            }
                         }
                         s.persist();
                         cx.notify();
@@ -994,6 +1005,7 @@ impl MainWindow {
         )];
         let behavior = panel(
             [
+                Setting::new("Run after dictation").child(input(&self.settings.on_dictation, p)),
                 Setting::new("Press Enter after paste")
                     .description("Send chat messages right away.")
                     .child(self.toggle("submit", c.auto_submit, Toggle::Submit, cx)),
