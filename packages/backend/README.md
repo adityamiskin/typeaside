@@ -1,6 +1,6 @@
 # TypeAside backend
 
-Convex stores WorkOS users, Dodo subscriptions, hashed desktop tokens and weekly word totals. HTTP actions forward audio and cleanup requests to Groq without retaining their content. See the root README for API behavior and local setup.
+Convex stores WorkOS users, Dodo subscriptions, hashed desktop tokens and weekly word totals. Dictation runs on the Worker in `apps/api`, which meters words back through `/v1/usage`. See the root README for API behavior and local setup.
 
 Use an anonymous local deployment for development:
 
@@ -15,7 +15,6 @@ The first command may stop requesting the WorkOS client ID; set the placeholder 
 Backend environment variables, also listed in `.env.example`:
 
 - `WORKOS_CLIENT_ID`: WorkOS JWT client ID, same as the website.
-- `GROQ_API_KEY`: hosted transcription and cleanup provider secret.
 - `DODO_PAYMENTS_API_KEY`: Dodo API secret.
 - `DODO_PAYMENTS_ENVIRONMENT`: `test_mode` for development or `live_mode` when explicitly deploying.
 - `DODO_PAYMENTS_WEBHOOK_SECRET`: signature verification secret.

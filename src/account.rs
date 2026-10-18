@@ -15,7 +15,7 @@ pub fn hosted_url() -> String {
     std::env::var("TYPEASIDE_API_URL")
         .unwrap_or_else(|_| {
             option_env!("TYPEASIDE_API_URL")
-                .unwrap_or("https://doting-rhinoceros-418.convex.site")
+                .unwrap_or("https://api.typeaside.app")
                 .into()
         })
         .trim_end_matches('/')

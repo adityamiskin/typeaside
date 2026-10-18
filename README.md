@@ -52,7 +52,6 @@ Set backend env on the intended Convex deployment with `bunx convex env set NAME
 | Backend variable               | Purpose                                                   |
 | ------------------------------ | --------------------------------------------------------- |
 | `WORKOS_CLIENT_ID`             | JWT validation, same client ID as the web app             |
-| `GROQ_API_KEY`                 | Server-side hosted transcription and cleanup              |
 | `DODO_PAYMENTS_API_KEY`        | Dodo secret API key                                       |
 | `DODO_PAYMENTS_ENVIRONMENT`    | `test_mode` or `live_mode`, use test mode for development |
 | `DODO_PAYMENTS_WEBHOOK_SECRET` | Standard Webhooks verification secret                     |
@@ -63,16 +62,17 @@ WorkOS dashboard: callback `http://localhost:3001/api/auth/callback`, sign-in en
 
 ## Hosted API
 
-Use the Convex **HTTP actions** URL (local `http://127.0.0.1:3211`, hosted `.convex.site`) and `Authorization: Bearer hm_...`:
+The desktop talks to `https://api.typeaside.app`, the Cloudflare Worker in `apps/api`, with `Authorization: Bearer hm_...`. Dictation runs at the edge next to Groq; every other path passes through to Convex HTTP actions (local `http://127.0.0.1:3211`, hosted `.convex.site`).
 
-- `POST /v1/dictate`: multipart with optional `audio` and a required `context` JSON (`mode` dictate, translate, command or transcribe, plus app, category, title, selection, text around the cursor, dictionary, names, language, tone and translation target). Exactly one of `audio` or `context.text`. Transcribes with Groq `whisper-large-v3-turbo`, edits with `qwen/qwen3.8-27b` using server-side prompts, and returns `{raw, text, delivery}`. Counts the returned words. Nothing about the request is stored or logged.
+- `POST /v1/dictate` (Worker): multipart with optional FLAC/WAV `audio` and a required `context` JSON (`mode` dictate, translate, command or transcribe, plus app, category, title, selection, text around the cursor, dictionary, names, language, tone and translation target). Exactly one of `audio` or `context.text`. Transcribes with Groq `whisper-large-v3-turbo`, edits with `qwen/qwen3.8-27b` using server-side prompts, and returns `{raw, text, delivery}`. Auth runs alongside the provider calls and is cached per isolate for 60 s; 60 requests/minute per IP. Nothing about the request is stored or logged.
+- `POST /v1/usage` (Convex): `{words}` metered by the Worker after each dictation.
 - `GET /v1/me`: email, Free/Pro plan, words, cap and UTC reset timestamp.
 - `POST /v1/ping`: unauthenticated, opt-in anonymous daily usage counts (8 KB, 1–7 UTC days), upserted per install/day and rate limited to 30 requests/hour per install.
 - Convex mutation `feedback.send` (used by `/feedback`): bugs, ideas and other notes, with optional reply email and app version/OS; rate limited to 30/hour per signed-in user or globally for anonymous notes.
 
 Founder queries: `bunx convex run stats:summary '{"days":30}'` returns UTC daily install counts, dictations, words, new/active hosted users and hosted words, plus the current Pro count. `bunx convex run feedback:list '{"limit":50}'` reads the newest notes. Run these from `packages/backend` against the intended deployment.
 
-BYOK continues to call providers directly without an account.
+Deploy the Worker with `bun run --cwd apps/api deploy` (production, Convex `doting-rhinoceros-418`) or `bunx wrangler deploy --env dev` from `apps/api` (workers.dev, dev Convex). Its only secret is `GROQ_API_KEY` (`bunx wrangler secret put GROQ_API_KEY [--env dev]`). BYOK continues to call providers directly without an account.
 
 Free includes `FREE_WEEKLY_WORDS = 2000`, exported once in `convex/lib.ts`. The week starts Monday at 00:00 UTC. Pro requires an active subscription. A request that starts below the free cap can finish above it; parallel requests already in flight are not reserved. Later requests return 402 with `error.type = "limit"` and `resets_at`. The lookup reads token, subscription and usage in one Convex query; a successful request schedules a usage/last-used mutation without waiting for that mutation to finish.
 
