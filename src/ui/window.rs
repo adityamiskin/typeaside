@@ -237,6 +237,7 @@ impl MainWindow {
     pub fn set_page(&mut self, page: Page, _: &mut Window, cx: &mut Context<Self>) {
         if page == Page::Settings {
             super::refresh_account(&self.state, cx);
+            super::refresh_devices(&self.state, cx);
         }
         self.page = page;
         self.state.update(cx, |s, _| s.initial_page = page);

@@ -46,6 +46,13 @@ pub fn list_input_devices() -> Result<Vec<InputDeviceInfo>> {
         .collect()
 }
 
+fn preferred_input<'a>(available: &[String], preferences: &'a [String]) -> Option<&'a str> {
+    preferences
+        .iter()
+        .find(|name| available.contains(name))
+        .map(String::as_str)
+}
+
 impl AudioRecorder {
     pub fn start(config: &AppConfig) -> Result<Self> {
         Self::open(config, true, None)
@@ -65,15 +72,21 @@ impl AudioRecorder {
         sink: Option<crate::stream::AudioSink>,
     ) -> Result<Self> {
         let host = cpal::default_host();
-        let device = if let Some(name) = &config.input_device {
-            host.input_devices()?
-                .find(|device| device.description().is_ok_and(|d| d.name() == name))
-                .with_context(|| format!("input device unavailable: {name}"))?
-        } else {
-            host.default_input_device()
-                .context("no input device available")?
-        };
-        if config.input_device.is_none()
+        let devices: Vec<_> = host
+            .input_devices()?
+            .filter_map(|device| {
+                let name = device.description().ok()?.name().to_owned();
+                Some((name, device))
+            })
+            .collect();
+        let names: Vec<_> = devices.iter().map(|(name, _)| name.clone()).collect();
+        let selected = preferred_input(&names, &config.input_devices);
+        let device = selected
+            .and_then(|name| devices.iter().find(|(candidate, _)| candidate == name))
+            .map(|(_, device)| device.clone())
+            .or_else(|| host.default_input_device())
+            .context("no input device available")?;
+        if selected.is_none()
             && let Some(external) = lid::external_input(&host, &device)
             && let Ok(description) = external.description()
             && let Ok(recorder) = Self::open_device(&external, retain, sink.clone())
@@ -303,6 +316,24 @@ impl Realtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preferred_input_uses_first_available_preference() {
+        let available = ["Built-in", "USB", "Dock"].map(str::to_owned);
+        for (preferences, expected) in [
+            (vec!["Dock", "USB"], Some("Dock")),
+            (vec!["Missing", "USB", "Dock"], Some("USB")),
+            (vec!["Missing"], None),
+            (vec![], None),
+        ] {
+            let preferences = preferences
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            assert_eq!(preferred_input(&available, &preferences), expected);
+        }
+        assert_eq!(preferred_input(&[], &available), None);
+    }
 
     #[test]
     fn streamed_resampling_matches_final_buffer() {

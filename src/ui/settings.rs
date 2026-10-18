@@ -53,7 +53,6 @@ enum TextField {
 }
 #[derive(Clone, Copy)]
 enum Selection {
-    Device,
     Spoken,
     Translation,
     HistoryRetention,
@@ -119,13 +118,18 @@ impl SettingsInputs {
         on_dictation.update(cx, |input, cx| {
             input.set_placeholder("notify-send \"$(jq -r .cleaned)\"", w, cx);
         });
+        let available: Vec<_> = devices
+            .iter()
+            .filter(|name| !c.input_devices.contains(name))
+            .cloned()
+            .collect();
+        let device = cx.new(|cx| SelectState::new(available.clone(), None, w, cx));
         let mut select = |values: Vec<String>, selected: Option<&str>| {
             let index = selected
                 .and_then(|s| values.iter().position(|v| v == s))
                 .unwrap_or(0);
             cx.new(|cx| SelectState::new(values, Some(IndexPath::default().row(index)), w, cx))
         };
-        let device = select(devices.to_vec(), c.input_device.as_deref());
         let mut models = || ModelList {
             select: select(Vec::new(), None),
             fetched_for: String::new(),
@@ -174,7 +178,7 @@ impl SettingsInputs {
             history_retention,
             stt_models,
             cleanup_models,
-            devices: devices.to_vec(),
+            devices: available,
             stt_hint: String::new(),
             editing_hint: String::new(),
         }
@@ -198,13 +202,17 @@ impl SettingsInputs {
                 ),
             ]
         });
-        if self.devices != s.devices {
-            self.devices = s.devices.clone();
-            let devices = self.devices.clone();
-            let selected = s.config.input_device.clone();
+        let available: Vec<_> = s
+            .devices
+            .iter()
+            .filter(|name| !s.config.input_devices.contains(name))
+            .cloned()
+            .collect();
+        if self.devices != available {
+            self.devices = available.clone();
             self.device.update(cx, |v, cx| {
-                v.set_items(devices, w, cx);
-                v.set_selected_value(&selected.unwrap_or_else(|| "System default".into()), w, cx);
+                v.set_items(available, w, cx);
+                v.set_selected_index(None, w, cx);
             });
         }
         if self.stt_hint != stt {
@@ -370,8 +378,19 @@ impl MainWindow {
             })
             .detach();
         }
+        cx.subscribe(&self.settings.device, |this, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            let value = value.clone();
+            this.update_microphones(cx, |devices| {
+                if !devices.contains(&value) {
+                    devices.push(value);
+                }
+            });
+        })
+        .detach();
         for (entity, field) in [
-            (&self.settings.device, Selection::Device),
             (&self.settings.spoken, Selection::Spoken),
             (&self.settings.translation, Selection::Translation),
             (
@@ -386,9 +405,6 @@ impl MainWindow {
                 let value = value.clone();
                 this.state.update(cx, |s, cx| {
                     match field {
-                        Selection::Device => {
-                            s.config.input_device = (value != "System default").then_some(value)
-                        }
                         Selection::Spoken => {
                             s.config.language = LANGUAGES
                                 .iter()
@@ -412,13 +428,6 @@ impl MainWindow {
                         }
                     }
                     s.persist();
-                    if matches!(field, Selection::Device) && s.mic_testing {
-                        s.command(if !s.config.onboarded {
-                            typeaside::engine::Command::MicPreview
-                        } else {
-                            typeaside::engine::Command::MicTest(true)
-                        });
-                    }
                     cx.notify();
                 });
             })
@@ -426,6 +435,106 @@ impl MainWindow {
         }
         self.settings.refresh(&self.state, window, cx);
     }
+    fn update_microphones(
+        &mut self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut Vec<String>),
+    ) {
+        self.state.update(cx, |s, cx| {
+            update(&mut s.config.input_devices);
+            s.persist();
+            if s.mic_testing {
+                s.command(if !s.config.onboarded {
+                    typeaside::engine::Command::MicPreview
+                } else {
+                    typeaside::engine::Command::MicTest(true)
+                });
+            }
+            cx.notify();
+        });
+    }
+
+    pub(super) fn microphones(&self, cx: &Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
+        let s = self.state.read(cx);
+        let preferences = &s.config.input_devices;
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .when(preferences.is_empty(), |rows| {
+                rows.child(div().text_color(p.muted).child("System default"))
+            })
+            .children(preferences.iter().enumerate().map(|(index, name)| {
+                let connected = s.devices.contains(name);
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .min_h(px(30.))
+                    .child(
+                        div()
+                            .w(px(18.))
+                            .text_color(p.muted)
+                            .child((index + 1).to_string()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(if connected { p.fg } else { p.muted })
+                            .child(if connected {
+                                name.clone()
+                            } else {
+                                format!("{name} (not connected)")
+                            }),
+                    )
+                    .children(
+                        [
+                            ("up", "icons/chevron-up.svg", index > 0),
+                            (
+                                "down",
+                                "icons/chevron-down.svg",
+                                index + 1 < preferences.len(),
+                            ),
+                            ("remove", "icons/trash.svg", true),
+                        ]
+                        .into_iter()
+                        .map(|(action, icon, enabled)| {
+                            div()
+                                .id((action, index))
+                                .size(px(26.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    gpui::svg().path(icon).size(px(14.)).text_color(if enabled {
+                                        p.muted
+                                    } else {
+                                        p.faint
+                                    }),
+                                )
+                                .when(enabled, |button| {
+                                    button.cursor_pointer().hover(|b| b.bg(p.hover)).on_click(
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.update_microphones(cx, |devices| match action {
+                                                "up" => devices.swap(index, index - 1),
+                                                "down" => devices.swap(index, index + 1),
+                                                _ => {
+                                                    devices.remove(index);
+                                                }
+                                            });
+                                        }),
+                                    )
+                                })
+                        }),
+                    )
+            }))
+            .child(select(&self.settings.device, p).placeholder("Add microphone"))
+    }
+
     pub(super) fn save_key(&mut self, editing: bool, window: &mut Window, cx: &mut Context<Self>) {
         let entity = if editing {
             self.settings.cleanup_key.clone()
@@ -1047,9 +1156,11 @@ impl MainWindow {
         )];
         let audio = vec![panel(
             [
-                Setting::new("Microphone")
+                Setting::new("Microphones")
+                    .description("First available is used.")
+                    .child(div().w(px(FIELD)).child(self.microphones(cx))),
+                Setting::new("Test microphone")
                     .when(testing, |row| row.child(meter(level, 7, 18., p)))
-                    .child(select(&self.settings.device, p).w(px(FIELD - 60.)))
                     .child(
                         button("Test", false, p)
                             .id("test-mic")
