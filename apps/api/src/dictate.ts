@@ -180,27 +180,62 @@ async function command(key: string, instruction: string, selection: string): Pro
 export type Input = NonNullable<Awaited<ReturnType<typeof readInput>>>;
 export type Result = Awaited<ReturnType<typeof dictate>>;
 
-export async function dictate(key: string, { context, audio }: Input) {
-  let raw = context.text ?? "";
-  if (audio) {
-    const body = new FormData();
-    body.set("file", audio, audio instanceof File ? audio.name : "audio.wav");
-    body.set("model", "whisper-large-v3-turbo");
-    body.set("response_format", "json");
-    body.set("prompt", prompt(context.dictionary, context.names));
-    if (context.language) body.set("language", context.language);
-    const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+const azureResponse = z.object({ combinedPhrases: z.array(z.object({ text: z.string() })) });
+
+async function groq(key: string, audio: Blob, context: Context) {
+  const body = new FormData();
+  body.set("file", audio, audio instanceof File ? audio.name : "audio.wav");
+  body.set("model", "whisper-large-v3-turbo");
+  body.set("response_format", "json");
+  body.set("prompt", prompt(context.dictionary, context.names));
+  if (context.language) body.set("language", context.language);
+  const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    body,
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error("Transcription provider unavailable");
+  return z
+    .object({ text: z.string() })
+    .parse(await response.json())
+    .text.trim();
+}
+
+async function mai(env: Env, audio: Blob, context: Context) {
+  const terms = [...context.dictionary, ...context.names].map((term) => term.trim());
+  const phrases = [...new Set(terms.filter(Boolean))];
+  const body = new FormData();
+  body.set("audio", audio, audio instanceof File ? audio.name : "audio.wav");
+  body.set(
+    "definition",
+    JSON.stringify({
+      enhancedMode: { enabled: true, model: "MAI-Transcribe-2" },
+      ...(context.language ? { locales: [context.language] } : {}),
+      ...(phrases.length ? { phraseList: { phrases } } : {}),
+    }),
+  );
+  const response = await fetch(
+    `${env.AZURE_SPEECH_ENDPOINT}/speechtotext/transcriptions:transcribe?api-version=2025-10-15`,
+    {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}` },
+      headers: { "Ocp-Apim-Subscription-Key": env.AZURE_SPEECH_KEY },
       body,
       signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) throw new Error("Transcription provider unavailable");
-    raw = z
-      .object({ text: z.string() })
-      .parse(await response.json())
-      .text.trim();
-  }
+    },
+  );
+  if (!response.ok) throw new Error("Transcription provider unavailable");
+  return azureResponse
+    .parse(await response.json())
+    .combinedPhrases.map((phrase) => phrase.text)
+    .join(" ")
+    .trim();
+}
+
+export async function dictate(env: Env, { context, audio }: Input, pro: Promise<boolean>) {
+  const key = env.GROQ_API_KEY;
+  let raw = context.text ?? "";
+  if (audio) raw = await ((await pro) ? mai(env, audio, context) : groq(key, audio, context));
   let answer: Answer = { text: raw, delivery: "insert" };
   if (context.mode === "command") answer = await command(key, raw, context.selection ?? "");
   else if (context.mode === "translate" && context.text !== undefined) {

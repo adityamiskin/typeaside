@@ -18,9 +18,10 @@ export const Route = createFileRoute("/privacy")({
       </p>
       <h2>Hosted dictation</h2>
       <p>
-        When you use Free or Pro, TypeAside forwards requests to Groq. We keep your account email,
-        subscription status, device token hashes and daily word totals and an all-time word count to
-        provide the service. We do not save the audio or the content of your dictations.
+        When you use Free, TypeAside forwards requests to Groq. On Pro, audio goes to Microsoft
+        Azure for transcription and text goes to Groq. We keep your account email, subscription
+        status, device token hashes and daily word totals and an all-time word count to provide the
+        service. We do not save the audio or the content of your dictations.
       </p>
       <h2>Anonymous usage stats</h2>
       <p>
