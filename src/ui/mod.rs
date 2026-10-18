@@ -20,7 +20,11 @@ mod window;
 
 use gpui::{App, AppContext, QuitMode, WindowHandle};
 use typeaside::engine::{Command, Dictation, Engine, Event, FailedRecording, Phase};
-use typeaside::{config::AppConfig, credentials, paths::AppPaths};
+use typeaside::{
+    config::{AppConfig, Source},
+    credentials,
+    paths::AppPaths,
+};
 
 pub struct AppState {
     account: Option<typeaside::account::Account>,
@@ -478,7 +482,7 @@ fn start_ui(
                     }
                 }
                 Event::Done(dictation) => {
-                    if state.read(cx).config.transcription == typeaside::config::Source::Hosted {
+                    if state.read(cx).config.transcription == Source::Hosted {
                         refresh_account(&state, cx);
                     }
                     state.update(cx, |s, cx| {
@@ -499,7 +503,7 @@ fn start_ui(
                 }
                 Event::Phase(phase) => {
                     if matches!(&phase, Phase::Error(error) if error.contains("Weekly free limit reached"))
-                        && state.read(cx).config.transcription == typeaside::config::Source::Hosted
+                        && state.read(cx).config.transcription == Source::Hosted
                     {
                         refresh_account(&state, cx);
                     }
@@ -563,6 +567,10 @@ fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
         if let Ok(account) = task.await {
             state.update(cx, |s, cx| {
                 if s.account_revision == revision {
+                    if account.is_some() && s.config.transcription != Source::Hosted {
+                        s.config.transcription = Source::Hosted;
+                        s.persist();
+                    }
                     s.account = account;
                     cx.notify();
                 }
