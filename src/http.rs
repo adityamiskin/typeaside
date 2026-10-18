@@ -15,8 +15,7 @@ pub(crate) fn client() -> &'static Client {
 
 pub(crate) fn prewarm(config: &AppConfig) {
     let endpoints: Vec<_> = match config.transcription {
-        crate::config::Source::Local => return,
-        crate::config::Source::Hosted => return,
+        crate::config::Source::Local | crate::config::Source::Hosted => return,
         crate::config::Source::OwnKey => [&config.stt, &config.cleanup.endpoint]
             .into_iter()
             .map(|endpoint| {
@@ -55,11 +54,12 @@ pub(crate) fn checked(
 pub(crate) fn checked_hosted(
     response: reqwest::blocking::Response,
 ) -> anyhow::Result<reqwest::blocking::Response> {
-    if response.status().is_client_error() || response.status().is_server_error() {
-        check_status(response.status().as_u16(), &response.bytes()?)?;
-        unreachable!("error status is rejected");
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
     }
-    Ok(response)
+    let body = serde_json::from_slice(&response.bytes()?).unwrap_or_default();
+    Err(hosted_error(status.as_u16(), &body).into())
 }
 
 #[derive(Debug)]
@@ -73,15 +73,7 @@ impl std::fmt::Display for HostedError {
 
 impl std::error::Error for HostedError {}
 
-pub(crate) fn check_status(status: u16, body: &[u8]) -> anyhow::Result<()> {
-    if status < 400 {
-        return Ok(());
-    }
-    let body: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
-    Err(hosted_error(status, &body).into())
-}
-
-fn hosted_error(status: u16, body: &serde_json::Value) -> HostedError {
+pub(crate) fn hosted_error(status: u16, body: &serde_json::Value) -> HostedError {
     let message = match status {
         402 if body["error"]["type"] == "limit" => {
             "Weekly free limit reached. Upgrade in TypeAside.".into()

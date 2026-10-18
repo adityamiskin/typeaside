@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use std::{
-    io::{BufRead, Read},
     net::{TcpStream, ToSocketAddrs},
     sync::{
         Arc,
@@ -136,15 +135,9 @@ fn transport(
     } else {
         MaybeTlsStream::Plain(tcp)
     };
-    let mut socket = match tungstenite::client::client_with_config(request, &mut connection, None) {
-        Ok((socket, _)) => socket,
-        Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(response))) => {
-            let body = upgrade_body(&response, &mut connection).unwrap_or_default();
-            crate::http::check_status(response.status().as_u16(), &body)?;
-            anyhow::bail!("stream upgrade rejected");
-        }
-        Err(error) => anyhow::bail!("stream upgrade failed: {error}"),
-    };
+    // A rejected upgrade falls back to POST, which reports auth and limit errors.
+    let (mut socket, _) = tungstenite::client::client_with_config(request, &mut connection, None)
+        .map_err(|error| anyhow::anyhow!("stream upgrade failed: {error}"))?;
     set_read_timeout(socket.get_mut(), Duration::from_millis(1))?;
     loop {
         if cancelled.load(Ordering::Relaxed) {
@@ -199,7 +192,7 @@ fn transport(
 fn decode_response(text: &str) -> Result<crate::pipeline::HostedResponse> {
     let value: serde_json::Value = serde_json::from_str(text)?;
     if let Some(status) = value["status"].as_u64() {
-        crate::http::check_status(u16::try_from(status)?, text.as_bytes())?;
+        return Err(crate::http::hosted_error(u16::try_from(status)?, &value).into());
     }
     Ok(serde_json::from_value(value)?)
 }
@@ -211,47 +204,4 @@ fn set_read_timeout(connection: &mut MaybeTlsStream<TcpStream>, timeout: Duratio
         _ => anyhow::bail!("unsupported stream TLS"),
     }
     Ok(())
-}
-
-// Tungstenite returns only the body bytes already buffered with the response headers.
-fn upgrade_body(
-    response: &tungstenite::handshake::client::Response,
-    connection: &mut impl Read,
-) -> Result<Vec<u8>> {
-    const LIMIT: u64 = 65_536;
-    let buffered = response.body().as_deref().unwrap_or_default();
-    let mut reader = std::io::BufReader::new(buffered.chain(connection.take(LIMIT)));
-    let mut body = Vec::new();
-    if response
-        .headers()
-        .get("transfer-encoding")
-        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"chunked"))
-    {
-        loop {
-            let mut line = String::new();
-            reader.read_line(&mut line)?;
-            let size =
-                usize::from_str_radix(line.trim().split(';').next().unwrap_or_default(), 16)?;
-            anyhow::ensure!(
-                body.len().saturating_add(size) <= LIMIT as usize,
-                "stream error body too large"
-            );
-            if size == 0 {
-                break;
-            }
-            let start = body.len();
-            body.resize(start + size, 0);
-            reader.read_exact(&mut body[start..])?;
-            let mut crlf = [0; 2];
-            reader.read_exact(&mut crlf)?;
-            anyhow::ensure!(crlf == *b"\r\n", "invalid stream error body");
-        }
-    } else if let Some(length) = response.headers().get("content-length") {
-        let length: u64 = length.to_str()?.parse()?;
-        anyhow::ensure!(length <= LIMIT, "stream error body too large");
-        reader.take(length).read_to_end(&mut body)?;
-    } else {
-        reader.take(LIMIT).read_to_end(&mut body)?;
-    }
-    Ok(body)
 }

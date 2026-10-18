@@ -48,22 +48,6 @@ pub fn run(
     selection: &str,
     names: &[String],
     caret: Option<&(String, String)>,
-    cleaning: impl FnOnce(),
-) -> Result<Output> {
-    run_with_stream(
-        config, audio, app, mode, selection, names, caret, None, cleaning,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn run_with_stream(
-    config: &AppConfig,
-    audio: &[f32],
-    app: Option<&FocusedApp>,
-    mode: Mode,
-    selection: &str,
-    names: &[String],
-    caret: Option<&(String, String)>,
     stream: Option<crate::stream::Session>,
     cleaning: impl FnOnce(),
 ) -> Result<Output> {

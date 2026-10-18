@@ -667,7 +667,7 @@ fn run(
                             let names = names
                                 .and_then(|names| names.try_recv().ok())
                                 .unwrap_or_default();
-                            let output = crate::pipeline::run_with_stream(
+                            let output = crate::pipeline::run(
                                 &pipeline_config,
                                 &audio,
                                 app.as_ref(),

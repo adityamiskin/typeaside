@@ -158,6 +158,7 @@ fn fixtures(generate: bool) -> Result<()> {
             selection.unwrap_or_default(),
             &[],
             None,
+            None,
             || {},
         )?;
         if name == "translation" {
@@ -225,6 +226,7 @@ fn selection_fixture() -> Result<()> {
         Mode::Translate,
         selection,
         &[],
+        None,
         None,
         || {},
     )?;
@@ -310,7 +312,17 @@ fn local_benchmark(measure_idle: bool) -> Result<()> {
             config.transcription = source;
             config.cleanup.enabled = false;
             let start = Instant::now();
-            let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", &[], None, || {});
+            let result = pipeline::run(
+                &config,
+                &audio,
+                None,
+                Mode::Dictate,
+                "",
+                &[],
+                None,
+                None,
+                || {},
+            );
             let mut item = serde_json::json!({ "clip": name, "source": source, "audio_ms": audio.len() / 16, "elapsed_ms": start.elapsed().as_millis() });
             match result {
                 Ok(output) => {
@@ -451,7 +463,7 @@ fn main() -> Result<()> {
         None
     };
     let released = Instant::now();
-    let output = pipeline::run_with_stream(
+    let output = pipeline::run(
         &config,
         &audio,
         Some(&FocusedApp { id: app, title }),
