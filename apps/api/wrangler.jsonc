@@ -6,7 +6,10 @@
   "workers_dev": false,
   "preview_urls": false,
   "routes": [{ "pattern": "api.typeaside.app", "custom_domain": true }],
-  "vars": { "CONVEX_SITE_URL": "https://doting-rhinoceros-418.convex.site" },
+  "vars": {
+    "CONVEX_SITE_URL": "https://doting-rhinoceros-418.convex.site",
+    "AZURE_SPEECH_ENDPOINT": "https://ind-foundry-poc.cognitiveservices.azure.com",
+  },
   "ratelimits": [
     { "name": "DICTATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
   ],
@@ -15,7 +18,10 @@
       "name": "typeaside-api-dev",
       "workers_dev": true,
       "routes": [],
-      "vars": { "CONVEX_SITE_URL": "https://tangible-ferret-27.convex.site" },
+      "vars": {
+        "CONVEX_SITE_URL": "https://tangible-ferret-27.convex.site",
+        "AZURE_SPEECH_ENDPOINT": "https://ind-foundry-poc.cognitiveservices.azure.com",
+      },
       "ratelimits": [
         {
           "name": "DICTATE_LIMIT",

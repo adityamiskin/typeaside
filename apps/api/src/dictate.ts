@@ -204,7 +204,8 @@ async function groq(key: string, audio: Blob, context: Context) {
 
 async function mai(env: Env, audio: Blob, context: Context) {
   const terms = [...context.dictionary, ...context.names].map((term) => term.trim());
-  const phrases = [...new Set(terms.filter(Boolean))];
+  // Azure rejects phrase lists over 200 items.
+  const phrases = [...new Set(terms.filter(Boolean))].slice(0, 200);
   const body = new FormData();
   body.set("audio", audio, audio instanceof File ? audio.name : "audio.wav");
   body.set(
