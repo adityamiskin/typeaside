@@ -127,6 +127,13 @@ impl MainWindow {
                     )
                     .child(
                         div()
+                            .mt(px(4.))
+                            .text_size(px(12.))
+                            .text_color(p.muted)
+                            .child("Use {clipboard} to insert what's copied."),
+                    )
+                    .child(
+                        div()
                             .flex()
                             .justify_end()
                             .gap(px(10.))
