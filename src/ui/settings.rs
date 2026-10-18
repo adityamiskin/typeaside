@@ -74,7 +74,6 @@ pub struct SettingsInputs {
     pub translation: Entity<SelectState<Vec<String>>>,
     stt_models: ModelList,
     cleanup_models: ModelList,
-    customize: bool,
     devices: Vec<String>,
     stt_hint: String,
     editing_hint: String,
@@ -149,7 +148,6 @@ impl SettingsInputs {
             translation,
             stt_models,
             cleanup_models,
-            customize: false,
             devices: devices.to_vec(),
             stt_hint: String::new(),
             editing_hint: String::new(),
@@ -824,7 +822,7 @@ impl MainWindow {
         let level = s.level;
         let model = s.model;
         // Account users get transcription and editing handled for them; the knobs sit behind Customize.
-        let managed = s.account.is_some() && c.transcription == Source::Hosted;
+        let signed_in = s.account.is_some();
         let theme = segmented(
             [
                 (Theme::System, "System"),
@@ -903,31 +901,9 @@ impl MainWindow {
                     })),
             );
         let own_key = c.transcription == Source::OwnKey;
-        let mut transcription = Vec::new();
-        if managed {
-            transcription.push(
-                Setting::new("Transcription")
-                    .description("Handled by your TypeAside account")
-                    .child(
-                        button(
-                            if self.settings.customize {
-                                "Done"
-                            } else {
-                                "Customize"
-                            },
-                            false,
-                            p,
-                        )
-                        .id("customize")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.settings.customize = !this.settings.customize;
-                            cx.notify();
-                        })),
-                    ),
-            );
-        }
-        if !managed || self.settings.customize {
-            transcription.push(
+        let mut models = Vec::new();
+        if !signed_in {
+            let mut transcription = vec![
                 Setting::new("Source")
                     .when(c.transcription == Source::Local, |row| {
                         row.description(
@@ -935,7 +911,7 @@ impl MainWindow {
                         )
                     })
                     .child(source),
-            );
+            ];
             if typeaside::local::AVAILABLE {
                 transcription.push(model_row);
             }
@@ -950,8 +926,8 @@ impl MainWindow {
                     Setting::new("API key").child(input(&self.settings.key, p)),
                 ]);
             }
+            models.push(panel(transcription, p));
         }
-        let mut models = vec![panel(transcription, p)];
         if c.transcription != Source::Hosted {
             let mut editing = vec![
                 Setting::new("AI editing")
