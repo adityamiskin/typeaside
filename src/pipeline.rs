@@ -57,9 +57,9 @@ pub fn run(
             None
         } else {
             Some(
-                multipart::Part::bytes(transcribe::encode_wav(audio)?)
-                    .file_name("dictation.wav")
-                    .mime_str("audio/wav")?,
+                multipart::Part::bytes(transcribe::encode_flac(audio)?)
+                    .file_name("dictation.flac")
+                    .mime_str("audio/flac")?,
             )
         };
         return match hosted(config, file, app, mode, selection, names, caret) {

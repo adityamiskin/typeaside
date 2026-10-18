@@ -146,6 +146,26 @@ pub(crate) fn encode_wav(audio: &[f32]) -> Result<Vec<u8>> {
     Ok(wav)
 }
 
+/// Half the size of WAV, which matters on high-latency uploads to the hosted route.
+pub(crate) fn encode_flac(audio: &[f32]) -> Result<Vec<u8>> {
+    use flacenc::{component::BitRepr, error::Verify};
+    let samples: Vec<i32> = audio
+        .iter()
+        .map(|sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i32)
+        .collect();
+    let config = flacenc::config::Encoder::default()
+        .into_verified()
+        .map_err(|(_, error)| anyhow::anyhow!("FLAC config: {error}"))?;
+    let source = flacenc::source::MemSource::from_samples(&samples, 1, 16, 16_000);
+    let stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+        .map_err(|error| anyhow::anyhow!("FLAC encode: {error}"))?;
+    let mut sink = flacenc::bitsink::ByteSink::new();
+    stream
+        .write(&mut sink)
+        .map_err(|error| anyhow::anyhow!("FLAC write: {error}"))?;
+    Ok(sink.into_inner())
+}
+
 pub(crate) fn decode_wav(wav: &[u8]) -> Result<Vec<f32>> {
     anyhow::ensure!(wav.len() >= 44, "incomplete recording WAV");
     anyhow::ensure!(
