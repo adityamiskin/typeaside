@@ -157,6 +157,7 @@ fn fixtures(generate: bool) -> Result<()> {
             },
             selection.unwrap_or_default(),
             &[],
+            None,
             || {},
         )?;
         if name == "translation" {
@@ -217,7 +218,16 @@ fn selection_fixture() -> Result<()> {
         ..fixture_config()
     };
     let selection = "I don't get any feedback like when I dictate. No pill or anything, so I don't know what is happening. It should rewrite the text in place.";
-    let output = pipeline::run(&config, &[], None, Mode::Translate, selection, &[], || {})?;
+    let output = pipeline::run(
+        &config,
+        &[],
+        None,
+        Mode::Translate,
+        selection,
+        &[],
+        None,
+        || {},
+    )?;
     let translated = output.text.to_lowercase();
     ensure!(
         output.raw == selection
@@ -300,7 +310,7 @@ fn local_benchmark(measure_idle: bool) -> Result<()> {
             config.transcription = source;
             config.cleanup.enabled = false;
             let start = Instant::now();
-            let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", &[], || {});
+            let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", &[], None, || {});
             let mut item = serde_json::json!({ "clip": name, "source": source, "audio_ms": audio.len() / 16, "elapsed_ms": start.elapsed().as_millis() });
             match result {
                 Ok(output) => {
@@ -364,15 +374,30 @@ fn main() -> Result<()> {
     let mut title = None;
     let mut selection = None;
     let mut mode = Mode::Dictate;
+    let mut file = false;
+    let mut json = false;
+    let mut text = None;
+    let mut caret: Option<(String, String)> = None;
     while let Some(flag) = args.next() {
         if flag == "--local" {
             config.transcription = typeaside::config::Source::Local;
             continue;
         }
+        if flag == "--file" {
+            file = true;
+            continue;
+        }
+        if flag == "--json" {
+            json = true;
+            continue;
+        }
         let value = args.next().context("missing option value")?;
         match flag.as_str() {
+            "--text" => text = Some(value),
             "--app" => app = Some(value),
             "--title" => title = Some(value),
+            "--before" => caret.get_or_insert_default().0 = value,
+            "--after" => caret.get_or_insert_default().1 = value,
             "--translate" => {
                 config.translate_to = value;
                 mode = Mode::Translate;
@@ -384,16 +409,46 @@ fn main() -> Result<()> {
             _ => bail!("unknown option {flag}"),
         }
     }
-    let audio = read_wav(Path::new(&input))?;
+    if file {
+        let text = typeaside::transcribe::transcribe_file(&config, Path::new(&input))?;
+        println!(
+            "{}",
+            if json {
+                serde_json::json!({ "output": text }).to_string()
+            } else {
+                text
+            }
+        );
+        return Ok(());
+    }
+    let audio = if text.is_some() {
+        Vec::new()
+    } else {
+        read_wav(Path::new(&input))?
+    };
     let output = pipeline::run(
         &config,
         &audio,
         Some(&FocusedApp { id: app, title }),
         mode,
-        selection.as_deref().unwrap_or_default(),
+        text.as_deref().or(selection.as_deref()).unwrap_or_default(),
         &[],
+        caret.as_ref(),
         || {},
     )?;
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "raw": output.raw,
+                "output": output.text,
+                "delivery": output.delivery,
+                "stt_ms": output.stt.as_millis(),
+                "llm_ms": output.llm.as_millis(),
+            })
+        );
+        return Ok(());
+    }
     println!(
         "raw: {}\noutput: {}\nstt: {} ms\nllm: {} ms",
         output.raw,

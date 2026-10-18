@@ -14,21 +14,29 @@ pub(crate) fn client() -> &'static Client {
 }
 
 pub(crate) fn prewarm(config: &AppConfig) {
-    if config.transcription == crate::config::Source::Local {
-        return;
-    }
-    let config = config.effective();
-    for endpoint in [&config.stt, &config.cleanup.endpoint] {
-        let endpoint = endpoint.clone();
+    let endpoints = match config.transcription {
+        crate::config::Source::Local => return,
+        crate::config::Source::Hosted => {
+            let url = crate::account::hosted_url();
+            vec![(format!("{url}/v1/me"), url)]
+        }
+        crate::config::Source::OwnKey => [&config.stt, &config.cleanup.endpoint]
+            .into_iter()
+            .map(|endpoint| {
+                (
+                    format!("{}/models", endpoint.base_url.trim_end_matches('/')),
+                    endpoint.base_url.clone(),
+                )
+            })
+            .collect(),
+    };
+    for (url, base_url) in endpoints {
         let _ = std::thread::Builder::new()
             .name("typeaside-prewarm".into())
             .spawn(move || {
-                if let Ok(key) = endpoint_key(&endpoint.base_url) {
+                if let Ok(key) = endpoint_key(&base_url) {
                     let _ = client()
-                        .get(format!(
-                            "{}/models",
-                            endpoint.base_url.trim_end_matches('/')
-                        ))
+                        .get(url)
                         .bearer_auth(key)
                         .timeout(Duration::from_secs(2))
                         .send()

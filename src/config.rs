@@ -43,7 +43,8 @@ pub enum Tone {
     VeryCasual,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AppCategory {
     Personal,
     Work,
@@ -348,16 +349,6 @@ impl AppConfig {
         }
         self.share_usage = enabled;
         Ok(())
-    }
-
-    pub fn effective(&self) -> Self {
-        let mut config = self.clone();
-        if self.transcription == Source::Hosted {
-            let base = format!("{}/openai/v1", crate::account::hosted_url());
-            config.stt.base_url = base.clone();
-            config.cleanup.endpoint.base_url = base;
-        }
-        config
     }
 
     pub fn load(paths: &AppPaths) -> Result<Self> {
