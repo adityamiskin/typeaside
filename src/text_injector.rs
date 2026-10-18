@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
 pub struct FocusedApp {
     #[serde(rename = "app_id")]
     pub id: Option<String>,

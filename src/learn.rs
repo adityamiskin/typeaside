@@ -51,6 +51,18 @@ pub fn watch(inserted: String, events: async_channel::Sender<Event>) -> Option<W
     }
 }
 
+/// Text before and after the caret in the focused field.
+pub fn cursor() -> Option<(String, String)> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        capture().map(|(_, before, after)| (before, after))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        None
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn capture() -> Option<(platform::FocusedElement, String, String)> {
     let element = platform::FocusedElement::capture()?;
