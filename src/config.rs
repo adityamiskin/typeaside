@@ -276,7 +276,7 @@ impl Default for AppConfig {
             auto_learn: true,
             screen_context: true,
             command_hotkey: Some("RIGHTALT".into()),
-            translate_hotkey: None,
+            translate_hotkey: Some("RIGHTALT+RIGHTSHIFT".into()),
             translate_to: "English".into(),
             styles: Styles::default(),
             snippets: Vec::new(),

@@ -250,6 +250,7 @@ fn run(
     let mut context = (Mode::Dictate, None, String::new());
     let mut screen_names = None;
     let mut start_mode = Mode::Dictate;
+    let mut held = None;
     let mut monitor: Option<(AudioRecorder, Option<Instant>)> = None;
     let mut effects = None;
     let mut restoring = Vec::new();
@@ -312,10 +313,23 @@ fn run(
                         HotkeyEvent::Translate(_) => Mode::Translate,
                         _ => Mode::Dictate,
                     };
+                    if !pressed && held == Some(mode) {
+                        held = None;
+                    }
                     if recorder.is_some() && context.0 != mode {
+                        // A chord that extends the held shortcut, like Right Alt then Shift.
+                        if pressed && held == Some(context.0) {
+                            if mode == Mode::Command {
+                                context.2 = crate::text_injector::primary_selection();
+                            }
+                            context.0 = mode;
+                            held = Some(mode);
+                            phase(&events, Phase::Listening(mode));
+                        }
                         continue;
                     }
                     if pressed {
+                        held = Some(mode);
                         start_mode = mode;
                         match config.mode {
                             RecordingMode::Hold => Command::Start,
