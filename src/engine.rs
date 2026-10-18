@@ -6,7 +6,7 @@ use crate::{
     config::RecordingMode,
     hotkeys::{HotkeyEvent, HotkeyService},
     paths::AppPaths,
-    text_injector::{TextInjector, focused_app},
+    text_injector::{FocusedApp, TextInjector, focused_app},
 };
 use crate::{config::AppConfig, pipeline::Delivery};
 use anyhow::{Context, Result};
@@ -249,6 +249,8 @@ fn run(
     let mut watch = None;
     let mut context = (Mode::Dictate, None, String::new());
     let mut screen_names = None;
+    let mut cursor: Option<mpsc::Receiver<Option<(String, String)>>> = None;
+    let mut last_paste: Option<(Option<FocusedApp>, Instant, char)> = None;
     let mut start_mode = Mode::Dictate;
     let mut held = None;
     let mut monitor: Option<(AudioRecorder, Option<Instant>)> = None;
@@ -395,15 +397,40 @@ fn run(
                             });
                         } else if delivery == Delivery::Open {
                             let _ = events.try_send(Event::Open(dictation.cleaned.clone()));
-                        } else if !deliver(
-                            &mut injector,
-                            &mut watch,
-                            &dictation.cleaned,
-                            dictation.app_id.as_deref(),
-                            &config,
-                            &events,
-                        ) {
-                            continue;
+                        } else {
+                            let around = cursor.take().and_then(|rx| rx.try_recv().ok()).flatten();
+                            // Without caret access, assume the caret still follows the last paste in this window.
+                            let (before, after) = match &around {
+                                Some((before, after)) => {
+                                    (before.chars().last(), after.chars().next())
+                                }
+                                None => (
+                                    last_paste
+                                        .as_ref()
+                                        .filter(|(app, at, _)| {
+                                            !config.auto_submit
+                                                && *app == context.1
+                                                && at.elapsed() < Duration::from_secs(300)
+                                        })
+                                        .map(|(.., last)| *last),
+                                    None,
+                                ),
+                            };
+                            let text = spaced(&dictation.cleaned, before, after);
+                            if !deliver(
+                                &mut injector,
+                                &mut watch,
+                                &text,
+                                dictation.app_id.as_deref(),
+                                &config,
+                                &events,
+                            ) {
+                                continue;
+                            }
+                            last_paste = text
+                                .chars()
+                                .last()
+                                .map(|last| (context.1.clone(), Instant::now(), last));
                         }
                     }
                     Err(error) => {
@@ -463,6 +490,14 @@ fn run(
                         screen_names = Some(names_rx);
                     }
                 }
+                let (cursor_tx, cursor_rx) = mpsc::sync_channel(1);
+                cursor = thread::Builder::new()
+                    .name("typeaside-cursor".into())
+                    .spawn(move || {
+                        let _ = cursor_tx.send(crate::learn::cursor());
+                    })
+                    .is_ok()
+                    .then_some(cursor_rx);
                 let app = focused_app();
                 let selection = if start_mode != Mode::Dictate {
                     crate::text_injector::primary_selection()
@@ -749,6 +784,18 @@ fn stop_effects(
     }
 }
 
+/// Consecutive dictations would otherwise run together ("first.Second").
+fn spaced(text: &str, before: Option<char>, after: Option<char>) -> String {
+    let lead = before.is_some_and(|c| !c.is_whitespace() && !"([{“‘/@#".contains(c))
+        && text.starts_with(char::is_alphanumeric);
+    let trail = after.is_some_and(char::is_alphanumeric) && !text.ends_with(char::is_whitespace);
+    format!(
+        "{}{text}{}",
+        if lead { " " } else { "" },
+        if trail { " " } else { "" }
+    )
+}
+
 fn deliver(
     injector: &mut Option<TextInjector>,
     watch: &mut Option<crate::learn::Watch>,
@@ -779,6 +826,27 @@ fn deliver(
                 crate::cues::play(crate::cues::Cue::Error);
             }
             false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spaced;
+
+    #[test]
+    fn dictations_join_the_text_around_the_caret() {
+        for (before, text, after, expected) in [
+            (Some('.'), "Second one.", None, " Second one."),
+            (Some('d'), "and more", Some('x'), " and more "),
+            (Some(' '), "Next", None, "Next"),
+            (Some('\n'), "Next", None, "Next"),
+            (Some('('), "aside", Some(')'), "aside"),
+            (Some('@'), "Sara", None, "Sara"),
+            (Some('d'), ", then", None, ", then"),
+            (None, "First.", None, "First."),
+        ] {
+            assert_eq!(spaced(text, before, after), expected);
         }
     }
 }
