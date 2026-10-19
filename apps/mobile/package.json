@@ -9,6 +9,7 @@
     "ios": "expo run:ios"
   },
   "dependencies": {
+    "@expo/ui": "~58.0.21",
     "@typeaside/backend": "workspace:*",
     "convex": "catalog:",
     "expo": "~58.0.16",
