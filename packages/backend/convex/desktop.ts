@@ -1,6 +1,8 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { ensureUser, hashToken, userForIdentity } from "./lib";
+
+const MAX_TOKENS_PER_USER = 10;
 
 export const createToken = mutation({
   args: { name: v.string() },
@@ -8,6 +10,17 @@ export const createToken = mutation({
     const user = await ensureUser(ctx);
     if (!name.trim() || name.length > 100)
       throw new Error("Device name must be 1 to 100 characters");
+    const deviceName = name.trim();
+    const tokens = await ctx.db
+      .query("desktopTokens")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    const others = tokens.filter((token) => token.name !== deviceName);
+    for (const token of tokens) if (token.name === deviceName) await ctx.db.delete(token._id);
+    if (others.length >= MAX_TOKENS_PER_USER)
+      throw new ConvexError(
+        `You can connect up to ${MAX_TOKENS_PER_USER} devices. Remove one first.`,
+      );
     const bytes = crypto.getRandomValues(new Uint8Array(32));
     const token = `hm_${btoa(String.fromCharCode(...bytes))
       .replaceAll("+", "-")
@@ -16,7 +29,7 @@ export const createToken = mutation({
     await ctx.db.insert("desktopTokens", {
       userId: user._id,
       hash: await hashToken(token),
-      name: name.trim(),
+      name: deviceName,
       createdAt: Date.now(),
     });
     return token;

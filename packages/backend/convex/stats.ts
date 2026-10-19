@@ -9,53 +9,32 @@ export const summary = internalQuery({
       throw new Error("days must be an integer from 1 to 366");
     const today = dayStart();
     const start = today - (days - 1) * DAY_MS;
-    const end = today + DAY_MS;
-    const [pings, users, daily, subscriptions] = await Promise.all([
+    const [rollups, active] = await Promise.all([
       ctx.db
-        .query("pings")
-        .withIndex("by_day", (q) => q.gte("day", start).lt("day", end))
+        .query("rollups")
+        .withIndex("by_day", (q) => q.gte("day", start).lte("day", today))
         .collect(),
       ctx.db
-        .query("users")
-        .withIndex("by_creation_time", (q) =>
-          q.gte("_creationTime", start).lt("_creationTime", end),
-        )
+        .query("subscriptions")
+        .withIndex("by_status", (q) => q.eq("status", "active"))
         .collect(),
-      ctx.db
-        .query("daily")
-        .withIndex("by_day", (q) => q.gte("day", start).lt("day", end))
-        .collect(),
-      ctx.db.query("subscriptions").collect(),
     ]);
-    const perDay = Array.from({ length: days }, (_, i) => ({
-      day: start + i * DAY_MS,
-      activeInstalls: 0,
-      dictations: 0,
-      words: 0,
-      newUsers: 0,
-      activeUsers: 0,
-      hostedWords: 0,
-    }));
-    for (const ping of pings) {
-      const row = perDay[(ping.day - start) / DAY_MS]!;
-      row.activeInstalls += 1;
-      row.dictations += ping.dictations;
-      row.words += ping.words;
-    }
-    for (const user of users)
-      perDay[(dayStart(user._creationTime) - start) / DAY_MS]!.newUsers += 1;
-    const activeUsers = new Map<number, Set<string>>();
-    for (const usage of daily) {
-      const row = perDay[(usage.day - start) / DAY_MS]!;
-      row.hostedWords += usage.words;
-      const active = activeUsers.get(usage.day) ?? new Set<string>();
-      active.add(usage.userId);
-      activeUsers.set(usage.day, active);
-      row.activeUsers = active.size;
-    }
+    const byDay = new Map(rollups.map((rollup) => [rollup.day, rollup]));
     return {
-      days: perDay,
-      currentPro: new Set(subscriptions.filter((s) => isPro(s)).map((s) => s.userId)).size,
+      days: Array.from({ length: days }, (_, i) => {
+        const day = start + i * DAY_MS;
+        const rollup = byDay.get(day);
+        return {
+          day,
+          activeInstalls: rollup?.activeInstalls ?? 0,
+          dictations: rollup?.dictations ?? 0,
+          words: rollup?.words ?? 0,
+          newUsers: rollup?.newUsers ?? 0,
+          activeUsers: rollup?.activeUsers ?? 0,
+          hostedWords: rollup?.hostedWords ?? 0,
+        };
+      }),
+      currentPro: new Set(active.filter((s) => isPro(s)).map((s) => s.userId)).size,
     };
   },
 });

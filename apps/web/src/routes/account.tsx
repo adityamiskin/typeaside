@@ -74,7 +74,7 @@ function AccountContent() {
     checkoutStarted.current = true;
     window.history.replaceState(window.history.state, "", "/account");
     void createCheckout({ interval: checkout })
-      .then((result) => window.location.assign(result.checkout_url))
+      .then((result) => window.location.assign(result.url))
       .catch(() => setError("Checkout is unavailable. Please try again."));
   }, [checkout, createCheckout]);
   return (

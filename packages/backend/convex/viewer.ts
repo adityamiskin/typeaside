@@ -139,6 +139,11 @@ export const erase = internalMutation({
               .collect();
       for (const row of rows) await ctx.db.delete(row._id);
     }
+    const feedback = await ctx.db
+      .query("feedback")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    for (const row of feedback) await ctx.db.delete(row._id);
     await ctx.db.delete(userId);
   },
 });

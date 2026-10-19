@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery, internalMutation } from "./_generated/server";
 import { accountState, dayStart } from "./lib";
+import { addToRollup } from "./rollups";
 
 export const lookup = internalQuery({
   args: { hash: v.string() },
@@ -37,5 +38,6 @@ export const record = internalMutation({
     await ctx.db.patch(user._id, { totalWords: (user.totalWords ?? 0) + words });
     if (usage) await ctx.db.patch(usage._id, { words: usage.words + words });
     else await ctx.db.insert("daily", { userId: token.userId, day: start, words });
+    await addToRollup(ctx, start, { hostedWords: words, activeUsers: usage ? 0 : 1 });
   },
 });

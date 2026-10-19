@@ -16,6 +16,7 @@ import type * as lib from "../lib.js";
 import type * as pings from "../pings.js";
 import type * as proxy from "../proxy.js";
 import type * as rateLimits from "../rateLimits.js";
+import type * as rollups from "../rollups.js";
 import type * as settings from "../settings.js";
 import type * as stats from "../stats.js";
 import type * as viewer from "../viewer.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   pings: typeof pings;
   proxy: typeof proxy;
   rateLimits: typeof rateLimits;
+  rollups: typeof rollups;
   settings: typeof settings;
   stats: typeof stats;
   viewer: typeof viewer;
