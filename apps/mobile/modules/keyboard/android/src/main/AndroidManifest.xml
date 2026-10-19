@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <uses-permission android:name="android.permission.INTERNET" />
+
+  <application>
+    <service
+      android:name="app.typeaside.keyboard.DictationKeyboard"
+      android:exported="true"
+      android:label="@string/typeaside_keyboard_label"
+      android:permission="android.permission.BIND_INPUT_METHOD">
+      <intent-filter>
+        <action android:name="android.view.InputMethod" />
+      </intent-filter>
+      <meta-data
+        android:name="android.view.im"
+        android:resource="@xml/typeaside_keyboard_method" />
+    </service>
+  </application>
+</manifest>
