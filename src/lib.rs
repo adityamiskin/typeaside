@@ -26,3 +26,5 @@ pub mod local;
 pub mod settings_sync;
 
 pub mod stream;
+
+pub mod notes;

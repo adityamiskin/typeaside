@@ -508,7 +508,6 @@ impl MainWindow {
                 .into_any_element(),
         );
         let mut previous = None;
-        let today = Local::now().date_naive();
         let query = state.search.to_lowercase();
         for (index, item) in state.history.iter().enumerate().filter(|(_, d)| {
             self.history_tab.includes(d.mode)
@@ -518,13 +517,7 @@ impl MainWindow {
             let at: DateTime<Local> = item.at.into();
             let day = at.date_naive();
             if previous != Some(day) {
-                let label = if day == today {
-                    "Today".into()
-                } else if Some(day) == today.pred_opt() {
-                    "Yesterday".into()
-                } else {
-                    at.format("%a %d %b").to_string()
-                };
+                let label = day_label(at);
                 rows.push(
                     div()
                         .pt(px(16.))
@@ -785,7 +778,7 @@ fn friendly_app(app: Option<&str>) -> &str {
     }
 }
 
-fn history_button(
+pub(super) fn history_button(
     id: impl Into<ElementId>,
     icon: &'static str,
     tooltip: &'static str,
@@ -829,4 +822,15 @@ fn menu_label(label: &'static str, icon: &'static str, color: gpui::Hsla) -> imp
         .text_color(color)
         .child(Icon::default().path(icon).size(px(14.)).flex_shrink_0())
         .child(label)
+}
+
+pub(super) fn day_label(at: DateTime<Local>) -> String {
+    let today = Local::now().date_naive();
+    if at.date_naive() == today {
+        "Today".into()
+    } else if Some(at.date_naive()) == today.pred_opt() {
+        "Yesterday".into()
+    } else {
+        at.format("%a %d %b").to_string()
+    }
 }

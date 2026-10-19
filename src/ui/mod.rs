@@ -1,10 +1,12 @@
 mod assets;
+mod capture;
 mod clock;
 mod demo;
 mod dictionary;
 mod home;
 mod instance;
 mod motion;
+mod notes;
 mod onboarding;
 mod overlay;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -47,6 +49,11 @@ pub struct AppState {
     editing_key_hint: String,
     devices: Vec<String>,
     history: Vec<Dictation>,
+    notes: typeaside::notes::Store,
+    notes_sync: async_channel::Sender<()>,
+    note_draft: String,
+    note_source: Option<String>,
+    capture_window: Option<WindowHandle<capture::Capture>>,
     failed: Vec<FailedRecording>,
     file_transcribing: Option<String>,
     phase: Phase,
@@ -165,6 +172,11 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                 Ok::<_, anyhow::Error>(Startup {
                     config,
                     history,
+                    notes: if is_demo {
+                        demo::notes()
+                    } else {
+                        typeaside::notes::Store::load(&load_paths)?
+                    },
                     notice: config_notice,
                 })
             });
@@ -194,6 +206,7 @@ type Actions = (
 );
 
 struct Startup {
+    notes: typeaside::notes::Store,
     config: AppConfig,
     history: Vec<Dictation>,
     notice: Option<String>,
@@ -208,6 +221,7 @@ fn start_ui(
     cx: &mut App,
 ) {
     let Startup {
+        notes,
         config,
         history,
         notice,
@@ -229,6 +243,7 @@ fn start_ui(
     theme::init(config.theme, cx);
     trace("theme init end", started);
     let (sync_tx, sync_rx) = async_channel::bounded(1);
+    let (notes_tx, notes_rx) = async_channel::bounded(1);
     let (update, update_status) = if is_demo {
         demo::update()
     } else {
@@ -273,6 +288,11 @@ fn start_ui(
             Vec::new()
         },
         history,
+        notes,
+        notes_sync: notes_tx,
+        note_draft: String::new(),
+        note_source: None,
+        capture_window: None,
         failed: Vec::new(),
         phase: Phase::Idle,
         save_error: notice.clone(),
@@ -339,6 +359,7 @@ fn start_ui(
         permissions::watch(&state, cx);
         update::schedule(&state, cx);
         schedule_settings_sync(&state, sync_rx, cx);
+        notes::schedule_sync(&state, notes_rx, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
             (
@@ -424,6 +445,17 @@ fn start_ui(
         let mut answer: Option<WindowHandle<overlay::AnswerCard>> = None;
         while let Ok(event) = events.recv().await {
             cx.update(|cx| match event {
+                Event::Capture { selection, app } => capture::toggle(&state, selection, app, cx),
+                Event::CloseCapture => {
+                    if let Some(handle) = state.read(cx).capture_window {
+                        let _ = handle.update(cx, |view, window, cx| view.close(window, cx));
+                    }
+                }
+                Event::CaptureText(text) => {
+                    if let Some(handle) = state.read(cx).capture_window {
+                        let _ = handle.update(cx, |view, window, cx| view.insert(text, window, cx));
+                    }
+                }
                 Event::Level(level) => {
                     state.update(cx, |s, cx| {
                         if s.mic_testing || s.onboarding_step == onboarding::Step::Practice {
@@ -721,6 +753,7 @@ fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
                         next.usage.words = next.usage.words.max(current.usage.words);
                     }
                     s.account = account;
+                    let _ = s.notes_sync.try_send(());
                     cx.notify();
                 }
             });
