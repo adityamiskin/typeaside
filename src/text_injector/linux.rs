@@ -9,9 +9,9 @@ use atspi::{
 };
 use evdev::{AttributeSet, EventType, InputEvent, KeyCode, uinput::VirtualDevice};
 use std::{
-    io::Write,
+    io::{BufRead, BufReader, Write},
     process::{Command, Stdio},
-    sync::OnceLock,
+    sync::{OnceLock, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -268,11 +268,26 @@ pub(crate) fn selected_text() -> String {
             .as_deref()
             .is_some_and(is_terminal);
         let previous = read_clipboard()?;
-        // None may be an image or password offer; leave it intact unless copying replaces it.
-        if previous.is_some() {
-            clear_clipboard()?;
-        }
+        // Clearing is unreliable on some compositors, so detect the copy as a selection change.
+        let mut watch = Command::new("wl-paste")
+            .args(["--watch", "echo"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("cannot run wl-paste")?;
+        let stdout = watch.stdout.take().context("wl-paste stdout unavailable")?;
+        let (changes, changed) = mpsc::channel();
+        thread::spawn(move || {
+            for _ in BufReader::new(stdout).lines() {
+                if changes.send(()).is_err() {
+                    break;
+                }
+            }
+        });
         let result = (|| {
+            changed
+                .recv_timeout(Duration::from_millis(300))
+                .context("wl-paste --watch did not start")?;
             if terminal {
                 injector.combo(
                     &[KeyCode::KEY_LEFTCTRL, KeyCode::KEY_LEFTSHIFT],
@@ -281,22 +296,18 @@ pub(crate) fn selected_text() -> String {
             } else {
                 injector.combo(&[KeyCode::KEY_LEFTCTRL], KeyCode::KEY_INSERT)?;
             }
-            for _ in 0..30 {
-                thread::sleep(Duration::from_millis(10));
-                if let Some(text) = read_clipboard()? {
-                    return Ok(Some(text));
-                }
+            if changed.recv_timeout(Duration::from_millis(300)).is_err() {
+                return Ok(String::new());
             }
-            Ok(None)
+            let text = read_clipboard()?.unwrap_or_default();
+            if let Some(previous) = previous {
+                set_clipboard(&previous)?;
+            }
+            Ok(text)
         })();
-        let restored = if let Some(previous) = previous {
-            set_clipboard(&previous)
-        } else if result.as_ref().is_ok_and(|text| text.is_some()) {
-            clear_clipboard()
-        } else {
-            Ok(())
-        };
-        result.and_then(|text| restored.map(|()| text.unwrap_or_default()))
+        let _ = watch.kill();
+        let _ = watch.wait();
+        result
     }
     copy_selection().unwrap_or_else(|error| {
         eprintln!("typeaside: cannot copy selection: {error:#}");
@@ -321,13 +332,6 @@ pub(crate) fn primary_selection() -> String {
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .unwrap_or_default()
-}
-
-fn clear_clipboard() -> Result<()> {
-    if !Command::new("wl-copy").arg("--clear").status()?.success() {
-        bail!("cannot clear clipboard");
-    }
-    Ok(())
 }
 
 fn is_terminal(id: &str) -> bool {
