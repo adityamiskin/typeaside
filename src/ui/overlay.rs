@@ -603,6 +603,8 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
         WindowOptions {
             titlebar: None,
             focus: false,
+            // Never focused, so GPUI's default inactive cap would hold animations at 30fps.
+            inactive_frame_interval: None,
             app_id: Some("typeaside-overlay".into()),
             window_background: WindowBackgroundAppearance::Transparent,
             #[cfg(target_os = "linux")]
@@ -910,6 +912,8 @@ pub fn open_answer(
         WindowOptions {
             titlebar: None,
             focus: false,
+            // Never focused, so GPUI's default inactive cap would hold animations at 30fps.
+            inactive_frame_interval: None,
             app_id: Some("typeaside-answer".into()),
             window_background: WindowBackgroundAppearance::Transparent,
             #[cfg(target_os = "linux")]
