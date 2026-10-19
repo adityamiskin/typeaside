@@ -23,6 +23,11 @@ export const Route = createFileRoute("/privacy")({
         status, device token hashes and daily word totals and an all-time word count to provide the
         service. We do not save the audio or the content of your dictations.
       </p>
+      <h2>Notes</h2>
+      <p>
+        Notes you write are stored on our servers in Convex so they sync between your devices.
+        Deleting a note deletes it from our servers. We still do not store dictation audio or text.
+      </p>
       <h2>Anonymous usage stats</h2>
       <p>
         Anonymous usage stats are opt-in and contain counts only, with no text or audio. Fields:
@@ -45,8 +50,8 @@ export const Route = createFileRoute("/privacy")({
       <p>
         You can revoke a connected computer from your account and delete local history in the app.
         You can permanently delete your account from the account page. This cancels active
-        subscriptions and removes your profile, usage and connected computers, including your WorkOS
-        sign-in account. Payment records are kept as required by law.
+        subscriptions and removes your profile, notes, usage and connected computers, including your
+        WorkOS sign-in account. Payment records are kept as required by law.
       </p>
       <h2>Contact</h2>
       <p>

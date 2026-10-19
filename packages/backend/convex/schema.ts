@@ -50,7 +50,17 @@ export const settingsFields = {
   updatedAt: v.number(),
 };
 
+export const noteFields = {
+  text: v.string(),
+  pinned: v.boolean(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
 export default defineSchema({
+  notes: defineTable({ userId: v.id("users"), noteId: v.string(), ...noteFields })
+    .index("by_user", ["userId", "createdAt"])
+    .index("by_user_note", ["userId", "noteId"]),
   settings: defineTable({ userId: v.id("users"), ...settingsFields }).index("by_user", ["userId"]),
   pings: defineTable(pingFields)
     .index("by_install_day", ["installId", "day"])

@@ -1511,3 +1511,337 @@ small {
   margin-top: 16px;
   color: var(--muted);
 }
+
+.notes-page {
+  width: min(720px, 100% - 40px);
+  min-height: calc(100vh - 72px);
+  margin-inline: auto;
+  padding: 32px 0 64px;
+  font-size: 15px;
+}
+.notes-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.notes-heading h1 {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.55;
+}
+.notes-count {
+  color: var(--faint);
+}
+.notes-search {
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 220px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--faint);
+}
+.notes-search svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.notes-page .notes-search input {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+}
+.notes-search input::placeholder {
+  color: var(--faint);
+}
+.notes-composer {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px 12px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 4%, transparent);
+}
+.notes-page textarea {
+  display: block;
+  width: 100%;
+  min-height: 26px;
+  max-height: 50vh;
+  resize: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  box-shadow: none;
+  outline: none;
+}
+.notes-composer textarea {
+  font-size: 16px;
+}
+.notes-composer textarea::placeholder {
+  color: var(--faint);
+}
+.notes-composer-footer {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--faint);
+}
+.notes-composer:focus-within .notes-composer-footer,
+.notes-composer-footer[data-has-text="true"] {
+  display: flex;
+}
+.notes-hints {
+  display: flex;
+  gap: 12px;
+}
+.notes-hints span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.notes-hints kbd {
+  font:
+    500 11px/1 "Hanken Grotesk Variable",
+    system-ui,
+    sans-serif;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-bottom-width: 1.5px;
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+.notes-page .notes-save {
+  margin-left: auto;
+  background: var(--text);
+  color: var(--white);
+  padding: 6px 14px;
+  height: auto;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+.notes-page button:hover {
+  transform: none;
+  box-shadow: none;
+}
+.notes-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 28px 0 8px;
+  margin: 0;
+}
+.notes-group svg {
+  width: 13px;
+  height: 13px;
+}
+.note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 12px 14px;
+  margin: 0 -14px;
+  border-radius: 12px;
+}
+.note-text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: text;
+  overflow-wrap: anywhere;
+}
+.note-title {
+  display: block;
+  font-weight: 600;
+}
+.note-body {
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+.note-time {
+  width: 72px;
+  flex-shrink: 0;
+  text-align: right;
+  padding-top: 2px;
+  font-size: 13px;
+  color: var(--faint);
+}
+.note-actions {
+  display: none;
+  gap: 2px;
+  margin: -4px 0;
+}
+.notes-page .note-action {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+.notes-page .note-action:hover {
+  background: var(--white);
+  color: var(--text);
+}
+.note-row[data-editing="true"] {
+  background: var(--white);
+  border: 1px solid color-mix(in srgb, var(--text) 28%, var(--line));
+  padding: 11px 13px;
+}
+.note-editor {
+  flex: 1;
+  min-width: 0;
+}
+.note-edit-bar {
+  display: flex;
+  align-items: center;
+}
+.note-edit-bar .note-actions {
+  display: none;
+}
+.note-edit-bar .notes-save {
+  display: none;
+}
+.note-edit-hint {
+  font-size: 13px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.notes-page .notes-empty {
+  padding: 56px 0;
+  gap: 4px;
+  color: var(--muted);
+}
+.notes-empty [data-slot="empty-title"] {
+  color: var(--text);
+  font-size: 15px;
+}
+.notes-empty [data-slot="empty-description"] {
+  color: var(--muted);
+  font-size: 15px;
+}
+.notes-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  translate: -50% 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+@media (hover: hover) {
+  .note-row:not([data-editing="true"]):hover,
+  .note-row:not([data-editing="true"]):focus-within {
+    background: color-mix(in srgb, var(--line) 60%, var(--bg));
+  }
+  .note-row:hover > .note-actions,
+  .note-row:focus-within > .note-actions {
+    display: flex;
+  }
+  .note-row:hover > .note-time,
+  .note-row:focus-within > .note-time {
+    display: none;
+  }
+}
+@media (max-width: 560px), (hover: none) {
+  .note-row[data-editing="true"] {
+    flex-direction: column;
+    gap: 10px;
+    border-color: var(--line);
+  }
+  .note-edit-bar {
+    width: 100%;
+    gap: 4px;
+  }
+  .note-edit-bar .note-actions {
+    display: flex;
+    margin: 0;
+  }
+  .note-edit-bar .notes-save {
+    display: inline-flex;
+  }
+  .note-edit-hint {
+    display: none;
+  }
+  .notes-hints {
+    display: none;
+  }
+  .notes-composer-footer:not([data-has-text="true"]) {
+    display: none;
+  }
+}
+@media (max-width: 560px) {
+  .notes-page {
+    width: calc(100% - 36px);
+    padding-top: 6px;
+    font-size: 16px;
+  }
+  .notes-heading {
+    margin-bottom: 14px;
+  }
+  .notes-heading h1 {
+    font-size: 28px;
+  }
+  .notes-count,
+  .notes-search {
+    display: none;
+  }
+  .note-row {
+    margin-inline: -10px;
+    padding-inline: 10px;
+  }
+  .note-row[data-editing="true"] {
+    padding-inline: 9px;
+  }
+}
+
+.notes-menu-label {
+  display: none;
+}
+.nav a[aria-current="page"] {
+  color: var(--text);
+}
+@media (max-width: 560px) {
+  .site-header[data-notes="true"] .nav {
+    height: 52px;
+  }
+  .site-header[data-notes="true"] .nav > a:not(.logo) {
+    display: none;
+  }
+  .site-header[data-notes="true"] .mobile-menu {
+    width: auto;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .site-header[data-notes="true"] .mobile-menu svg {
+    display: none;
+  }
+  .notes-menu-label {
+    display: inline;
+  }
+}
