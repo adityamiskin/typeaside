@@ -1,4 +1,4 @@
-import { requireNativeModule } from "expo-modules-core";
+import { requireNativeModule } from "expo";
 
 // Shared with the system keyboard (iOS extension via the App Group, Android IME in-process),
 // which dictates through the hosted API without the JS runtime.

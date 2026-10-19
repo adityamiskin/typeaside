@@ -16,7 +16,7 @@ export default function TabsLayout() {
 
   return (
     <NativeTabs>
-      <NativeTabs.Trigger name="index">
+      <NativeTabs.Trigger name="dictate">
         <NativeTabs.Trigger.Label>Dictate</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="mic" md="mic" />
       </NativeTabs.Trigger>
