@@ -267,6 +267,7 @@ pub struct AppConfig {
     /// Words the user removed; corrections never suggest them again.
     pub removed_words: Vec<String>,
     pub settings_sync: Option<crate::settings_sync::SyncState>,
+    pub usage_notice_week: Option<i64>,
     pub auto_submit: bool,
     pub on_dictation: Option<String>,
     pub auto_learn: bool,
@@ -306,6 +307,7 @@ impl Default for AppConfig {
             dictionary: Vec::new(),
             removed_words: Vec::new(),
             settings_sync: None,
+            usage_notice_week: None,
             auto_submit: false,
             on_dictation: None,
             auto_learn: true,

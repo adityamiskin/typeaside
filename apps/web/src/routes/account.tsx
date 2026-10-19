@@ -19,6 +19,7 @@ import { BillingToggle, CheckoutButton, type Interval } from "../components/bill
 import { auth } from "../integrations/auth";
 export const Route = createFileRoute("/account")({
   validateSearch: (search: Record<string, unknown>) => ({
+    upgrade: search.upgrade === "1" ? "1" : undefined,
     checkout:
       search.checkout === "monthly" || search.checkout === "yearly" ? search.checkout : undefined,
   }),
@@ -55,7 +56,7 @@ function relativeTime(value: number | undefined) {
   return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 function AccountContent() {
-  const { checkout } = Route.useSearch();
+  const { checkout, upgrade } = Route.useSearch();
   const [interval, setInterval] = useState<Interval>(checkout === "yearly" ? "yearly" : "monthly");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -70,13 +71,14 @@ function AccountContent() {
     void sync({}).catch(() => setError("Your account could not load. Please refresh."));
   }, [sync]);
   useEffect(() => {
-    if ((checkout !== "monthly" && checkout !== "yearly") || checkoutStarted.current) return;
+    const requested = checkout === "monthly" || checkout === "yearly";
+    if ((!requested && !(upgrade && account?.plan === "free")) || checkoutStarted.current) return;
     checkoutStarted.current = true;
     window.history.replaceState(window.history.state, "", "/account");
-    void createCheckout({ interval: checkout })
+    void createCheckout({ interval: checkout === "yearly" ? "yearly" : "monthly" })
       .then((result) => window.location.assign(result.url))
       .catch(() => setError("Checkout is unavailable. Please try again."));
-  }, [checkout, createCheckout]);
+  }, [checkout, upgrade, account?.plan, createCheckout]);
   return (
     <main className="container page account">
       <h1>Your account.</h1>
@@ -101,6 +103,9 @@ function AccountContent() {
         <div>
           {account ? (
             <>
+              {account.billingIssue && (
+                <p className="error">Payment failed. Update your card to keep Pro.</p>
+              )}
               <h3>{account.plan === "pro" ? "Pro" : "Free"}</h3>
               {account.currentPeriodEnd && (
                 <p>
@@ -112,7 +117,7 @@ function AccountContent() {
                   })}
                 </p>
               )}
-              {account.plan === "pro" ? (
+              {account.plan === "pro" || account.billingIssue ? (
                 <Button
                   variant="outline"
                   disabled={busy}
@@ -127,7 +132,7 @@ function AccountContent() {
                     }
                   }}
                 >
-                  Manage billing
+                  {account.billingIssue ? "Fix billing" : "Manage billing"}
                 </Button>
               ) : (
                 <div className="upgrade">

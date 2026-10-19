@@ -66,6 +66,7 @@ export const current = query({
         : {
             plan: "free" as const,
             currentPeriodEnd: null,
+            billingIssue: false,
             usage: { words: 0, cap: FREE_WEEKLY_WORDS, resetsAt: weekStart() + WEEK_MS },
           }),
     };

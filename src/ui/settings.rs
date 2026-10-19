@@ -824,7 +824,9 @@ impl MainWindow {
             ];
         };
         let limit = account.at_limit();
-        let plan = if limit {
+        let plan = if account.billing_issue {
+            "Payment failed. Update your card to keep Pro.".into()
+        } else if limit {
             let resets = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
                 .map(|date| {
                     date.with_timezone(&chrono::Local)
@@ -834,7 +836,16 @@ impl MainWindow {
                 .unwrap_or_default();
             format!("Weekly limit reached, resets {resets}")
         } else if account.plan == typeaside::account::Plan::Pro {
-            "Pro".into()
+            account
+                .current_period_end
+                .and_then(chrono::DateTime::from_timestamp_millis)
+                .map(|date| {
+                    format!(
+                        "Pro, renews {}",
+                        date.with_timezone(&chrono::Local).format("%b %-d, %Y")
+                    )
+                })
+                .unwrap_or_else(|| "Pro".into())
         } else {
             format!(
                 "Free, {} of {} words this week",
@@ -844,23 +855,39 @@ impl MainWindow {
         };
         vec![
             Setting::new("Plan")
-                .description(div().when(limit, |plan| plan.text_color(p.red)).child(plan))
+                .description(
+                    div()
+                        .when(limit || account.billing_issue, |plan| {
+                            plan.text_color(p.red)
+                        })
+                        .child(plan),
+                )
                 .child(
-                    button(if limit { "Upgrade" } else { "Manage" }, false, p)
-                        .id("manage-account")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if this.state.read(cx).is_demo {
-                                return;
-                            }
-                            cx.background_executor()
-                                .spawn(async {
-                                    let _ = typeaside::account::open(format!(
-                                        "{}/account",
-                                        typeaside::account::web_url()
-                                    ));
-                                })
-                                .detach();
-                        })),
+                    button(
+                        if account.billing_issue {
+                            "Fix billing"
+                        } else if account.plan == typeaside::account::Plan::Free {
+                            "Upgrade"
+                        } else {
+                            "Manage"
+                        },
+                        false,
+                        p,
+                    )
+                    .id("manage-account")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if this.state.read(cx).is_demo {
+                            return;
+                        }
+                        cx.background_executor()
+                            .spawn(async {
+                                let _ = typeaside::account::open(format!(
+                                    "{}/account",
+                                    typeaside::account::web_url()
+                                ));
+                            })
+                            .detach();
+                    })),
                 ),
             Setting::new("Sync")
                 .description("Dictionary, snippets and styles sync across your devices."),

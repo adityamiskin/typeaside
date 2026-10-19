@@ -63,11 +63,17 @@ pub(crate) fn checked_hosted(
 }
 
 #[derive(Debug)]
-pub(crate) struct HostedError(String);
+pub(crate) enum HostedError {
+    Limit { resets_at: i64 },
+    Request(String),
+}
 
 impl std::fmt::Display for HostedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        match self {
+            Self::Limit { .. } => f.write_str("Weekly limit reached"),
+            Self::Request(message) => message.fmt(f),
+        }
     }
 }
 
@@ -76,12 +82,15 @@ impl std::error::Error for HostedError {}
 pub(crate) fn hosted_error(status: u16, body: &serde_json::Value) -> HostedError {
     let message = match status {
         402 if body["error"]["type"] == "limit" => {
-            "Weekly free limit reached. Upgrade in TypeAside.".into()
+            if let Some(resets_at) = body["error"]["resets_at"].as_i64() {
+                return HostedError::Limit { resets_at };
+            }
+            "Invalid hosted limit response".into()
         }
         401 => "Sign in to TypeAside again.".into(),
         _ => format!("Hosted request failed ({status})"),
     };
-    HostedError(message)
+    HostedError::Request(message)
 }
 
 /// Model IDs from an OpenAI-compatible `GET /models`, split into (speech, chat).

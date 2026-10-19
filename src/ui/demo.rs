@@ -116,7 +116,8 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                     )
                 }
                 Event::Copied(_) => eprintln!("typeaside demo: Copied"),
-                Event::Reply { .. }
+                Event::Usage(_)
+                | Event::Reply { .. }
                 | Event::Notice(_)
                 | Event::Open(_)
                 | Event::DismissReply
@@ -156,6 +157,10 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                     std::env::var("TYPEASIDE_DEMO_TEXT")
                         .unwrap_or_else(|_| "See you Thursday".into()),
                 ),
+                "approaching" => Event::Usage(typeaside::account::Usage { words: 1640, cap: Some(2000), resets_at: (chrono::Local::now() + chrono::Duration::days(3)).timestamp_millis() }),
+                "limit" => Event::Phase(Phase::LimitReached {
+                    resets_at: (chrono::Local::now() + chrono::Duration::days(3)).timestamp_millis(),
+                }),
                 "error" => Event::Phase(Phase::Error("No speech detected".into())),
                 "reply" => Event::Reply {
                     open: false,
@@ -165,6 +170,10 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                 _ => Event::Phase(Phase::Listening(Mode::Dictate)),
             };
             if !send(event) {
+                return;
+            }
+            if matches!(visual.as_str(), "limit" | "approaching") {
+                std::thread::park();
                 return;
             }
             loop {
@@ -225,7 +234,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
 pub fn account() -> Option<typeaside::account::Account> {
     use typeaside::account::{Account, Plan, Usage};
     let value = std::env::var("TYPEASIDE_DEMO_ACCOUNT").ok()?;
-    if !["free", "pro", "limit", "signed-in"].contains(&value.as_str()) {
+    if !["free", "pro", "limit", "billing", "signed-in"].contains(&value.as_str()) {
         return None;
     }
     Some(Account {
@@ -235,6 +244,9 @@ pub fn account() -> Option<typeaside::account::Account> {
         } else {
             Plan::Free
         },
+        current_period_end: (value == "pro")
+            .then(|| (chrono::Local::now() + chrono::Duration::days(20)).timestamp_millis()),
+        billing_issue: value == "billing",
         usage: Usage {
             words: if value == "limit" { 2000 } else { 1240 },
             cap: if value == "pro" { None } else { Some(2000) },

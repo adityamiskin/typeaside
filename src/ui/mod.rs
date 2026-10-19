@@ -514,6 +514,36 @@ fn start_ui(
                         surface = Some(h);
                     }
                 }
+                Event::Usage(usage) => {
+                    let warning = state.update(cx, |s, cx| {
+                        let Some(account) = &mut s.account else { return None; };
+                        account.usage = usage;
+                        cx.notify();
+                        let usage = &account.usage;
+                        let cap = usage.cap?;
+                        (account.plan == typeaside::account::Plan::Free
+                            && s.config.transcription == Source::Hosted
+                            && usage.words > cap * 80 / 100
+                            && s.config.usage_notice_week != Some(usage.resets_at))
+                            .then_some((cap.saturating_sub(usage.words), usage.resets_at))
+                    });
+                    if let Some((words, week)) = warning {
+                        let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.usage_warning(words, w, cx)).is_ok());
+                        let shown = updated || {
+                            if let Ok(h) = overlay::open(state.clone(), cx) {
+                                let _ = h.update(cx, |v, w, cx| v.usage_warning(words, w, cx));
+                                surface = Some(h);
+                                true
+                            } else { false }
+                        };
+                        if shown {
+                            state.update(cx, |s, _| {
+                                s.config.usage_notice_week = Some(week);
+                                s.persist();
+                            });
+                        }
+                    }
+                }
                 Event::Done(dictation) => {
                     if state.read(cx).config.transcription == Source::Hosted {
                         refresh_account(&state, cx);
@@ -528,7 +558,9 @@ fn start_ui(
                         }
                         cx.notify();
                     });
-                    if !state.read(cx).config.onboarded { return; }
+                    if !state.read(cx).config.onboarded {
+                        return;
+                    }
                     let updated =
                         surface.is_some_and(|h| h.update(cx, |v, w, cx| v.success(w, cx)).is_ok());
                     if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
@@ -537,21 +569,28 @@ fn start_ui(
                     }
                 }
                 Event::Phase(phase) => {
-                    if matches!(&phase, Phase::Error(error) if error.contains("Weekly free limit reached"))
+                    if matches!(&phase, Phase::LimitReached { .. })
                         && state.read(cx).config.transcription == Source::Hosted
                     {
                         refresh_account(&state, cx);
                     }
                     state.update(cx, |s, cx| {
-                        if !s.config.onboarded && s.onboarding_step == onboarding::Step::Practice && matches!(phase, Phase::Listening(_)) {
+                        if !s.config.onboarded
+                            && s.onboarding_step == onboarding::Step::Practice
+                            && matches!(phase, Phase::Listening(_))
+                        {
                             s.onboarding_transcript = None;
                             s.onboarding_raw = None;
                         }
-                        if phase == Phase::Idle { s.file_transcribing = None; }
+                        if phase == Phase::Idle {
+                            s.file_transcribing = None;
+                        }
                         s.phase = phase.clone();
                         cx.notify();
                     });
-                    if !state.read(cx).config.onboarded { return; }
+                    if !state.read(cx).config.onboarded {
+                        return;
+                    }
                     let updated = surface.is_some_and(|h| {
                         h.update(cx, |v, w, cx| v.phase(phase.clone(), w, cx))
                             .is_ok()
@@ -626,12 +665,17 @@ fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
         .background_executor()
         .spawn(async { typeaside::account::me() });
     cx.spawn(async move |cx| {
-        if let Ok(account) = task.await {
+        if let Ok(mut account) = task.await {
             state.update(cx, |s, cx| {
                 if s.account_revision == revision {
                     if account.is_some() && s.config.transcription != Source::Hosted {
                         s.config.transcription = Source::Hosted;
                         s.persist();
+                    }
+                    if let (Some(current), Some(next)) = (&s.account, &mut account)
+                        && current.usage.resets_at == next.usage.resets_at
+                    {
+                        next.usage.words = next.usage.words.max(current.usage.words);
                     }
                     s.account = account;
                     cx.notify();

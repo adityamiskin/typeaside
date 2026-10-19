@@ -71,9 +71,12 @@ pub fn open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
     Ok(())
 }
 #[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Account {
     pub email: String,
     pub plan: Plan,
+    pub current_period_end: Option<i64>,
+    pub billing_issue: bool,
     pub usage: Usage,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -82,7 +85,7 @@ pub enum Plan {
     Free,
     Pro,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
     pub words: u64,

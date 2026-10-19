@@ -29,6 +29,7 @@ pub struct Output {
     pub delivery: Delivery,
     pub stt: Duration,
     pub llm: Duration,
+    pub usage: Option<crate::account::Usage>,
 }
 
 fn offline(error: &anyhow::Error) -> bool {
@@ -109,6 +110,7 @@ pub fn run(
                     delivery: Delivery::Insert,
                     stt: started.elapsed(),
                     llm: Duration::ZERO,
+                    usage: None,
                 })
             }
             result => result,
@@ -122,6 +124,7 @@ pub fn run(
             delivery: Delivery::Insert,
             stt: Duration::ZERO,
             llm: started.elapsed(),
+            usage: None,
         });
     }
     let (raw, local) = match config.transcription {
@@ -178,6 +181,7 @@ pub fn run(
         delivery: answer.delivery,
         stt,
         llm,
+        usage: None,
     })
 }
 
@@ -228,6 +232,7 @@ pub(crate) fn hosted(
 
 #[derive(Deserialize)]
 pub(crate) struct HostedResponse {
+    usage: crate::account::Usage,
     raw: String,
     text: String,
     delivery: Delivery,
@@ -241,6 +246,7 @@ impl HostedResponse {
             delivery: self.delivery,
             stt: Duration::ZERO,
             llm: elapsed,
+            usage: Some(self.usage),
         }
     }
 }

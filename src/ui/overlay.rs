@@ -18,6 +18,10 @@ enum Visual {
     Cancel,
     Error(String),
     Notice(&'static str, String, Vec<String>),
+    Upgrade {
+        title: String,
+        detail: Option<String>,
+    },
     Exit,
 }
 
@@ -37,7 +41,7 @@ pub struct Overlay {
     positions: [Spring; BARS],
     levels: [f32; BARS],
     quiet: bool,
-    clickable: Option<bool>,
+    clickable: Option<(bool, f32, f32)>,
 }
 
 impl Overlay {
@@ -90,6 +94,19 @@ impl Overlay {
             }
             Phase::Transcribing | Phase::Cleaning => Visual::Processing,
             Phase::Error(message) => Visual::Error(message),
+            Phase::LimitReached { resets_at } => {
+                let resets = chrono::DateTime::from_timestamp_millis(resets_at)
+                    .map(|date| {
+                        date.with_timezone(&chrono::Local)
+                            .format(&format!("%a {}", super::clock::time_format()))
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+                Visual::Upgrade {
+                    title: "Weekly limit reached".into(),
+                    detail: Some(format!("Resets {resets}. This recording is saved.")),
+                }
+            }
             Phase::Idle if matches!(self.phase, Visual::Listening | Visual::Paused) => {
                 Visual::Cancel
             }
@@ -101,6 +118,17 @@ impl Overlay {
 
     pub fn success(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.set(Visual::Success, window, cx);
+    }
+
+    pub fn usage_warning(&mut self, words: u64, window: &mut Window, cx: &mut Context<Self>) {
+        self.set(
+            Visual::Upgrade {
+                title: format!("{} words left this week", super::settings::grouped(words)),
+                detail: None,
+            },
+            window,
+            cx,
+        );
     }
 
     pub fn warning(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -217,6 +245,9 @@ impl Overlay {
             self.scale = Spring::new(1.);
             self.bars = [Spring::new(0.); BARS];
         }
+        if matches!(self.phase, Visual::Upgrade { .. }) {
+            self.width.target = 450.;
+        }
         let text = match &self.phase {
             Visual::Error(message) => Some(text_width(message, window, cx)),
             Visual::Notice(label, text, words) => {
@@ -245,6 +276,7 @@ impl Overlay {
             Visual::Error(_) => Some(ERROR_HOLD),
             Visual::Notice(_, _, ref words) if !words.is_empty() => Some(LEARNED_HOLD),
             Visual::Notice(..) => Some(COPIED_HOLD),
+            Visual::Upgrade { detail: None, .. } => Some(LEARNED_HOLD),
             _ => None,
         };
         if let Some(hold) = hold {
@@ -302,7 +334,7 @@ impl Overlay {
             Visual::Processing => self.width.target = WORK_WIDTH,
             Visual::Success => self.width.target = PILL_HEIGHT,
             Visual::Paused | Visual::Cancel | Visual::Exit => {}
-            Visual::Error(_) | Visual::Notice(..) => {}
+            Visual::Error(_) | Visual::Notice(..) | Visual::Upgrade { .. } => {}
         }
         let mut moving = self.width.step(dt, PILL_STIFFNESS, PILL_DAMPING);
         moving |= self.rise.step(dt, PILL_STIFFNESS, PILL_DAMPING);
@@ -366,6 +398,7 @@ impl Render for Overlay {
             Visual::Success => "success",
             Visual::Error(_) => "error",
             Visual::Notice(..) => "notice",
+            Visual::Upgrade { .. } => "upgrade",
             Visual::Cancel => "cancel",
             Visual::Exit => "exit",
         };
@@ -387,7 +420,12 @@ impl Render for Overlay {
 
         let scale = self.scale.value;
         let width = self.width.value * scale;
-        let height = PILL_HEIGHT * scale;
+        let card_height = if matches!(self.phase, Visual::Upgrade { .. }) {
+            116.
+        } else {
+            PILL_HEIGHT
+        };
+        let height = card_height * scale;
         let shake = if matches!(self.phase, Visual::Error(_)) && elapsed < SHAKE_TIME {
             (elapsed / SHAKE_TIME * std::f32::consts::TAU * 3.).sin()
                 * 5.
@@ -395,18 +433,19 @@ impl Render for Overlay {
         } else {
             0.
         };
-        let clickable = matches!(&self.phase, Visual::Notice(_, _, words) if !words.is_empty());
-        // Each region change commits the surface, so only send it when Undo appears or goes.
+        let clickable = matches!(self.phase, Visual::Upgrade { .. })
+            || matches!(&self.phase, Visual::Notice(_, _, words) if !words.is_empty());
+        // Each region change commits the surface, so only send it when actions appear or go.
         #[cfg(target_os = "linux")]
-        if self.clickable != Some(clickable) {
-            self.clickable = Some(clickable);
+        if self.clickable != Some((clickable, self.width.target, card_height)) {
+            self.clickable = Some((clickable, self.width.target, card_height));
             let target = self.width.target;
             let region = Bounds::new(
                 point(
                     px((SURFACE_WIDTH - target) / 2.),
-                    px(SURFACE_HEIGHT - SHADOW_SPACE - PILL_HEIGHT),
+                    px(SURFACE_HEIGHT - SHADOW_SPACE - card_height),
                 ),
-                size(px(target), px(PILL_HEIGHT)),
+                size(px(target), px(card_height)),
             );
             let regions = [region];
             window.set_input_region(Some(if clickable { &regions[..] } else { &[] }));
@@ -417,7 +456,11 @@ impl Render for Overlay {
             .top(px(SURFACE_HEIGHT - SHADOW_SPACE - height + self.rise.value))
             .w(px(width))
             .h(px(height))
-            .rounded(px(height / 2.))
+            .rounded(px(if matches!(self.phase, Visual::Upgrade { .. }) {
+                12.
+            } else {
+                height / 2.
+            }))
             .bg(p.pill)
             .border_1()
             .border_color(p.pill_border)
@@ -433,7 +476,44 @@ impl Render for Overlay {
             .items_center()
             .justify_center()
             .overflow_hidden();
-        if self.phase == Visual::Paused {
+        if let Visual::Upgrade { title, detail } = &self.phase {
+            pill =
+                pill.child(
+                    div()
+                        .w_full()
+                        .px(px(16.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .text_color(p.fg)
+                        .text_size(px(13.))
+                        .child(title.clone())
+                        .children(
+                            detail
+                                .clone()
+                                .map(|detail| div().text_color(p.muted).child(detail)),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap(px(12.))
+                                .child(button("Upgrade", true, p).id("upgrade").on_click(
+                                    cx.listener(|this, _, window, cx| {
+                                        if !this.state.read(cx).is_demo {
+                                            cx.open_url(&format!(
+                                                "{}/account?upgrade=1",
+                                                typeaside::account::web_url()
+                                            ));
+                                        }
+                                        this.exit(window, cx);
+                                    }),
+                                ))
+                                .child(button("Dismiss", false, p).id("dismiss-upgrade").on_click(
+                                    cx.listener(|this, _, window, cx| this.exit(window, cx)),
+                                )),
+                        ),
+                );
+        } else if self.phase == Visual::Paused {
             pill = pill.child(div().text_color(p.fg).text_size(px(13.)).child("Ⅱ Paused"));
         } else if let Visual::Error(message) | Visual::Notice(_, message, _) = &self.phase {
             let label = match self.phase {
