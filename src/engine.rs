@@ -562,7 +562,7 @@ fn run(
                                     let _ = events
                                         .try_send(Event::Failed(failed_recordings(&paths, None)));
                                 } else if delivery == Delivery::Reply
-                                    || (delivery == Delivery::Open && !context.2.trim().is_empty())
+                                    || (delivery == Delivery::Open && !context.2.is_empty())
                                 {
                                     reply_visible = true;
                                     let _ = events.try_send(Event::Reply {
