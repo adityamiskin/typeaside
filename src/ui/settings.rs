@@ -936,7 +936,7 @@ impl MainWindow {
             Setting::new("Sync")
                 .description("Dictionary, snippets and styles sync across your devices."),
             Setting::new("Email")
-                .description(account.email.clone())
+                .description(account.email.clone().unwrap_or_else(|| "Signed in".into()))
                 .child(
                     button("Sign out", false, p)
                         .id("sign-out")

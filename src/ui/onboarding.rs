@@ -487,7 +487,10 @@ impl MainWindow {
             Step::Account => {
                 let own = s.onboarding_own_key;
                 let waiting = s.signing_in.is_some();
-                let email = s.account.as_ref().map(|a| a.email.clone());
+                let email = s
+                    .account
+                    .as_ref()
+                    .map(|a| a.email.clone().unwrap_or_else(|| "Signed in".into()));
                 col.child(title("How should TypeAside listen?", p))
                     .child(sub("You can change this anytime in Settings.", p))
                     .child(
