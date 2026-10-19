@@ -11,6 +11,7 @@ import type { ConvexReactClient } from "convex/react";
 import bodyFont from "@fontsource-variable/hanken-grotesk/files/hanken-grotesk-latin-wght-normal.woff2?url";
 import { Header, Footer } from "../components/site";
 import { auth } from "../integrations/auth";
+import marketingCss from "../styles/marketing.css?url";
 import appCss from "../index.css?url";
 import { siteUrl } from "../lib/seo";
 export interface RouterAppContext {
@@ -41,6 +42,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "stylesheet", href: marketingCss },
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
       ...[bodyFont].map((href) => ({

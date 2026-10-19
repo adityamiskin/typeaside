@@ -1,5 +1,5 @@
 {
   "title": "Features",
   "defaultOpen": true,
-  "pages": ["dictation", "hotkeys", "cleanup", "edit-by-voice", "dictionary", "snippets"]
+  "pages": ["dictation", "notes", "hotkeys", "cleanup", "edit-by-voice", "dictionary", "snippets"]
 }

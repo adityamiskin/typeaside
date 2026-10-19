@@ -5,11 +5,12 @@ import { BillingToggle, CheckoutButton, type Interval } from "../components/bill
 import { HeroScene } from "../components/hero-scene";
 import { AppMarquee, LandingApps } from "../components/landing-apps";
 import { LandingBento } from "../components/landing-bento";
+import { LandingNotes, DevelopersStrip, MarketingFAQ } from "../components/marketing";
 import { LandingFeatures } from "../components/landing-features";
 import { seo, siteUrl } from "../lib/seo";
 
 const description =
-  "Voice dictation that types clean, punctuated text in any app. Hold a key, talk, and TypeAside writes it up. Native on macOS, Windows and Linux. Free to start.";
+  "Voice dictation and quick notes for Linux, macOS and Windows. Talk in any app or double-tap Left Shift to capture a thought. Free to start.";
 export const Route = createFileRoute("/")({
   head: () => ({
     ...seo({
@@ -47,8 +48,12 @@ export const Route = createFileRoute("/")({
 });
 const faqs = [
   [
+    "Where are my notes kept?",
+    "Notes sync through our servers so they appear on every device you sign in to. Deleting a note deletes it. Signed-out notes stay on your computer until you sign in.",
+  ],
+  [
     "Where does my voice go?",
-    "Audio goes to the transcription service you choose, TypeAside or your own provider, and TypeAside doesn't keep it. Your history stays on your computer.",
+    "Audio goes to the transcription service you choose, TypeAside or your own provider, and TypeAside doesn't keep it. Your dictation history stays on your computer.",
   ],
   [
     "Which apps does it work in?",
@@ -89,13 +94,20 @@ function Landing() {
             the rest.
           </p>
           <LandingFeatures />
-          <h2 className="bento-head">Made for how you work.</h2>
+        </div>
+      </section>
+      <LandingNotes />
+      <section className="marketing-bento">
+        <div className="wrap">
+          <h2>Made for how you work.</h2>
           <p className="lead">
-            It learns your words, speaks your language and keeps your history on your computer.
+            It learns your words, speaks your language and keeps your dictation history on your
+            computer.
           </p>
           <LandingBento />
         </div>
       </section>
+      <DevelopersStrip />
       <div className="band photo" style={{ "--img": "url(/img/s56.jpg)" } as CSSProperties}>
         <div>
           <h2>Light enough to forget.</h2>
@@ -124,6 +136,7 @@ function Landing() {
                 <li>Sign in, nothing to set up</li>
                 <li>Transcription and editing included</li>
                 <li>Resets every Monday</li>
+                <li>Unlimited notes, synced everywhere</li>
               </ul>
               <a className="btn light" href="/download">
                 Download
@@ -148,6 +161,7 @@ function Landing() {
                   <li>Everything in Free</li>
                   <li>No weekly limit</li>
                   <li>Cancel any time</li>
+                  <li>Unlimited notes, synced everywhere</li>
                 </ul>
                 <CheckoutButton interval={interval} full />
               </div>
@@ -170,22 +184,7 @@ function Landing() {
           </div>
         </div>
       </section>
-      <section>
-        <div className="wrap faq">
-          <h2>Questions</h2>
-          <div>
-            {faqs.map(([question, answer]) => (
-              <details key={question}>
-                <summary>
-                  {question}
-                  <i aria-hidden="true" />
-                </summary>
-                <p>{answer}</p>
-              </details>
-            ))}
-          </div>
-        </div>
-      </section>
+      <MarketingFAQ items={faqs} />
       <div className="wrap">
         <div className="final photo" style={{ "--img": "url(/img/s22.jpg)" } as CSSProperties}>
           <div>
