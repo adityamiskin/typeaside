@@ -95,7 +95,7 @@ export default {
         return failed(error(400, "request", "Expected WebSocket upgrade"));
       return stream(ctx, (input) =>
         finish(
-          dictate(env, input, Promise.resolve(account.plan === "pro")).catch(() => null),
+          dictate(env, input, account.plan === "pro").catch(() => null),
           account,
           env,
           authorization,
@@ -103,16 +103,11 @@ export default {
         ),
       );
     }
-    // Auth reaches Convex across an ocean, so it runs alongside the provider calls.
-    // Nothing is returned until it passes; the rate limit bounds what bad tokens can spend.
-    const auth = authorize(env, authorization);
-    const input = await readInput(request);
-    if (!input) return failed(error(400, "request", "Invalid dictation input"));
-    // Only audio waits on the plan, since paid accounts transcribe with a different provider.
-    const pro = auth.then((account) => !("error" in account) && account.plan === "pro");
-    const work = dictate(env, input, pro).catch(() => null);
-    const account = await auth;
+    // Provider calls wait for auth so invalid or capped tokens spend nothing. The body upload overlaps the lookup.
+    const [account, input] = await Promise.all([authorize(env, authorization), readInput(request)]);
     if ("error" in account) return failed(account);
+    if (!input) return failed(error(400, "request", "Invalid dictation input"));
+    const work = dictate(env, input, account.plan === "pro").catch(() => null);
     const result = await finish(work, account, env, authorization, ctx);
     return "error" in result ? failed(result) : Response.json(result);
   },
