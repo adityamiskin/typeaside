@@ -253,7 +253,7 @@ pub fn account() -> Option<typeaside::account::Account> {
         return None;
     }
     Some(Account {
-        email: "aditya@example.com".into(),
+        email: Some("aditya@example.com".into()),
         plan: if value == "pro" {
             Plan::Pro
         } else {

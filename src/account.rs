@@ -73,7 +73,7 @@ pub fn open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
-    pub email: String,
+    pub email: Option<String>,
     pub plan: Plan,
     pub current_period_end: Option<i64>,
     pub billing_issue: bool,
@@ -109,7 +109,9 @@ pub fn me() -> Result<Option<Account>> {
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Ok(None);
     }
-    Ok(Some(response.error_for_status()?.json()?))
+    Ok(Some(response.error_for_status()?.json().context(
+        "Could not read your TypeAside account. Update the app and try again.",
+    )?))
 }
 pub fn sign_in(cancel: &AtomicBool) -> Result<Account> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -161,15 +163,17 @@ fn receive_callback(
         stream.set_nonblocking(false)?;
         stream.set_read_timeout(Some(Duration::from_secs(1)))?;
         let token = read_callback_body(&stream).and_then(|body| callback_token(&body, state));
-        let (status, body) = match token {
-            Some(_) => ("200 OK", CONNECTED_PAGE),
-            None => ("404 Not Found", "Not found"),
+        let _ = match token {
+            Some(_) => write!(
+                stream,
+                "HTTP/1.1 303 See Other\r\nLocation: {}/desktop/connect?connected=true\r\nContent-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
+                web_url()
+            ),
+            None => write!(
+                stream,
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nNot found"
+            ),
         };
-        let _ = write!(
-            stream,
-            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n{body}",
-            body.len()
-        );
         if let Some(token) = token {
             return Ok(token);
         }
@@ -180,7 +184,6 @@ fn receive_callback(
 const FORM_TYPE: &str = "application/x-www-form-urlencoded";
 const MAX_REQUEST_BYTES: u64 = 8192;
 const MAX_BODY_BYTES: usize = 1024;
-const CONNECTED_PAGE: &str = "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f9f9f8;color:#16171a;font-family:Inter,system-ui,sans-serif}</style><p>TypeAside is connected. You can close this tab.</p>";
 
 // Only a form POST to /callback carries the token, so it never lands in browser history.
 fn read_callback_body(stream: &TcpStream) -> Option<String> {

@@ -349,7 +349,9 @@ impl Render for MainWindow {
         let account_label = state
             .account
             .as_ref()
-            .map_or("Sign in".to_owned(), |account| account.email.clone());
+            .map_or("Sign in".to_owned(), |account| {
+                account.email.clone().unwrap_or_else(|| "Account".into())
+            });
         let usage = state
             .account
             .as_ref()

@@ -75,7 +75,8 @@ http.route({
       startedAt: Date.now(),
       words: 0,
     });
-    return Response.json({ email: account.email, plan: account.plan, usage: account.usage });
+    const { email, plan, currentPeriodEnd, billingIssue, usage } = account;
+    return Response.json({ email, plan, currentPeriodEnd, billingIssue, usage });
   }),
 });
 for (const method of ["GET", "PUT"] as const) {

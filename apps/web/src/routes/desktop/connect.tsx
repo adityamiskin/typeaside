@@ -19,6 +19,7 @@ export const Route = createFileRoute("/desktop/connect")({
     return {
       port: Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : undefined,
       state: typeof search.state === "string" ? search.state : undefined,
+      connected: search.connected === "true" || search.connected === true || undefined,
     };
   },
   beforeLoad: ({ context, search }) => {
@@ -40,7 +41,14 @@ export const Route = createFileRoute("/desktop/connect")({
   component: Connect,
 });
 function Connect() {
-  const { port, state } = Route.useSearch();
+  const { port, state, connected } = Route.useSearch();
+  if (connected)
+    return (
+      <main className="container page narrow">
+        <p className="connect-prompt">The desktop app is connected.</p>
+        <p>You can close this tab and start dictating.</p>
+      </main>
+    );
   if (port === undefined || state === undefined)
     return (
       <main className="container page narrow">
@@ -68,7 +76,7 @@ function Connect() {
 }
 function ConnectContent({ port, state }: { port: number; state: string }) {
   const createToken = useMutation(api.desktop.createToken);
-  const [connected, setConnected] = useState(false);
+  const { viewer } = Route.useRouteContext();
   const [busy, setBusy] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,43 +92,38 @@ function ConnectContent({ port, state }: { port: number; state: string }) {
           <input type="hidden" name="token" value={token} />
         </form>
       )}
-      {connected ? (
-        <p className="lead">Connected. You can close this tab.</p>
-      ) : (
-        <>
-          <p className="connect-prompt">Connect TypeAside on this computer?</p>
-          <p>Sends your sign-in to the app listening on port {port}.</p>
-          <div className="connect-actions">
-            <Button
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                setError(null);
-                try {
-                  setToken(
-                    await createToken({ name: detectOS(navigator.userAgent) ?? "Computer" }),
-                  );
-                  setConnected(true);
-                } catch (cause) {
-                  setError(
-                    cause instanceof ConvexError && typeof cause.data === "string"
-                      ? cause.data
-                      : "Could not connect. Please try again.",
-                  );
-                  setBusy(false);
-                }
-              }}
-            >
-              {busy ? "Connecting…" : "Connect"}
-            </Button>
-            <a href="/">Cancel</a>
-          </div>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-        </>
+      <p className="connect-prompt">Connect the TypeAside desktop app</p>
+      <p>
+        {viewer?.email
+          ? `The app on this computer will use ${viewer.email}.`
+          : "The app on this computer will use this account."}
+      </p>
+      <div className="connect-actions">
+        <Button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              setToken(await createToken({ name: detectOS(navigator.userAgent) ?? "Computer" }));
+            } catch (cause) {
+              setError(
+                cause instanceof ConvexError && typeof cause.data === "string"
+                  ? cause.data
+                  : "Could not connect. Please try again.",
+              );
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Connecting…" : "Connect"}
+        </Button>
+        <a href="/">Cancel</a>
+      </div>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
       )}
     </main>
   );
