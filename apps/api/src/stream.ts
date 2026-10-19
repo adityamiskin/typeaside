@@ -2,7 +2,6 @@ import { readContext, type Input, type Result } from "./dictate";
 import { error } from "./errors";
 
 const MAX_AUDIO_BYTES = 19_200_000;
-const IDLE_MS = 30_000;
 const DEADLINE_MS = 11 * 60_000;
 
 function wav(chunks: ArrayBuffer[], bytes: number) {
@@ -38,21 +37,15 @@ export function stream(
   let bytes = 0;
   let released = false;
   let closed = false;
-  let idle: number | null = null;
-  let deadline: number | null = null;
 
   const clear = () => {
     chunks = [];
     bytes = 0;
   };
-  const stopTimers = () => {
-    clearTimeout(idle);
-    clearTimeout(deadline);
-  };
   const end = () => {
     if (closed) return;
     closed = true;
-    stopTimers();
+    clearTimeout(deadline);
     clear();
     onClose();
   };
@@ -64,20 +57,13 @@ export function stream(
     server.close(1000);
     end();
   };
-  const expire = (message: string) => () => {
-    if (!released) respond(error(408, "request", message));
-  };
-  const listen = () => {
-    clearTimeout(idle);
-    idle = setTimeout(expire("Stream idle"), IDLE_MS);
-  };
-  deadline = setTimeout(expire("Stream exceeded 11 minutes"), DEADLINE_MS);
-  listen();
+  const deadline = setTimeout(() => {
+    if (!released) respond(error(408, "request", "Stream exceeded 11 minutes"));
+  }, DEADLINE_MS);
   server.addEventListener("close", end);
   server.addEventListener("error", end);
   server.addEventListener("message", (event) => {
     if (released || closed) return;
-    listen();
     if (typeof event.data !== "string") {
       if (event.data.byteLength % 2 !== 0) {
         respond(error(400, "request", "Invalid dictation input"));
@@ -90,7 +76,7 @@ export function stream(
       return;
     }
     released = true;
-    stopTimers();
+    clearTimeout(deadline);
     const context = readContext(event.data);
     if (!context || context.text !== undefined || bytes === 0) {
       respond(error(400, "request", "Invalid dictation input"));

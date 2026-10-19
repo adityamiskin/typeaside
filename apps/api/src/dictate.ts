@@ -102,7 +102,6 @@ function cleanupSystem(context: Context, translate: boolean) {
 const completionResponse = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1),
 });
-const LEAK_LENGTH = 12;
 const answerInput = z.object({ delivery: z.enum(["insert", "reply", "open"]), text: z.string() });
 type Answer = z.infer<typeof answerInput>;
 
@@ -160,23 +159,6 @@ async function cleanup(key: string, raw: string, context: Context) {
   }
 }
 
-// Selected text is untrusted, so an opened URL must not carry any of it out in its query string.
-function leaksSelection(url: URL, selection: string) {
-  const squash = (value: string) => value.replace(/\s+/gu, " ").trim().toLowerCase();
-  const plus = url.href.replaceAll("+", " ");
-  let decoded = plus;
-  try {
-    decoded = decodeURIComponent(plus);
-  } catch {
-    /* Malformed escapes are compared as written. */
-  }
-  const target = squash(decoded);
-  const chars = squash(selection);
-  for (let i = 0; i + LEAK_LENGTH <= chars.length; i++)
-    if (target.includes(chars.slice(i, i + LEAK_LENGTH))) return true;
-  return false;
-}
-
 async function command(key: string, instruction: string, selection: string): Promise<Answer> {
   const output = (
     await completion(
@@ -199,10 +181,10 @@ async function command(key: string, instruction: string, selection: string): Pro
   if (answer.delivery === "open") {
     try {
       const url = new URL(answer.text);
-      if (["http:", "https:", "mailto:"].includes(url.protocol) && !leaksSelection(url, selection))
+      if (["http:", "https:", "mailto:"].includes(url.protocol))
         return { delivery: "open", text: url.href };
     } catch {
-      /* Invalid or selection-leaking navigation targets become plain replies. */
+      /* Invalid navigation targets become plain replies. */
     }
     return { delivery: "reply", text: answer.text };
   }
