@@ -19,3 +19,4 @@ APPIMAGE_EXTRACT_AND_RUN=1 OUTPUT="$PWD/dist/TypeAside.AppImage" "$stage/linuxde
     --desktop-file packaging/typeaside.desktop \
     --icon-file assets/typeaside.svg \
     --output appimage
+packaging/sign.sh dist/TypeAside.AppImage dist/typeaside.deb dist/typeaside.rpm

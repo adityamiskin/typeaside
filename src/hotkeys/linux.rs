@@ -6,9 +6,20 @@ use std::{
     collections::HashSet,
     io::Write,
     os::{fd::AsFd, unix::net::UnixStream},
-    sync::Mutex,
+    path::PathBuf,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
+
+static CANCELABLE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_cancelable(cancelable: bool, _recording: bool) {
+    CANCELABLE.store(cancelable, Ordering::Relaxed);
+}
 
 /// Side-specific keys of the latest chord, in press order. The shortcut recorder reads
 /// it because toolkit modifier events cannot tell Right Shift from Left Shift.
@@ -92,24 +103,11 @@ impl HotkeyService {
                 combos.push(Combo::parse(value, event)?);
             }
         }
-        let mut devices: Vec<_> = evdev::enumerate()
-            .map(|(_, device)| device)
-            .filter(|device| {
-                device.name() != Some("TypeAside paste keyboard")
-                    && device.supported_keys().is_some_and(|keys| {
-                        keys.contains(KeyCode::KEY_A)
-                            && combos.iter().any(|combo| {
-                                combo
-                                    .keys
-                                    .iter()
-                                    .all(|group| group.iter().any(|key| keys.contains(*key)))
-                            })
-                    })
-            })
-            .collect();
-        if devices.is_empty() {
+        let initial = keyboards(&combos);
+        if initial.is_empty() {
             bail!("no readable keyboards under /dev/input");
         }
+        let (mut paths, mut devices): (Vec<_>, Vec<_>) = initial.into_iter().unzip();
         for device in &mut devices {
             device.set_nonblocking(true)?;
         }
@@ -118,16 +116,21 @@ impl HotkeyService {
             .name("typeaside-hotkeys".into())
             .spawn(move || {
                 let mut pressed = vec![HashSet::new(); devices.len()];
-                while !devices.is_empty() {
+                let mut scanned = Instant::now();
+                let mut missing = false;
+                loop {
                     let mut fds = vec![PollFd::new(reader.as_fd(), PollFlags::POLLIN)];
                     fds.extend(
                         devices
                             .iter()
                             .map(|device| PollFd::new(device.as_fd(), PollFlags::POLLIN)),
                     );
-                    match poll(&mut fds, PollTimeout::NONE) {
+                    match poll(&mut fds, PollTimeout::from(250u16)) {
                         Err(nix::errno::Errno::EINTR) => continue,
-                        Err(_) => break,
+                        Err(error) => {
+                            eprintln!("typeaside: keyboard polling failed: {error}");
+                            break;
+                        },
                         Ok(_) => {}
                     }
                     if fds[0].revents().is_some_and(|events| !events.is_empty()) {
@@ -143,6 +146,7 @@ impl HotkeyService {
                         if flags.intersects(
                             PollFlags::POLLHUP | PollFlags::POLLERR | PollFlags::POLLNVAL,
                         ) {
+                            paths.swap_remove(index);
                             devices.swap_remove(index);
                             pressed.swap_remove(index);
                             continue;
@@ -150,8 +154,16 @@ impl HotkeyService {
                         if !flags.contains(PollFlags::POLLIN) {
                             continue;
                         }
-                        let Ok(events) = devices[index].fetch_events() else {
-                            continue;
+                        let events = match devices[index].fetch_events().map(|events| events.collect::<Vec<_>>()) {
+                            Ok(events) => events,
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+                            Err(error) => {
+                                eprintln!("typeaside: keyboard read failed: {error}");
+                                paths.swap_remove(index);
+                                devices.swap_remove(index);
+                                pressed.swap_remove(index);
+                                continue;
+                            }
                         };
                         for event in events {
                             if let EventSummary::Key(_, code, value) = event.destructure() {
@@ -172,20 +184,30 @@ impl HotkeyService {
                                     }
                                     _ => continue,
                                 }
-                                for combo in &mut combos {
-                                    let active = combo.keys.iter().all(|group| {
-                                        group.iter().any(|key| {
-                                            pressed.iter().any(|keys| keys.contains(key))
-                                        })
-                                    });
-                                    if active != combo.active {
-                                        combo.active = active;
-                                        emit((combo.event)(active));
-                                    }
-                                }
+                                update_combos(&mut combos, &pressed, &emit);
                             }
                         }
                     }
+                    update_combos(&mut combos, &pressed, &emit);
+                    if scanned.elapsed() >= Duration::from_secs(1) {
+                        scanned = Instant::now();
+                        for (path, device) in keyboards(&combos) {
+                            if paths.contains(&path) {
+                                continue;
+                            }
+                            if let Err(error) = device.set_nonblocking(true) {
+                                eprintln!("typeaside: cannot watch keyboard {}: {error}", path.display());
+                                continue;
+                            }
+                            paths.push(path);
+                            devices.push(device);
+                            pressed.push(HashSet::new());
+                        }
+                    }
+                    if devices.is_empty() && !missing {
+                        eprintln!("typeaside: no readable keyboards remain; waiting for /dev/input devices");
+                    }
+                    missing = devices.is_empty();
                 }
             })?;
         Ok(Self {
@@ -200,6 +222,40 @@ impl Drop for HotkeyService {
         let _ = self.wake.write_all(&[1]);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+    }
+}
+
+fn keyboards(combos: &[Combo]) -> Vec<(PathBuf, evdev::Device)> {
+    evdev::enumerate()
+        .filter(|(_, device)| {
+            device.name() != Some("TypeAside paste keyboard")
+                && device.supported_keys().is_some_and(|keys| {
+                    keys.contains(KeyCode::KEY_A)
+                        && combos.iter().any(|combo| {
+                            combo
+                                .keys
+                                .iter()
+                                .all(|group| group.iter().any(|key| keys.contains(*key)))
+                        })
+                })
+        })
+        .collect()
+}
+
+fn update_combos(combos: &mut [Combo], pressed: &[HashSet<KeyCode>], emit: &impl Fn(HotkeyEvent)) {
+    for combo in combos {
+        let active = combo.keys.iter().all(|group| {
+            group
+                .iter()
+                .any(|key| pressed.iter().any(|keys| keys.contains(key)))
+        });
+        if active != combo.active {
+            combo.active = active;
+            let event = (combo.event)(active);
+            if !matches!(event, HotkeyEvent::Cancel(_)) || CANCELABLE.load(Ordering::Relaxed) {
+                emit(event);
+            }
         }
     }
 }

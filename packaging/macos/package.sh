@@ -11,3 +11,4 @@ trap 'rm -rf "$stage"' EXIT
 ditto target/release/TypeAside.app "$stage/TypeAside.app"
 ln -s /Applications "$stage/Applications"
 hdiutil create -volname TypeAside -srcfolder "$stage" -ov -format UDZO dist/TypeAside.dmg
+packaging/sign.sh dist/TypeAside.dmg

@@ -213,12 +213,18 @@ async fn download_async(cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()
 
 struct Worker {
     child: Child,
-    output: BufReader<std::process::ChildStdout>,
+    requests: Option<mpsc::Sender<Vec<f32>>>,
+    responses: mpsc::Receiver<Result<String, String>>,
+    io: Option<std::thread::JoinHandle<()>>,
 }
 impl Drop for Worker {
     fn drop(&mut self) {
+        self.requests.take();
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Some(io) = self.io.take() {
+            let _ = io.join();
+        }
     }
 }
 impl Worker {
@@ -229,30 +235,65 @@ impl Worker {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
-        let output = BufReader::new(child.stdout.take().context("worker stdout")?);
-        let mut worker = Self { child, output };
-        worker.response()?;
+        let (requests, input) = mpsc::channel::<Vec<f32>>();
+        let (output, responses) = mpsc::channel();
+        let mut stdin = child.stdin.take().context("worker stdin")?;
+        let mut stdout = BufReader::new(child.stdout.take().context("worker stdout")?);
+        let io = std::thread::spawn(move || {
+            let response = |stdout: &mut BufReader<std::process::ChildStdout>| -> Result<String> {
+                let mut line = String::new();
+                ensure!(
+                    stdout.read_line(&mut line)? > 0,
+                    "On-device transcription process exited"
+                );
+                let response: std::result::Result<String, String> = serde_json::from_str(&line)?;
+                response.map_err(anyhow::Error::msg)
+            };
+            let ready = response(&mut stdout).map_err(|e| e.to_string());
+            let failed = ready.is_err();
+            if output.send(ready).is_err() || failed {
+                return;
+            }
+            for audio in input {
+                let result = (|| -> Result<String> {
+                    stdin.write_all(&(audio.len() as u64).to_le_bytes())?;
+                    let bytes: Vec<_> = audio
+                        .iter()
+                        .flat_map(|sample| sample.to_le_bytes())
+                        .collect();
+                    stdin.write_all(&bytes)?;
+                    stdin.flush()?;
+                    response(&mut stdout)
+                })()
+                .map_err(|e| e.to_string());
+                if output.send(result).is_err() {
+                    break;
+                }
+            }
+        });
+        let worker = Self {
+            child,
+            requests: Some(requests),
+            responses,
+            io: Some(io),
+        };
+        worker.response(Duration::from_secs(120))?;
         Ok(worker)
     }
-    fn response(&mut self) -> Result<String> {
-        let mut line = String::new();
-        ensure!(
-            self.output.read_line(&mut line)? > 0,
-            "On-device transcription process exited"
-        );
-        let response: std::result::Result<String, String> = serde_json::from_str(&line)?;
-        response.map_err(anyhow::Error::msg)
+    fn response(&self, timeout: Duration) -> Result<String> {
+        self.responses
+            .recv_timeout(timeout)
+            .context("On-device transcription worker timed out or disconnected")?
+            .map_err(anyhow::Error::msg)
     }
     fn transcribe(&mut self, audio: &[f32]) -> Result<String> {
-        let input = self.child.stdin.as_mut().context("worker stdin")?;
-        input.write_all(&(audio.len() as u64).to_le_bytes())?;
-        let bytes: Vec<_> = audio
-            .iter()
-            .flat_map(|sample| sample.to_le_bytes())
-            .collect();
-        input.write_all(&bytes)?;
-        input.flush()?;
-        self.response()
+        self.requests
+            .as_ref()
+            .context("worker requests unavailable")?
+            .send(audio.to_vec())?;
+        self.response(Duration::from_secs(
+            30 + (audio.len() as u64).div_ceil(16_000) * 2,
+        ))
     }
 }
 

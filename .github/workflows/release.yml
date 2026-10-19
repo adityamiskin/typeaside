@@ -48,6 +48,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libfreetype6-dev libxcb1-dev libxcb-xkb-dev libxcb-xfixes0-dev libxcb-randr0-dev libx11-xcb-dev libssl-dev pkg-config clang cmake librsvg2-bin file
+      - name: Install Minisign
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) sudo apt-get install -y minisign ;;
+            macOS) brew install minisign ;;
+            Windows) choco install minisign --yes --no-progress ;;
+          esac
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.platform }}
@@ -62,9 +70,13 @@ jobs:
           cargo build --locked --release --target x86_64-apple-darwin
       - name: Package macOS
         if: runner.os == 'macOS'
+        env:
+          TYPEASIDE_SIGNING_KEY: ${{ secrets.TYPEASIDE_SIGNING_KEY }}
         run: packaging/macos/package.sh
       - name: Package Linux
         if: runner.os == 'Linux'
+        env:
+          TYPEASIDE_SIGNING_KEY: ${{ secrets.TYPEASIDE_SIGNING_KEY }}
         run: packaging/linux/package.sh
       - name: Package Windows
         if: runner.os == 'Windows'
@@ -74,6 +86,12 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DVersion=$env:VERSION" packaging/windows/typeaside.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Sign Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          TYPEASIDE_SIGNING_KEY: ${{ secrets.TYPEASIDE_SIGNING_KEY }}
+        run: packaging/sign.sh dist/TypeAside-setup.exe
       - uses: actions/upload-artifact@v4
         with:
           name: typeaside-${{ matrix.platform }}-installers
@@ -90,6 +108,8 @@ jobs:
           merge-multiple: true
           path: dist
       - uses: oven-sh/setup-bun@v2
+      - name: Install Minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
       - name: Upload installers and latest manifest to R2
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

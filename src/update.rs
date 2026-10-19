@@ -1,5 +1,6 @@
 use crate::account;
 use anyhow::{Context, Result, ensure};
+use minisign_verify::{PublicKey, Signature};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -186,6 +187,26 @@ fn verify_sha256(reader: &mut impl Read, expected: &str) -> Result<()> {
     Ok(())
 }
 
+fn verify_signature(reader: &mut impl Read, signature: &str) -> Result<()> {
+    let key = PublicKey::decode(include_str!("../packaging/minisign.pub"))
+        .context("Invalid embedded release key")?;
+    let signature = Signature::decode(signature).context("Invalid release signature")?;
+    let mut verifier = key
+        .verify_stream(&signature)
+        .context("Invalid release signature")?;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        verifier.update(&buffer[..count]);
+    }
+    verifier
+        .finalize()
+        .context("Release signature verification failed")
+}
+
 struct TemporaryDirectory(PathBuf);
 impl TemporaryDirectory {
     fn new(parent: &Path) -> Result<Self> {
@@ -254,6 +275,22 @@ pub fn install(release: &Release, mut progress: impl FnMut(Progress)) -> Result<
     output.sync_all()?;
     drop(output);
     verify_sha256(&mut File::open(&installer)?, &artifact.sha256)?;
+    let mut signature = String::new();
+    crate::http::client()
+        .get(format!(
+            "{}/releases/v{}/{}.minisig",
+            account::web_url(),
+            release.version,
+            artifact.file
+        ))
+        .timeout(Duration::from_secs(15))
+        .send()
+        .context("Cannot download release signature")?
+        .error_for_status()
+        .context("Cannot download release signature")?
+        .take(8192)
+        .read_to_string(&mut signature)?;
+    verify_signature(&mut File::open(&installer)?, &signature)?;
     progress(Progress::Downloading(100));
     progress(Progress::Installing);
     match kind {
@@ -440,6 +477,17 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(release.version, "0.10.0");
+    }
+
+    #[test]
+    fn accepts_signed_artifact_and_rejects_tampering() {
+        let artifact = include_bytes!("../packaging/test-fixtures/artifact");
+        let signature = include_str!("../packaging/test-fixtures/artifact.minisig");
+        assert!(verify_signature(&mut &artifact[..], signature).is_ok());
+        assert!(verify_signature(&mut &b"tampered artifact"[..], signature).is_err());
+        assert!(verify_signature(&mut &artifact[..], "").is_err());
+        let corrupted = signature.replace("trusted comment:", "trusted comment: changed");
+        assert!(verify_signature(&mut &artifact[..], &corrupted).is_err());
     }
 
     #[test]

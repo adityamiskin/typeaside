@@ -194,7 +194,7 @@ impl TextInjector {
             return result;
         };
         thread::sleep(Duration::from_millis(300));
-        result.and(set_clipboard(&previous))
+        result.and(restore_clipboard(&previous, text))
     }
 
     fn combo(&mut self, modifiers: &[KeyCode], key: KeyCode) -> Result<()> {
@@ -217,6 +217,13 @@ impl TextInjector {
     }
 }
 
+fn restore_clipboard(previous: &str, transcript: &str) -> Result<()> {
+    if read_clipboard().is_ok_and(|current| current.as_deref() == Some(transcript)) {
+        set_clipboard(previous)?;
+    }
+    Ok(())
+}
+
 fn key_event(code: KeyCode, value: i32) -> InputEvent {
     InputEvent::new(EventType::KEY.0, code.code(), value)
 }
@@ -231,7 +238,11 @@ pub(crate) fn read_clipboard() -> Result<Option<String>> {
         return Ok(None);
     }
     let types = String::from_utf8_lossy(&types.stdout);
-    if !types.lines().any(|line| line.starts_with("text/")) {
+    if types
+        .lines()
+        .any(|line| line == "x-kde-passwordManagerHint")
+        || !types.lines().any(|line| line.starts_with("text/"))
+    {
         return Ok(None);
     }
     let output = Command::new("wl-paste")
