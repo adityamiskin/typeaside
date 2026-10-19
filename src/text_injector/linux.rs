@@ -304,6 +304,25 @@ pub(crate) fn selected_text() -> String {
     })
 }
 
+/// Held shortcuts would turn a simulated copy into a different chord, so these flows read PRIMARY.
+pub(crate) fn primary_selection() -> String {
+    Command::new("timeout")
+        .args([
+            "0.3s",
+            "wl-paste",
+            "--primary",
+            "--no-newline",
+            "--type",
+            "text",
+        ])
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .unwrap_or_default()
+}
+
 fn clear_clipboard() -> Result<()> {
     if !Command::new("wl-copy").arg("--clear").status()?.success() {
         bail!("cannot clear clipboard");
