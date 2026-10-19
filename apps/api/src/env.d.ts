@@ -4,4 +4,5 @@ interface Env {
   AZURE_SPEECH_ENDPOINT: string;
   AZURE_SPEECH_KEY: string;
   DICTATE_LIMIT: RateLimit;
+  FORWARD_LIMIT: RateLimit;
 }

@@ -2,6 +2,7 @@ import { readContext, type Input, type Result } from "./dictate";
 import { error } from "./errors";
 
 const MAX_AUDIO_BYTES = 19_200_000;
+const DEADLINE_MS = 11 * 60_000;
 
 function wav(chunks: ArrayBuffer[], bytes: number) {
   const header = new ArrayBuffer(44);
@@ -27,6 +28,7 @@ function wav(chunks: ArrayBuffer[], bytes: number) {
 export function stream(
   ctx: ExecutionContext,
   run: (input: Input) => Promise<Result | ReturnType<typeof error>>,
+  onClose: () => void,
 ) {
   const { 0: client, 1: server } = new WebSocketPair();
   server.accept();
@@ -40,17 +42,24 @@ export function stream(
     chunks = [];
     bytes = 0;
   };
+  const end = () => {
+    if (closed) return;
+    closed = true;
+    clearTimeout(deadline);
+    clear();
+    onClose();
+  };
   const respond = (result: Awaited<ReturnType<typeof run>>) => {
     released = true;
     clear();
     if (closed) return;
     server.send(JSON.stringify(result));
     server.close(1000);
+    end();
   };
-  const end = () => {
-    closed = true;
-    clear();
-  };
+  const deadline = setTimeout(() => {
+    if (!released) respond(error(408, "request", "Stream exceeded 11 minutes"));
+  }, DEADLINE_MS);
   server.addEventListener("close", end);
   server.addEventListener("error", end);
   server.addEventListener("message", (event) => {
@@ -67,6 +76,7 @@ export function stream(
       return;
     }
     released = true;
+    clearTimeout(deadline);
     const context = readContext(event.data);
     if (!context || context.text !== undefined || bytes === 0) {
       respond(error(400, "request", "Invalid dictation input"));

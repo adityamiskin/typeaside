@@ -27,13 +27,27 @@ export function readContext(field: string): Context | null {
   return contextInput.safeParse(json).data ?? null;
 }
 
+// Matches the desktop's 20 MB file limit; the body allowance covers the multipart framing and context JSON.
+const MAX_AUDIO_BYTES = 20_000_000;
+const MAX_BODY_BYTES = MAX_AUDIO_BYTES + 256_000;
+const AUDIO_TYPE = /^(audio\/|video\/(mp4|mpeg|webm)(;|$))/u;
+
+export function withinBodyLimit(request: Request) {
+  const length = request.headers.get("Content-Length");
+  return length !== null && Number(length) <= MAX_BODY_BYTES;
+}
+
 export async function readInput(request: Request) {
   const form = await request.formData().catch(() => null);
   const field = form?.get("context");
   if (!form || typeof field !== "string") return null;
   const context = readContext(field);
   const audio = form.get("audio");
-  if (!context || (audio !== null && !(audio instanceof Blob && audio.size > 0))) return null;
+  if (!context) return null;
+  if (audio !== null) {
+    const valid = audio instanceof Blob && audio.size > 0 && audio.size <= MAX_AUDIO_BYTES;
+    if (!(valid && AUDIO_TYPE.test(audio.type))) return null;
+  }
   if ((audio === null) === (context.text === undefined)) return null;
   return { context, audio };
 }
