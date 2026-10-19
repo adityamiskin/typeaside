@@ -10,7 +10,7 @@ pub struct SyncState {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct Fields {
     pub dictionary: Vec<String>,
     pub removed_words: Vec<String>,
