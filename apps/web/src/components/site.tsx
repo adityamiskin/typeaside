@@ -1,4 +1,4 @@
-import { useRouteContext } from "@tanstack/react-router";
+import { useRouteContext, useRouterState } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@typeaside/ui/components/button";
 import {
   Sheet,
@@ -42,13 +42,14 @@ export function Logo({ size }: { size?: number } = {}) {
   );
 }
 export function Header() {
+  const isNotes = useRouterState({ select: (state) => state.location.pathname === "/notes" });
   const { viewer } = useRouteContext({ from: "__root__" });
   const accountLink = {
     label: viewer ? "Account" : "Sign in",
     href: viewer ? "/account" : auth.signInHref("/account"),
   };
   return (
-    <header className="site-header wrap">
+    <header className="site-header wrap" data-notes={isNotes}>
       <nav className="nav" aria-label="Main navigation">
         <a href="/" className="logo">
           <Logo />
@@ -59,6 +60,11 @@ export function Header() {
             {link.label}
           </a>
         ))}
+        {viewer && (
+          <a className="link opt" href="/notes" aria-current={isNotes ? "page" : undefined}>
+            Notes
+          </a>
+        )}
         <a className="link" href={accountLink.href}>
           {accountLink.label}
         </a>
@@ -72,11 +78,17 @@ export function Header() {
             }
           >
             <Menu />
+            {isNotes && <span className="notes-menu-label">Menu</span>}
           </SheetTrigger>
           <SheetContent className="menu-panel">
             <SheetTitle className="logo">TypeAside</SheetTitle>
             <SheetDescription className="sr-only">Site navigation</SheetDescription>
-            {[...links, { label: "Download", href: "/download" }, accountLink].map((link) => (
+            {[
+              ...links,
+              { label: "Download", href: "/download" },
+              ...(viewer ? [{ label: "Notes", href: "/notes" }] : []),
+              accountLink,
+            ].map((link) => (
               <SheetClose nativeButton={false} key={link.label} render={<a href={link.href} />}>
                 {link.label}
               </SheetClose>

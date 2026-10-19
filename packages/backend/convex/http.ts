@@ -4,6 +4,7 @@ import { z } from "zod";
 import { internal } from "./_generated/api";
 import { httpAction, type ActionCtx } from "./_generated/server";
 import { hashToken } from "./lib";
+import { noteInput, noteIdInput } from "./notes";
 import { settingsInput } from "./settings";
 import { pingInput } from "./pings";
 
@@ -108,6 +109,44 @@ for (const method of ["GET", "PUT"] as const) {
       });
       if (!result.ok) return error(429, "rate_limit", "Too many settings updates");
       return Response.json({ settings: result.settings });
+    }),
+  });
+}
+for (const method of ["GET", "PUT", "DELETE"] as const) {
+  http.route({
+    path: "/v1/notes",
+    method,
+    handler: httpAction(async (ctx, request) => {
+      const account = await authenticate(ctx, request);
+      if (!account) return error(401, "authentication", "Invalid desktop token");
+      const userId = account.userId;
+      const status = await ctx.runMutation(internal.notes.limit, { userId });
+      if (!status.ok) return error(429, "rate_limit", "Too many notes requests");
+      if (method === "GET")
+        return Response.json({ notes: await ctx.runQuery(internal.notes.get, { userId }) });
+      if (method === "DELETE") {
+        const id = noteIdInput.safeParse(new URL(request.url).searchParams.get("id"));
+        if (!id.success) return error(400, "request", "Invalid note id");
+        await ctx.runMutation(internal.notes.erase, { userId, id: id.data });
+        return new Response(null, { status: 204 });
+      }
+      const maxBytes = 64 * 1024;
+      if (Number(request.headers.get("Content-Length")) > maxBytes)
+        return error(400, "request", "Note exceeds 64 KB");
+      let input: unknown;
+      try {
+        const body = await request.text();
+        if (new TextEncoder().encode(body).byteLength > maxBytes)
+          return error(400, "request", "Note exceeds 64 KB");
+        input = JSON.parse(body);
+      } catch {
+        return error(400, "request", "Expected JSON");
+      }
+      const parsed = noteInput.safeParse(input);
+      if (!parsed.success) return error(400, "request", "Invalid note");
+      const result = await ctx.runMutation(internal.notes.put, { userId, ...parsed.data });
+      if (!result.ok) return error(400, "request", result.message);
+      return Response.json({ note: result.note });
     }),
   });
 }

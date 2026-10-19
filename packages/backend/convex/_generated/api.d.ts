@@ -13,6 +13,7 @@ import type * as desktop from "../desktop.js";
 import type * as feedback from "../feedback.js";
 import type * as http from "../http.js";
 import type * as lib from "../lib.js";
+import type * as notes from "../notes.js";
 import type * as pings from "../pings.js";
 import type * as proxy from "../proxy.js";
 import type * as rateLimits from "../rateLimits.js";
@@ -33,6 +34,7 @@ declare const fullApi: ApiFromModules<{
   feedback: typeof feedback;
   http: typeof http;
   lib: typeof lib;
+  notes: typeof notes;
   pings: typeof pings;
   proxy: typeof proxy;
   rateLimits: typeof rateLimits;
