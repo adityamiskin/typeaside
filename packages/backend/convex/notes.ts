@@ -45,26 +45,16 @@ async function findNote(ctx: QueryCtx, userId: Id<"users">, id: string) {
     .withIndex("by_user_note", (q) => q.eq("userId", userId).eq("noteId", id))
     .unique();
 }
-async function upsert(ctx: MutationCtx, userId: Id<"users">, input: z.infer<typeof noteInput>) {
-  const note = noteInput.parse(input);
+async function upsert(ctx: MutationCtx, userId: Id<"users">, note: z.infer<typeof noteInput>) {
   const stored = await findNote(ctx, userId, note.id);
-  if (stored && stored.updatedAt >= note.updatedAt)
-    return { ok: true as const, note: noteJson(stored) };
+  if (stored && stored.updatedAt >= note.updatedAt) return noteJson(stored);
   const { id, ...fields } = note;
-  if (stored) {
-    await ctx.db.replace(stored._id, { userId, noteId: id, ...fields });
-  } else {
-    const notes = await ctx.db
-      .query("notes")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .take(10_000);
-    if (notes.length >= 10_000) return { ok: false as const, message: "Note limit reached" };
-    await ctx.db.insert("notes", { userId, noteId: id, ...fields });
-  }
-  return { ok: true as const, note };
+  if (stored) await ctx.db.replace(stored._id, { userId, noteId: id, ...fields });
+  else await ctx.db.insert("notes", { userId, noteId: id, ...fields });
+  return note;
 }
 async function deleteNote(ctx: MutationCtx, userId: Id<"users">, id: string) {
-  const stored = await findNote(ctx, userId, noteIdInput.parse(id));
+  const stored = await findNote(ctx, userId, id);
   if (stored) await ctx.db.delete(stored._id);
 }
 async function checkRate(ctx: MutationCtx, userId: Id<"users">) {
@@ -87,13 +77,11 @@ export const save = mutation({
     await checkRate(ctx, user._id);
     const stored = await findNote(ctx, user._id, parsed.data.id);
     const now = Date.now();
-    const result = await upsert(ctx, user._id, {
+    return upsert(ctx, user._id, {
       ...parsed.data,
       createdAt: stored?.createdAt ?? now,
       updatedAt: now,
     });
-    if (!result.ok) throw new ConvexError(result.message);
-    return result.note;
   },
 });
 export const remove = mutation({

@@ -144,9 +144,9 @@ for (const method of ["GET", "PUT", "DELETE"] as const) {
       }
       const parsed = noteInput.safeParse(input);
       if (!parsed.success) return error(400, "request", "Invalid note");
-      const result = await ctx.runMutation(internal.notes.put, { userId, ...parsed.data });
-      if (!result.ok) return error(400, "request", result.message);
-      return Response.json({ note: result.note });
+      return Response.json({
+        note: await ctx.runMutation(internal.notes.put, { userId, ...parsed.data }),
+      });
     }),
   });
 }
