@@ -37,7 +37,7 @@ export const useTakes = create<{
       version: 1,
       storage: createJSONStorage(() => ({
         getItem: () => (file.exists ? file.textSync() : null),
-        setItem: (_, value) => file.write(value),
+        setItem: (_, value) => file.writeSync(value),
         removeItem: () => file.delete(),
       })),
       partialize: ({ takes }) => ({ takes }),

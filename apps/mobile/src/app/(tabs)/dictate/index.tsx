@@ -40,7 +40,7 @@ export default function DictateScreen() {
   function recorded(recording: string) {
     // The recorder writes to the cache, which the OS may clear before a retry.
     const audio = new File(recording);
-    audio.move(Paths.document);
+    audio.moveSync(Paths.document);
     const take = { id: Crypto.randomUUID(), createdAt: Date.now(), text: "" };
     add({ ...take, pending: { uri: audio.uri } });
     setExpandedId(take.id);
