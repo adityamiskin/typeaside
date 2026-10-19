@@ -91,11 +91,7 @@ export function Header() {
           <SheetContent className="menu-panel">
             <SheetTitle className="logo">TypeAside</SheetTitle>
             <SheetDescription className="sr-only">Site navigation</SheetDescription>
-            {[
-              ...navLinks,
-              { label: "Download", href: "/download" },
-              accountLink,
-            ].map((link) => (
+            {[...navLinks, { label: "Download", href: "/download" }, accountLink].map((link) => (
               <SheetClose nativeButton={false} key={link.label} render={<a href={link.href} />}>
                 {link.label}
               </SheetClose>
