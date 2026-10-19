@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, Snippet, Styles};
+use crate::config::{AppConfig, AppInstruction, MAX_APP_INSTRUCTIONS, Snippet, Styles, app_key};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -16,6 +16,7 @@ pub struct Fields {
     pub removed_words: Vec<String>,
     pub snippets: Vec<Snippet>,
     pub styles: Styles,
+    pub app_instructions: Vec<AppInstruction>,
 }
 
 impl Fields {
@@ -25,6 +26,7 @@ impl Fields {
             removed_words: config.removed_words.clone(),
             snippets: config.snippets.clone(),
             styles: config.styles,
+            app_instructions: config.app_instructions.clone(),
         }
     }
 
@@ -33,6 +35,7 @@ impl Fields {
         config.removed_words = self.removed_words;
         config.snippets = self.snippets;
         config.styles = self.styles;
+        config.app_instructions = self.app_instructions;
     }
 }
 
@@ -70,6 +73,50 @@ fn merge_words(base: &[String], local: Vec<String>, mut remote: Vec<String>) -> 
     remote
 }
 
+trait Keyed {
+    fn key(&self) -> String;
+    fn text(&self) -> &str;
+}
+
+impl Keyed for Snippet {
+    fn key(&self) -> String {
+        self.trigger.clone()
+    }
+    fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+impl Keyed for AppInstruction {
+    fn key(&self) -> String {
+        app_key(&self.app)
+    }
+    fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+/// Three-way merge by key: local adds, edits and deletes beat the remote copy; remote-only changes survive.
+fn merge_keyed<T: Keyed>(base: &[T], local: Vec<T>, remote: &mut Vec<T>) {
+    let base: HashMap<_, _> = base.iter().map(|item| (item.key(), item.text())).collect();
+    let local_keys: HashSet<_> = local.iter().map(Keyed::key).collect();
+    let mut seen = HashSet::new();
+    remote.retain(|item| {
+        let key = item.key();
+        (!base.contains_key(&key) || local_keys.contains(&key)) && seen.insert(key)
+    });
+    for item in local {
+        let key = item.key();
+        if base.get(&key).copied() != Some(item.text()) {
+            if let Some(stored) = remote.iter_mut().find(|stored| stored.key() == key) {
+                *stored = item;
+            } else {
+                remote.push(item);
+            }
+        }
+    }
+}
+
 pub fn merge(base: &Fields, local: Fields, mut remote: Fields) -> Fields {
     let dictionary_adds: HashSet<_> = word_keys(&local.dictionary)
         .difference(&word_keys(&base.dictionary))
@@ -94,35 +141,13 @@ pub fn merge(base: &Fields, local: Fields, mut remote: Fields) -> Fields {
         !removed_adds.contains(&key) && !removed.contains(&key)
     });
 
-    let base_snippets: HashMap<_, _> = base
-        .snippets
-        .iter()
-        .map(|snippet| (snippet.trigger.as_str(), snippet.text.as_str()))
-        .collect();
-    let local_triggers: HashSet<_> = local
-        .snippets
-        .iter()
-        .map(|snippet| snippet.trigger.as_str())
-        .collect();
-    let mut seen = HashSet::new();
-    remote.snippets.retain(|snippet| {
-        (!base_snippets.contains_key(snippet.trigger.as_str())
-            || local_triggers.contains(snippet.trigger.as_str()))
-            && seen.insert(snippet.trigger.clone())
-    });
-    for snippet in local.snippets {
-        if base_snippets.get(snippet.trigger.as_str()).copied() != Some(snippet.text.as_str()) {
-            if let Some(stored) = remote
-                .snippets
-                .iter_mut()
-                .find(|stored| stored.trigger == snippet.trigger)
-            {
-                *stored = snippet;
-            } else {
-                remote.snippets.push(snippet);
-            }
-        }
-    }
+    merge_keyed(&base.snippets, local.snippets, &mut remote.snippets);
+    merge_keyed(
+        &base.app_instructions,
+        local.app_instructions,
+        &mut remote.app_instructions,
+    );
+    remote.app_instructions.truncate(MAX_APP_INSTRUCTIONS);
     if local.styles != base.styles {
         remote.styles = local.styles;
     }
@@ -193,6 +218,7 @@ mod tests {
                 })
                 .collect(),
             styles,
+            ..Fields::default()
         };
         let defaults = Styles::default();
         let changed = Styles {
@@ -290,5 +316,35 @@ mod tests {
         for (name, base, local, remote, expected) in cases {
             assert_eq!(merge(&base, local, remote), expected, "{name}");
         }
+    }
+
+    #[test]
+    fn app_instructions_merge_by_normalised_app() {
+        let rules = |items: &[(&str, &str)]| {
+            items
+                .iter()
+                .map(|(app, text)| AppInstruction {
+                    app: (*app).into(),
+                    text: (*text).into(),
+                })
+                .collect::<Vec<_>>()
+        };
+        let with = |items: &[(&str, &str)]| Fields {
+            app_instructions: rules(items),
+            ..Fields::default()
+        };
+        let merged = merge(
+            &with(&[("slack", "before"), ("zed", "keep")]),
+            with(&[("Slack.exe", "after"), ("kitty", "local")]),
+            with(&[("slack", "before"), ("zed", "keep"), ("mail", "remote")]),
+        );
+        assert_eq!(
+            merged.app_instructions,
+            rules(&[
+                ("Slack.exe", "after"),
+                ("mail", "remote"),
+                ("kitty", "local")
+            ])
+        );
     }
 }

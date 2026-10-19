@@ -44,6 +44,7 @@ export const settingsFields = {
     v.string(),
     v.union(v.literal("formal"), v.literal("casual"), v.literal("very_casual")),
   ),
+  appInstructions: v.array(v.object({ app: v.string(), text: v.string() })),
   updatedAt: v.number(),
 };
 
