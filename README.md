@@ -73,7 +73,7 @@ The desktop talks to `https://api.typeaside.app`, the Cloudflare Worker in `apps
 
 Founder queries: `bunx convex run stats:summary '{"days":30}'` returns UTC daily install counts, dictations, words, new/active hosted users and hosted words, plus the current Pro count. `bunx convex run feedback:list '{"limit":50}'` reads the newest notes. Run these from `packages/backend` against the intended deployment.
 
-The Worker serves `api.typeaside.app` (production, Convex `doting-rhinoceros-418`) and deploys with the site on pushes to `main`; `bun run --cwd apps/api dev` runs it locally against the dev Convex. Its secrets are `GROQ_API_KEY` and `AZURE_SPEECH_KEY` (`bunx wrangler secret put <name>`, or `apps/api/.dev.vars` locally). BYOK continues to call providers directly without an account.
+Deploy the Worker with `bun run --cwd apps/api deploy` (production, Convex `doting-rhinoceros-418`); `bun run --cwd apps/api dev` runs it locally against the dev Convex. Its secrets are `GROQ_API_KEY` and `AZURE_SPEECH_KEY` (`bunx wrangler secret put <name>`, or `apps/api/.dev.vars` locally). BYOK continues to call providers directly without an account.
 
 Free includes `FREE_WEEKLY_WORDS = 2000`, exported once in `convex/lib.ts`. The week starts Monday at 00:00 UTC. Pro requires an active subscription whose period ended less than 3 days ago, which covers late renewal webhooks. A request that starts below the free cap can finish above it; parallel requests already in flight are not reserved. Later requests return 402 with `error.type = "limit"` and `resets_at`. The lookup reads token, subscription and usage in one Convex query; a successful request schedules a usage/last-used mutation without waiting for that mutation to finish.
 
@@ -88,7 +88,7 @@ bun run build
 PATH=$HOME/.cargo/bin:$PATH cargo check
 ```
 
-`bun run check` runs Vite+ format, lint and type checks. Rust/vendor files are excluded from the web formatter. `bun run build` builds locally and does not deploy. Deployment uses `bun run deploy` through Wrangler. Workers Builds runs `bun run build:prod` then `bun run deploy` from `apps/web`, on pushes to `main` only. `build:prod` deploys Convex production (using the `CONVEX_DEPLOY_KEY` build secret), then the API Worker, then builds the site, so the backend and API are never behind the website. Preview builds and preview URLs are disabled. The deployed site uses Convex production, WorkOS Production and Dodo Live mode.
+`bun run check` runs Vite+ format, lint and type checks. Rust/vendor files are excluded from the web formatter. `bun run build` builds locally and does not deploy. Deployment uses `bun run deploy` through Wrangler. Workers Builds runs `bun run build:prod` then `bun run deploy` from `apps/web`, on pushes to `main` only. `build:prod` deploys Convex production first (using the `CONVEX_DEPLOY_KEY` build secret), then builds the site, so the backend is never behind the website. Preview builds and preview URLs are disabled. The deployed site uses Convex production, WorkOS Production and Dodo Live mode.
 
 Real WorkOS credentials are needed to verify OAuth, signed-in account UI and browser-to-desktop token handoff. Dodo test credentials, product IDs and a reachable signed webhook endpoint are needed to verify checkout, portal and subscription lifecycle. Groq credentials are needed to verify actual transcription, cleanup and provider responses. Installers are served from the `typeaside-releases` R2 bucket through `/releases/<file>`.
 
