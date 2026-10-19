@@ -47,7 +47,7 @@ pub struct AppState {
     editing_key_hint: String,
     devices: Vec<String>,
     history: Vec<Dictation>,
-    failed: Option<FailedRecording>,
+    failed: Vec<FailedRecording>,
     file_transcribing: Option<String>,
     phase: Phase,
     save_error: Option<String>,
@@ -126,8 +126,8 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
             }
             let load_paths = paths.clone();
             let load = cx.background_executor().spawn(async move {
-                let mut config = if is_demo {
-                    demo::config()
+                let (mut config, config_notice) = if is_demo {
+                    (demo::config(), None)
                 } else {
                     AppConfig::load(&load_paths)?
                 };
@@ -162,14 +162,21 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                     typeaside::engine::save_history(&load_paths, &history)?;
                 }
                 history.sort_by_key(|item| std::cmp::Reverse(item.at));
-                Ok::<_, anyhow::Error>((config, history))
+                Ok::<_, anyhow::Error>(Startup {
+                    config,
+                    history,
+                    notice: config_notice,
+                })
             });
             cx.spawn(async move |cx| {
                 let loaded = load.await;
                 cx.update(move |cx| match loaded {
-                    Ok((config, history)) => {
+                    Ok(startup) => {
                         trace("config and history ready", started);
-                        start_ui(config, paths, history, is_demo, actions, started, cx)
+                        if startup.notice.is_some() {
+                            let _ = actions.0.try_send(tray::Action::Open);
+                        }
+                        start_ui(startup, paths, is_demo, actions, started, cx)
                     }
                     Err(error) => {
                         eprintln!("typeaside: cannot load configuration: {error:#}");
@@ -186,15 +193,25 @@ type Actions = (
     async_channel::Receiver<tray::Action>,
 );
 
-fn start_ui(
+struct Startup {
     config: AppConfig,
-    paths: AppPaths,
     history: Vec<Dictation>,
+    notice: Option<String>,
+}
+
+fn start_ui(
+    startup: Startup,
+    paths: AppPaths,
     is_demo: bool,
     actions: Actions,
     started: std::time::Instant,
     cx: &mut App,
 ) {
+    let Startup {
+        config,
+        history,
+        notice,
+    } = startup;
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if !is_demo {
         #[cfg(target_os = "macos")]
@@ -256,9 +273,9 @@ fn start_ui(
             Vec::new()
         },
         history,
-        failed: None,
+        failed: Vec::new(),
         phase: Phase::Idle,
-        save_error: None,
+        save_error: notice.clone(),
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         permission_notice: if is_demo { None } else { permissions::notice() },
         #[cfg(target_os = "macos")]
@@ -276,6 +293,11 @@ fn start_ui(
         onboarding_raw: None,
         onboarding_transcript: None,
     });
+    if let Some(notice) = notice
+        && let Ok(handle) = overlay::open(state.clone(), cx)
+    {
+        let _ = handle.update(cx, |view, window, cx| view.warning(&notice, window, cx));
+    }
     let mut main_window: Option<gpui::AnyWindowHandle> = None;
     let (sender, actions) = actions;
     #[cfg(target_os = "linux")]
@@ -453,14 +475,14 @@ fn start_ui(
                         });
                     }
                 }
-                Event::Reply { prompt, text } => {
+                Event::Reply { prompt, text, open } => {
                     if let Some(handle) = answer.take() {
                         let _ = handle.update(cx, |_, window, _| window.remove_window());
                     }
                     if let Some(surface) = surface {
                         let _ = surface.update(cx, |view, window, cx| view.exit(window, cx));
                     }
-                    match overlay::open_answer(state.clone(), prompt, text, cx) {
+                    match overlay::open_answer(state.clone(), prompt, text, open, cx) {
                         Ok(handle) => answer = Some(handle),
                         Err(error) => state.update(cx, |state, cx| {
                             state.command(Command::DismissReply);
@@ -474,6 +496,14 @@ fn start_ui(
                     let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.opened(&url, w, cx)).is_ok());
                     if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
                         let _ = h.update(cx, |v, w, cx| v.opened(&url, w, cx));
+                        surface = Some(h);
+                    }
+                }
+                Event::Notice(message) => {
+                    state.update(cx, |s, cx| { s.save_error = Some(message.clone()); cx.notify(); });
+                    let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.warning(&message, w, cx)).is_ok());
+                    if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
+                        let _ = h.update(cx, |v, w, cx| v.warning(&message, w, cx));
                         surface = Some(h);
                     }
                 }

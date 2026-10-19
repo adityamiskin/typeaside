@@ -173,12 +173,13 @@ impl MainWindow {
                 };
                 if let Ok(kind) = std::env::var("TYPEASIDE_DEMO_DIALOG") {
                     let timestamp = (kind == "delete").then(|| this.state.read(cx).history[0].at);
+                    let failed_at = this.state.read(cx).failed.first().map(|failed| failed.at);
                     cx.spawn_in(window, async move |this, cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(150))
                             .await;
                         let _ = this.update_in(cx, |this, window, cx| {
-                            this.confirm_removal(timestamp, window, cx)
+                            this.confirm_removal(timestamp, failed_at, window, cx)
                         });
                     })
                     .detach();
