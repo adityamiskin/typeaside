@@ -179,7 +179,7 @@ impl MainWindow {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .default_value(note.text.clone())
-                .auto_grow(1, usize::MAX)
+                .auto_grow(4, 14)
         });
         input.update(cx, |input, cx| input.focus(window, cx));
         cx.subscribe_in(&input, window, |this, _, event, _, cx| {
@@ -396,16 +396,13 @@ impl MainWindow {
                 rows.push(
                     div()
                         .id("note-editor")
-                        .flex()
-                        .items_start()
-                        .gap(px(16.))
-                        .px(px(7.))
-                        .mx(px(-8.))
-                        .py(px(7.))
-                        .rounded(px(6.))
-                        .bg(p.panel)
+                        .rounded(px(10.))
                         .border_1()
                         .border_color(p.border.blend(p.fg.opacity(0.28)))
+                        .bg(p.panel)
+                        .px(px(14.))
+                        .py(px(11.))
+                        .my(px(4.))
                         .capture_action(cx.listener(|this, action: &Enter, _, cx| {
                             if action.shift {
                                 cx.propagate();
@@ -419,13 +416,13 @@ impl MainWindow {
                             cx.notify();
                             cx.stop_propagation();
                         }))
-                        .child(div().flex_1().min_w_0().child(editor.input.clone()))
                         .child(
                             div()
-                                .text_size(px(12.))
-                                .text_color(p.faint)
-                                .child("Enter to save"),
+                                .text_size(px(14.))
+                                .line_height(px(21.))
+                                .child(editor.input.clone()),
                         )
+                        .child(hints(p).mt(px(8.)))
                         .into_any_element(),
                 );
                 continue;
@@ -626,7 +623,7 @@ impl MainWindow {
                                         .id(("swatch", i))
                                         .size(px(18.))
                                         .rounded_full()
-                                        .bg(p.note_tint(color))
+                                        .bg(p.note_swatch(color))
                                         .border_1()
                                         .border_color(p.border)
                                         .flex()

@@ -66,6 +66,21 @@ impl Palette {
         }
     }
 
+    pub fn note_swatch(self, color: typeaside::notes::NoteColor) -> Hsla {
+        use typeaside::notes::NoteColor;
+        if self.mode != ThemeMode::Dark {
+            return self.note_tint(color);
+        }
+        match color {
+            NoteColor::None => self.bg,
+            NoteColor::Sky => rgb(0x5f86b3).into(),
+            NoteColor::Lilac => rgb(0x8a6aa3).into(),
+            NoteColor::Sage => rgb(0x5f9472).into(),
+            NoteColor::Sand => rgb(0xa88d55).into(),
+            NoteColor::Rose => rgb(0xa86369).into(),
+        }
+    }
+
     pub fn dark() -> Self {
         let fg: Hsla = rgb(0xf2f2f1).into();
         Self {
