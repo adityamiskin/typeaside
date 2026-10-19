@@ -168,7 +168,7 @@ impl MainWindow {
                                     let main = main.clone();
                                     window.defer(cx, move |window, cx| {
                                         let _ = main.update(cx, |this, cx| {
-                                            this.confirm_removal(Some(timestamp), window, cx);
+                                            this.confirm_removal(Some(timestamp), None, window, cx);
                                         });
                                     });
                                 }),
@@ -191,6 +191,7 @@ impl MainWindow {
     pub fn confirm_removal(
         &mut self,
         timestamp: Option<std::time::SystemTime>,
+        failed_at: Option<std::time::SystemTime>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -201,12 +202,15 @@ impl MainWindow {
             };
             item.cleaned.clone()
         } else {
-            if state.failed.is_none() {
+            if !state
+                .failed
+                .iter()
+                .any(|failed| Some(failed.at) == failed_at)
+            {
                 return;
             }
             "Recording didn't transcribe".into()
         };
-        let failed_at = state.failed.as_ref().map(|failed| failed.at);
         let main = cx.entity().downgrade();
         window.open_dialog(cx, move |dialog, window, cx| {
             let p = palette(cx);
@@ -264,19 +268,12 @@ impl MainWindow {
                                             if let Some(index) = index {
                                                 this.delete_history(index, cx);
                                             }
-                                        } else if this
-                                            .state
-                                            .read(cx)
-                                            .failed
-                                            .as_ref()
-                                            .map(|failed| failed.at)
-                                            == failed_at
-                                        {
+                                        } else if let Some(at) = failed_at {
                                             this.state.update(cx, |s, cx| {
                                                 if s.is_demo {
-                                                    s.failed = None;
+                                                    s.failed.retain(|failed| failed.at != at);
                                                 } else {
-                                                    s.command(Command::DiscardFailed);
+                                                    s.command(Command::DiscardFailed(at));
                                                 }
                                                 cx.notify();
                                             });
@@ -401,7 +398,8 @@ impl MainWindow {
                 )
             });
         let mut rows = Vec::new();
-        if let Some(failed) = &state.failed {
+        for (index, failed) in state.failed.iter().enumerate() {
+            let failed_at = failed.at;
             let at: DateTime<Local> = failed.at.into();
             let seconds = failed.audio_ms / 1000;
             let actions = if failed.retrying {
@@ -411,21 +409,35 @@ impl MainWindow {
                     .flex()
                     .gap(px(2.))
                     .child(
-                        history_button("retry-failed", "icons/rotate-cw.svg", "Retry", false, cx)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.state.update(cx, |s, cx| {
-                                    if !s.is_demo {
-                                        s.command(Command::RetryFailed);
-                                    }
-                                    cx.notify();
-                                });
-                            })),
+                        history_button(
+                            ("retry-failed", index),
+                            "icons/rotate-cw.svg",
+                            "Retry",
+                            false,
+                            cx,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.state.update(cx, |s, cx| {
+                                if !s.is_demo {
+                                    s.command(Command::RetryFailed(failed_at));
+                                }
+                                cx.notify();
+                            });
+                        })),
                     )
                     .child(
-                        history_button("discard-failed", "icons/trash.svg", "Discard", false, cx)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.confirm_removal(None, window, cx);
-                            })),
+                        history_button(
+                            ("discard-failed", index),
+                            "icons/trash.svg",
+                            "Discard",
+                            false,
+                            cx,
+                        )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.confirm_removal(None, Some(failed_at), window, cx);
+                            },
+                        )),
                     )
             };
             rows.push(

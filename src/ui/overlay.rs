@@ -103,6 +103,10 @@ impl Overlay {
         self.set(Visual::Success, window, cx);
     }
 
+    pub fn warning(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.notice("Notice", message, &[], str::to_owned, window, cx);
+    }
+
     pub fn copied(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
         let preview = text
             .lines()
@@ -700,6 +704,8 @@ pub struct AnswerCard {
     prompt: String,
     text: String,
     body_height: f32,
+    open: bool,
+    focus: gpui::FocusHandle,
     entered: Instant,
     last_frame: Instant,
     rise: Spring,
@@ -709,6 +715,16 @@ pub struct AnswerCard {
 }
 
 impl AnswerCard {
+    fn accept(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open {
+            cx.open_url(&self.text);
+        } else {
+            self.state
+                .read(cx)
+                .command(Command::Insert(self.text.clone()));
+        }
+        self.close(window, cx);
+    }
     fn close(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.state.read(cx).command(Command::DismissReply);
         #[cfg(target_os = "linux")]
@@ -744,128 +760,142 @@ impl Render for AnswerCard {
                 self.input_region = Some(region);
             }
         }
-        div().size_full().font_family("Inter").child(
-            div()
-                .absolute()
-                .left(px(left))
-                .top(px(top))
-                .w(px(ANSWER_WIDTH))
-                .p(px(16.))
-                .rounded(px(14.))
-                .bg(p.pill)
-                .border_1()
-                .border_color(p.pill_border)
-                .shadow(vec![BoxShadow {
-                    color: p.shadow,
-                    offset: point(px(0.), px(10.)),
-                    blur_radius: px(28.),
-                    spread_radius: px(0.),
-                    inset: false,
-                }])
-                .opacity(opacity)
-                .flex()
-                .flex_col()
-                .gap(px(12.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .text_size(px(12.))
-                        .line_height(px(16.))
-                        .child(div().text_color(p.lilac).child("✦"))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_color(p.muted)
-                                .child(self.prompt.clone()),
-                        )
-                        .child(
-                            div()
-                                .id("close-answer")
-                                .cursor_pointer()
-                                .text_size(px(14.))
-                                .text_color(p.muted)
-                                .hover(|el| el.text_color(p.fg))
-                                .child("×")
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.close(window, cx)),
-                                ),
-                        ),
-                )
-                .child(
-                    div()
-                        .id("answer-body")
-                        .h(px(self.body_height))
-                        .max_h(px(220.))
-                        .overflow_y_scroll()
-                        .text_size(px(13.))
-                        .line_height(px(19.))
-                        .text_color(p.fg)
-                        .child(self.text.clone()),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .justify_end()
-                        .gap(px(16.))
-                        .text_size(px(13.))
-                        .line_height(px(18.))
-                        .text_color(p.muted)
-                        .child(
-                            div()
-                                .id("copy-answer")
-                                .cursor_pointer()
-                                .hover(|el| el.text_color(p.fg))
-                                .child(if self.copied_at.is_some() {
-                                    "Copied"
-                                } else {
-                                    "Copy"
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    match typeaside::text_injector::set_clipboard(&this.text) {
-                                        Ok(()) => {
-                                            let copied_at = Instant::now();
-                                            this.copied_at = Some(copied_at);
-                                            cx.notify();
-                                            cx.spawn(async move |this, cx| {
-                                                cx.background_executor()
-                                                    .timer(Duration::from_millis(1200))
-                                                    .await;
-                                                let _ = this.update(cx, |this, cx| {
-                                                    if this.copied_at == Some(copied_at) {
-                                                        this.copied_at = None;
-                                                        cx.notify();
-                                                    }
-                                                });
-                                            })
-                                            .detach();
+        div()
+            .size_full()
+            .font_family("Inter")
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                match event.keystroke.key.as_str() {
+                    "enter" if this.open => {
+                        this.accept(window, cx);
+                        cx.stop_propagation();
+                    }
+                    "escape" => {
+                        this.close(window, cx);
+                        cx.stop_propagation();
+                    }
+                    _ => {}
+                }
+            }))
+            .child(
+                div()
+                    .absolute()
+                    .left(px(left))
+                    .top(px(top))
+                    .w(px(ANSWER_WIDTH))
+                    .p(px(16.))
+                    .rounded(px(14.))
+                    .bg(p.pill)
+                    .border_1()
+                    .border_color(p.pill_border)
+                    .shadow(vec![BoxShadow {
+                        color: p.shadow,
+                        offset: point(px(0.), px(10.)),
+                        blur_radius: px(28.),
+                        spread_radius: px(0.),
+                        inset: false,
+                    }])
+                    .opacity(opacity)
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .text_size(px(12.))
+                            .line_height(px(16.))
+                            .child(div().text_color(p.lilac).child("✦"))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_color(p.muted)
+                                    .child(self.prompt.clone()),
+                            )
+                            .child(
+                                div()
+                                    .id("close-answer")
+                                    .cursor_pointer()
+                                    .text_size(px(14.))
+                                    .text_color(p.muted)
+                                    .hover(|el| el.text_color(p.fg))
+                                    .child("×")
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.close(window, cx)),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("answer-body")
+                            .h(px(self.body_height))
+                            .max_h(px(220.))
+                            .overflow_y_scroll()
+                            .text_size(px(13.))
+                            .line_height(px(19.))
+                            .text_color(p.fg)
+                            .child(self.text.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap(px(16.))
+                            .text_size(px(13.))
+                            .line_height(px(18.))
+                            .text_color(p.muted)
+                            .child(
+                                div()
+                                    .id("copy-answer")
+                                    .cursor_pointer()
+                                    .hover(|el| el.text_color(p.fg))
+                                    .child(if self.copied_at.is_some() {
+                                        "Copied"
+                                    } else {
+                                        "Copy"
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        match typeaside::text_injector::set_clipboard(&this.text) {
+                                            Ok(()) => {
+                                                let copied_at = Instant::now();
+                                                this.copied_at = Some(copied_at);
+                                                cx.notify();
+                                                cx.spawn(async move |this, cx| {
+                                                    cx.background_executor()
+                                                        .timer(Duration::from_millis(1200))
+                                                        .await;
+                                                    let _ = this.update(cx, |this, cx| {
+                                                        if this.copied_at == Some(copied_at) {
+                                                            this.copied_at = None;
+                                                            cx.notify();
+                                                        }
+                                                    });
+                                                })
+                                                .detach();
+                                            }
+                                            Err(error) => this.state.update(cx, |state, cx| {
+                                                state.save_error =
+                                                    Some(format!("Could not copy answer: {error}"));
+                                                cx.notify();
+                                            }),
                                         }
-                                        Err(error) => this.state.update(cx, |state, cx| {
-                                            state.save_error =
-                                                Some(format!("Could not copy answer: {error}"));
-                                            cx.notify();
-                                        }),
-                                    }
-                                })),
-                        )
-                        .child(
-                            div()
-                                .id("insert-answer")
-                                .cursor_pointer()
-                                .hover(|el| el.text_color(p.fg))
-                                .child("Insert")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.state
-                                        .read(cx)
-                                        .command(Command::Insert(this.text.clone()));
-                                    this.close(window, cx);
-                                })),
-                        ),
-                ),
-        )
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("insert-answer")
+                                    .cursor_pointer()
+                                    .hover(|el| el.text_color(p.fg))
+                                    .child(if self.open { "Open" } else { "Insert" })
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.accept(window, cx)),
+                                    ),
+                            ),
+                    ),
+            )
     }
 }
 
@@ -873,6 +903,7 @@ pub fn open_answer(
     state: Entity<AppState>,
     prompt: String,
     text: String,
+    open: bool,
     cx: &mut App,
 ) -> anyhow::Result<WindowHandle<AnswerCard>> {
     let run = TextRun {
@@ -911,7 +942,7 @@ pub fn open_answer(
     let handle = cx.open_window(
         WindowOptions {
             titlebar: None,
-            focus: false,
+            focus: open,
             // Never focused, so GPUI's default inactive cap would hold animations at 30fps.
             inactive_frame_interval: None,
             app_id: Some("typeaside-answer".into()),
@@ -926,7 +957,11 @@ pub fn open_answer(
                 namespace: "typeaside-answer".into(),
                 layer: Layer::Overlay,
                 anchor: Anchor::BOTTOM,
-                keyboard_interactivity: KeyboardInteractivity::None,
+                keyboard_interactivity: if open {
+                    KeyboardInteractivity::Exclusive
+                } else {
+                    KeyboardInteractivity::None
+                },
                 margin: Some((px(0.), px(0.), px(ANSWER_BOTTOM - 48.), px(0.))),
                 ..Default::default()
             }),
@@ -958,11 +993,17 @@ pub fn open_answer(
                 })
                 .detach();
                 let now = Instant::now();
+                let focus = cx.focus_handle();
+                if open {
+                    focus.focus(window, cx);
+                }
                 AnswerCard {
                     state,
                     prompt: prompt.split_whitespace().collect::<Vec<_>>().join(" "),
                     text,
                     body_height,
+                    open,
+                    focus,
                     entered: now,
                     last_frame: now,
                     rise: Spring::new(8.),

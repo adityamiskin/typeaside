@@ -115,37 +115,33 @@ impl AudioRecorder {
         let level = Arc::new(AtomicU32::new(0));
         let paused = Arc::new(AtomicBool::new(false));
         let error = Arc::new(Mutex::new(None));
+        macro_rules! capture_format {
+            ($sample:ty) => {
+                capture::<$sample>(
+                    device,
+                    &stream_config,
+                    buffer.clone(),
+                    level.clone(),
+                    paused.clone(),
+                    error.clone(),
+                    retain,
+                    realtime.clone(),
+                )
+            };
+        }
         let stream = match supported.sample_format() {
-            SampleFormat::F32 => capture::<f32>(
-                device,
-                &stream_config,
-                buffer.clone(),
-                level.clone(),
-                paused.clone(),
-                error.clone(),
-                retain,
-                realtime.clone(),
-            ),
-            SampleFormat::I16 => capture::<i16>(
-                device,
-                &stream_config,
-                buffer.clone(),
-                level.clone(),
-                paused.clone(),
-                error.clone(),
-                retain,
-                realtime.clone(),
-            ),
-            SampleFormat::U16 => capture::<u16>(
-                device,
-                &stream_config,
-                buffer.clone(),
-                level.clone(),
-                paused.clone(),
-                error.clone(),
-                retain,
-                realtime.clone(),
-            ),
+            SampleFormat::I8 => capture_format!(i8),
+            SampleFormat::I16 => capture_format!(i16),
+            SampleFormat::I24 => capture_format!(cpal::I24),
+            SampleFormat::I32 => capture_format!(i32),
+            SampleFormat::I64 => capture_format!(i64),
+            SampleFormat::U8 => capture_format!(u8),
+            SampleFormat::U16 => capture_format!(u16),
+            SampleFormat::U24 => capture_format!(cpal::U24),
+            SampleFormat::U32 => capture_format!(u32),
+            SampleFormat::U64 => capture_format!(u64),
+            SampleFormat::F32 => capture_format!(f32),
+            SampleFormat::F64 => capture_format!(f64),
             format => bail!("unsupported input format: {format:?}"),
         }?;
         stream.play()?;
@@ -162,6 +158,12 @@ impl AudioRecorder {
 
     pub(crate) fn take_error(&self) -> Option<String> {
         self.error.lock().ok()?.take()
+    }
+
+    pub fn limit_reached(&self) -> bool {
+        self.buffer
+            .lock()
+            .is_ok_and(|buffer| remaining_samples(buffer.len(), self.sample_rate) == 0)
     }
 
     pub fn toggle_paused(&self) -> bool {
@@ -199,6 +201,10 @@ impl AudioRecorder {
     }
 }
 
+fn remaining_samples(length: usize, rate: u32) -> usize {
+    (rate as usize * 600).saturating_sub(length)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn capture<T: SizedSample + Sample>(
     device: &cpal::Device,
@@ -226,7 +232,11 @@ where
                     level.store(0, Ordering::Relaxed);
                     return;
                 }
-                for frame in samples.chunks_exact(channels) {
+                for frame in samples.chunks_exact(channels).take(if retain {
+                    remaining_samples(buffer.len(), rate)
+                } else {
+                    usize::MAX
+                }) {
                     let mono = frame
                         .iter()
                         .map(|sample| f32::from_sample(*sample))
@@ -316,6 +326,17 @@ impl Realtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recording_limit_bounds_each_callback_at_ten_minutes() {
+        for rate in [8_000, 16_000, 44_100, 48_000, 96_000] {
+            let limit = rate as usize * 600;
+            assert_eq!(remaining_samples(0, rate), limit);
+            assert_eq!(remaining_samples(limit - 1, rate), 1);
+            assert_eq!(remaining_samples(limit, rate), 0);
+            assert_eq!(remaining_samples(limit + 1024, rate), 0);
+        }
+    }
 
     #[test]
     fn preferred_input_uses_first_available_preference() {

@@ -72,24 +72,26 @@ pub enum Event {
     Reply {
         prompt: String,
         text: String,
+        open: bool,
     },
     Open(String),
+    Notice(String),
     DismissReply,
     FileStarted(String),
     Edited {
         inserted: String,
         edited: String,
     },
-    Failed(Option<FailedRecording>),
+    Failed(Vec<FailedRecording>),
 }
 
 #[derive(Debug, Clone)]
 pub enum Command {
     Start,
     Stop,
-    RetryFailed,
+    RetryFailed(SystemTime),
     TranscribeFile(PathBuf),
-    DiscardFailed,
+    DiscardFailed(SystemTime),
     Cancel,
     Reload(Box<AppConfig>),
     Learn(Vec<String>),
@@ -185,13 +187,61 @@ pub fn save_history(paths: &AppPaths, history: &[Dictation]) -> Result<()> {
     std::fs::rename(temporary, &paths.history_file).context("failed to save history")
 }
 
-fn failed_recording(paths: &AppPaths, retrying: bool) -> Option<FailedRecording> {
-    let metadata = std::fs::metadata(&paths.failed_file).ok()?;
-    Some(FailedRecording {
-        at: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-        audio_ms: (metadata.len().saturating_sub(44) / 32).min(u64::from(u32::MAX)) as u32,
-        retrying,
-    })
+fn failed_path(paths: &AppPaths, at: SystemTime) -> Result<PathBuf> {
+    let stamp = at.duration_since(SystemTime::UNIX_EPOCH)?.as_nanos();
+    Ok(paths.data_dir.join("failed").join(format!("{stamp}.wav")))
+}
+
+fn failed_recordings(paths: &AppPaths, retrying: Option<SystemTime>) -> Vec<FailedRecording> {
+    let mut recordings = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(paths.data_dir.join("failed")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|extension| extension != "wav") {
+                continue;
+            }
+            let Some(stamp) = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| stem.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            let Some(at) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_nanos(stamp)) else {
+                continue;
+            };
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            recordings.push(FailedRecording {
+                at,
+                audio_ms: (metadata.len().saturating_sub(44) / 32).min(u64::from(u32::MAX)) as u32,
+                retrying: retrying == Some(at),
+            });
+        }
+    }
+    recordings.sort_by_key(|recording| std::cmp::Reverse(recording.at));
+    recordings
+}
+
+fn save_failed(paths: &AppPaths, audio: &[f32]) -> Result<()> {
+    let path = failed_path(paths, SystemTime::now())?;
+    std::fs::create_dir_all(paths.data_dir.join("failed"))?;
+    let temporary = path.with_extension("wav.tmp");
+    std::fs::write(&temporary, crate::transcribe::encode_wav(audio)?)?;
+    std::fs::rename(temporary, path)?;
+    for recording in failed_recordings(paths, None).into_iter().skip(10) {
+        discard_failed(paths, recording.at)?;
+    }
+    Ok(())
+}
+
+fn idle_reload<T>(pending: &mut Option<T>, recording: bool, transcribing: bool) -> Option<T> {
+    if recording || transcribing {
+        None
+    } else {
+        pending.take()
+    }
 }
 
 fn append_history(paths: &AppPaths, dictation: &Dictation) -> Result<()> {
@@ -205,6 +255,22 @@ fn append_history(paths: &AppPaths, dictation: &Dictation) -> Result<()> {
     file.write_all(&line)?;
     file.sync_data()?;
     Ok(())
+}
+
+fn deliver_and_record(
+    paths: &AppPaths,
+    dictation: &Dictation,
+    retention: HistoryRetention,
+    events: &async_channel::Sender<Event>,
+    deliver: impl FnOnce(),
+) {
+    deliver();
+    if retention != HistoryRetention::Off
+        && let Err(error) = append_history(paths, dictation)
+    {
+        eprintln!("typeaside: cannot save history: {error:#}");
+        let _ = events.try_send(Event::Notice("Couldn't save transcript history".into()));
+    }
 }
 
 fn spawn_dictation_hook(
@@ -242,8 +308,8 @@ fn spawn_dictation_hook(
         })
 }
 
-fn discard_failed(paths: &AppPaths) -> Result<()> {
-    match std::fs::remove_file(&paths.failed_file) {
+fn discard_failed(paths: &AppPaths, at: SystemTime) -> Result<()> {
+    match std::fs::remove_file(failed_path(paths, at)?) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         result => result.context("cannot discard failed recording"),
     }
@@ -295,7 +361,7 @@ fn run(
     events: async_channel::Sender<Event>,
 ) {
     phase(&events, Phase::Idle);
-    let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+    let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
     let mut epoch = 0;
     let mut hotkeys = open_hotkeys(&config, &tx, epoch, &events);
     #[cfg(target_os = "linux")]
@@ -307,7 +373,8 @@ fn run(
     let mut generation = 0u64;
     let mut busy = None;
     let mut pending_audio: Option<Arc<[f32]>> = None;
-    let mut retrying = false;
+    let mut retrying = None;
+    let mut pending_reload = None;
     let mut injector: Option<TextInjector> = None;
     let mut watch = None;
     let mut context = (Mode::Dictate, None, String::new());
@@ -357,12 +424,19 @@ fn run(
                 }
             }
         }
-        let message =
+        let message = if let Some(next) =
+            idle_reload(&mut pending_reload, recorder.is_some(), busy.is_some())
+        {
+            Message::Command(Command::Reload(next))
+        } else if recorder.as_ref().is_some_and(AudioRecorder::limit_reached) {
+            Message::Command(Command::Stop)
+        } else {
             match rx.recv_timeout(Duration::from_millis(33).saturating_sub(tick.elapsed())) {
                 Ok(message) => message,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            };
+            }
+        };
         let command = match message {
             Message::Shutdown => break,
             Message::Command(command) => {
@@ -449,80 +523,92 @@ fn run(
                 }
                 busy = None;
                 let audio = pending_audio.take();
-                let result = result.and_then(|(dictation, delivery)| {
-                    if !dictation.cleaned.is_empty()
-                        && config.history_retention != HistoryRetention::Off
-                    {
-                        append_history(&paths, &dictation)?;
-                    }
-                    Ok((dictation, delivery))
-                });
                 match result {
                     Ok((dictation, _)) if dictation.cleaned.is_empty() => {
-                        if retrying {
-                            if let Err(error) = discard_failed(&paths) {
+                        if let Some(at) = retrying {
+                            if let Err(error) = discard_failed(&paths, at) {
                                 report_error(&events, error);
                             }
-                            let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                            let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
                         }
                     }
                     Ok((dictation, delivery)) => {
-                        let _ = events.try_send(Event::Done(dictation.clone()));
-                        if dictation.mode == Mode::File {
-                            match crate::text_injector::set_clipboard(&dictation.cleaned) {
-                                Ok(()) => {
-                                    let _ =
-                                        events.try_send(Event::Copied(dictation.cleaned.clone()));
+                        deliver_and_record(
+                            &paths,
+                            &dictation,
+                            config.history_retention,
+                            &events,
+                            || {
+                                let _ = events.try_send(Event::Done(dictation.clone()));
+                                if dictation.mode == Mode::File {
+                                    match crate::text_injector::set_clipboard(&dictation.cleaned) {
+                                        Ok(()) => {
+                                            let _ = events
+                                                .try_send(Event::Copied(dictation.cleaned.clone()));
+                                        }
+                                        Err(error) => report_error(&events, error),
+                                    }
+                                } else if let Some(at) = retrying {
+                                    match crate::text_injector::set_clipboard(&dictation.cleaned) {
+                                        Ok(()) => {
+                                            let _ = events
+                                                .try_send(Event::Copied(dictation.cleaned.clone()));
+                                            if let Err(error) = discard_failed(&paths, at) {
+                                                report_error(&events, error);
+                                            }
+                                        }
+                                        Err(error) => report_error(&events, error),
+                                    }
+                                    let _ = events
+                                        .try_send(Event::Failed(failed_recordings(&paths, None)));
+                                } else if delivery == Delivery::Reply
+                                    || (delivery == Delivery::Open && !context.2.is_empty())
+                                {
+                                    reply_visible = true;
+                                    let _ = events.try_send(Event::Reply {
+                                        prompt: dictation.raw.clone(),
+                                        text: dictation.cleaned.clone(),
+                                        open: delivery == Delivery::Open,
+                                    });
+                                } else if delivery == Delivery::Open {
+                                    let _ = events.try_send(Event::Open(dictation.cleaned.clone()));
+                                } else {
+                                    // Without caret access, assume the caret still follows the last paste in this window.
+                                    let (before, after) = match around.take() {
+                                        Some((before, after)) => {
+                                            (before.chars().last(), after.chars().next())
+                                        }
+                                        None => (
+                                            last_paste
+                                                .as_ref()
+                                                .filter(|(app, at, _)| {
+                                                    !config.auto_submit
+                                                        && *app == context.1
+                                                        && at.elapsed() < Duration::from_secs(300)
+                                                })
+                                                .map(|(.., last)| *last),
+                                            None,
+                                        ),
+                                    };
+                                    let text = spaced(&dictation.cleaned, before, after);
+                                    let delivered = deliver(
+                                        &mut injector,
+                                        &mut watch,
+                                        &text,
+                                        dictation.app_id.as_deref(),
+                                        &config,
+                                        &events,
+                                    );
+                                    last_paste = if delivered {
+                                        text.chars()
+                                            .last()
+                                            .map(|last| (context.1.clone(), Instant::now(), last))
+                                    } else {
+                                        None
+                                    };
                                 }
-                                Err(error) => report_error(&events, error),
-                            }
-                        } else if retrying {
-                            if let Err(error) = discard_failed(&paths) {
-                                report_error(&events, error);
-                            }
-                            let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
-                        } else if delivery == Delivery::Reply {
-                            reply_visible = true;
-                            let _ = events.try_send(Event::Reply {
-                                prompt: dictation.raw.clone(),
-                                text: dictation.cleaned.clone(),
-                            });
-                        } else if delivery == Delivery::Open {
-                            let _ = events.try_send(Event::Open(dictation.cleaned.clone()));
-                        } else {
-                            // Without caret access, assume the caret still follows the last paste in this window.
-                            let (before, after) = match around.take() {
-                                Some((before, after)) => {
-                                    (before.chars().last(), after.chars().next())
-                                }
-                                None => (
-                                    last_paste
-                                        .as_ref()
-                                        .filter(|(app, at, _)| {
-                                            !config.auto_submit
-                                                && *app == context.1
-                                                && at.elapsed() < Duration::from_secs(300)
-                                        })
-                                        .map(|(.., last)| *last),
-                                    None,
-                                ),
-                            };
-                            let text = spaced(&dictation.cleaned, before, after);
-                            if !deliver(
-                                &mut injector,
-                                &mut watch,
-                                &text,
-                                dictation.app_id.as_deref(),
-                                &config,
-                                &events,
-                            ) {
-                                continue;
-                            }
-                            last_paste = text
-                                .chars()
-                                .last()
-                                .map(|last| (context.1.clone(), Instant::now(), last));
-                        }
+                            },
+                        );
                         if let Some(command) = &config.on_dictation
                             && let Err(error) = spawn_dictation_hook(command, &dictation)
                         {
@@ -530,21 +616,16 @@ fn run(
                         }
                     }
                     Err(error) => {
-                        if !retrying
+                        if retrying.is_none()
                             && context.0 == Mode::Dictate
                             && let Some(audio) = audio
                         {
-                            let saved = crate::transcribe::encode_wav(&audio).and_then(|wav| {
-                                let temporary = paths.failed_file.with_extension("wav.tmp");
-                                std::fs::write(&temporary, wav)?;
-                                std::fs::rename(temporary, &paths.failed_file)?;
-                                Ok(())
-                            });
+                            let saved = save_failed(&paths, &audio);
                             if let Err(error) = saved {
                                 eprintln!("typeaside: cannot save failed recording: {error:#}");
                             }
                         }
-                        let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                        let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
                         report_error(&events, error);
                         if config.sounds {
                             crate::cues::play(crate::cues::Cue::Error);
@@ -570,9 +651,15 @@ fn run(
                         report_error(&events, crate::pipeline::LOCAL_TRANSLATE);
                         continue;
                     }
-                    crate::local::prewarm();
                 }
                 monitor = None;
+                stream = (config.transcription == crate::config::Source::Hosted)
+                    .then(crate::stream::Session::start)
+                    .and_then(Result::ok);
+                let capture = match &stream {
+                    Some(stream) => AudioRecorder::start_streaming(&config, stream.audio()),
+                    None => AudioRecorder::start(&config),
+                };
                 screen_names = None;
                 if config.screen_context && start_mode == Mode::Dictate {
                     let (names_tx, names_rx) = std::sync::mpsc::sync_channel(1);
@@ -594,24 +681,20 @@ fn run(
                     })
                     .is_ok()
                     .then_some(cursor_rx);
-                let app = focused_app();
-                let selection = if start_mode != Mode::Dictate {
-                    crate::text_injector::primary_selection()
-                } else {
-                    String::new()
-                };
-                crate::http::prewarm(&config);
-                stream = (config.transcription == crate::config::Source::Hosted)
-                    .then(crate::stream::Session::start)
-                    .and_then(Result::ok);
-                let capture = match &stream {
-                    Some(stream) => AudioRecorder::start_streaming(&config, stream.audio()),
-                    None => AudioRecorder::start(&config),
-                };
                 match capture {
                     Ok(capture) => {
                         recorder = Some(capture);
+                        let app = focused_app();
+                        let selection = if start_mode != Mode::Dictate {
+                            crate::text_injector::primary_selection()
+                        } else {
+                            String::new()
+                        };
                         context = (start_mode, app, selection);
+                        if config.transcription == crate::config::Source::Local {
+                            crate::local::prewarm();
+                        }
+                        crate::http::prewarm(&config);
                         effects =
                             crate::media::ListeningEffects::start(config.sounds, config.duck_media);
                         phase(&events, Phase::Listening(start_mode));
@@ -625,16 +708,16 @@ fn run(
                     }
                 }
             }
-            Command::DiscardFailed if busy.is_none() => {
-                if let Err(error) = discard_failed(&paths) {
+            Command::DiscardFailed(at) if busy.is_none() => {
+                if let Err(error) = discard_failed(&paths, at) {
                     report_error(&events, error);
                 }
-                let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
             }
             Command::TranscribeFile(path) if busy.is_none() && recorder.is_none() => {
                 monitor = None;
                 watch = None;
-                retrying = false;
+                retrying = None;
                 generation = generation.wrapping_add(1);
                 let id = generation;
                 busy = Some(id);
@@ -677,25 +760,30 @@ fn run(
                     let _ = tx.send(Message::Finished(id, Err(error.into())));
                 }
             }
-            Command::Stop | Command::RetryFailed if busy.is_none() => {
-                retrying = matches!(command, Command::RetryFailed);
-                if retrying && recorder.is_some() {
+            Command::Stop | Command::RetryFailed(_) if busy.is_none() => {
+                if recorder.is_some() && matches!(command, Command::RetryFailed(_)) {
                     continue;
                 }
-                let audio = if retrying {
+                retrying = match command {
+                    Command::RetryFailed(at) => Some(at),
+                    _ => None,
+                };
+                let audio = if let Some(at) = retrying {
                     watch = None;
-                    let loaded = std::fs::read(&paths.failed_file)
+                    let loaded = failed_path(&paths, at)
+                        .and_then(|path| Ok(std::fs::read(path)?))
                         .context("cannot read failed recording")
                         .and_then(|wav| crate::transcribe::decode_wav(&wav));
                     match loaded {
                         Ok(audio) => {
                             context = (Mode::Dictate, None, String::new());
-                            let _ = events.try_send(Event::Failed(failed_recording(&paths, true)));
+                            let _ =
+                                events.try_send(Event::Failed(failed_recordings(&paths, retrying)));
                             audio
                         }
                         Err(error) => {
                             report_error(&events, error);
-                            let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                            let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
                             if config.sounds {
                                 crate::cues::play(crate::cues::Cue::Error);
                             }
@@ -746,7 +834,11 @@ fn run(
                 busy = Some(id);
                 phase(&events, Phase::Transcribing);
                 let pipeline_config = config.clone();
-                let names = if retrying { None } else { screen_names.take() };
+                let names = if retrying.is_some() {
+                    None
+                } else {
+                    screen_names.take()
+                };
                 let pipeline_tx = tx.clone();
                 let (mode, app, selection) = context.clone();
                 around = cursor.take().and_then(|rx| rx.try_recv().ok()).flatten();
@@ -809,7 +901,7 @@ fn run(
                 stop_effects(&mut effects, &mut restoring);
                 busy = None;
                 pending_audio = None;
-                let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
+                let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
                 phase(&events, Phase::Idle);
             }
             Command::Learn(words) => {
@@ -823,6 +915,10 @@ fn run(
                 }
             }
             Command::Reload(next) => {
+                if recorder.is_some() || busy.is_some() {
+                    pending_reload = Some(next);
+                    continue;
+                }
                 if next.history_retention != config.history_retention {
                     let mut history = load_history(&paths);
                     if prune_history(&mut history, next.history_retention, SystemTime::now())
@@ -831,13 +927,7 @@ fn run(
                         report_error(&events, error);
                     }
                 }
-                recorder = None;
-                stream = None;
                 monitor = None;
-                stop_effects(&mut effects, &mut restoring);
-                busy = None;
-                pending_audio = None;
-                let _ = events.try_send(Event::Failed(failed_recording(&paths, false)));
                 drop(hotkeys.take());
                 epoch = epoch.wrapping_add(1);
                 config = *next;
@@ -887,9 +977,9 @@ fn run(
             }
             Command::Start
             | Command::Stop
-            | Command::RetryFailed
+            | Command::RetryFailed(_)
             | Command::TranscribeFile(_)
-            | Command::DiscardFailed
+            | Command::DiscardFailed(_)
             | Command::MicTest(true)
             | Command::MicPreview => {}
         }
@@ -933,6 +1023,21 @@ fn deliver(
 ) -> bool {
     use crate::text_injector::{Delivery, deliver_text};
     *watch = None;
+    // Unknown focus on either side is not evidence the window changed.
+    if let (Some(started), Some(now)) = (app_id, focused_app().and_then(|app| app.id))
+        && started != now
+    {
+        return match crate::text_injector::set_clipboard(text) {
+            Ok(()) => {
+                let _ = events.try_send(Event::Copied(text.to_owned()));
+                false
+            }
+            Err(error) => {
+                report_error(events, format!("Couldn't copy transcript: {error}"));
+                false
+            }
+        };
+    }
     // Auto-submit sends the text before anyone can edit it.
     let pending = (config.auto_learn && !config.auto_submit)
         .then(|| crate::learn::watch(text.to_owned(), events.clone()))
@@ -944,11 +1049,18 @@ fn deliver(
         }
         Ok(Delivery::Copied) => {
             let _ = events.try_send(Event::Copied(text.to_owned()));
-            true
+            false
         }
         Err(error) => {
             eprintln!("typeaside: delivery failed: {error:#}");
-            report_error(events, "Couldn't paste. Saved to Home.");
+            report_error(
+                events,
+                if config.history_retention == HistoryRetention::Off {
+                    "Couldn't paste. History is off."
+                } else {
+                    "Couldn't paste. Check Home for the transcript."
+                },
+            );
             if config.sounds {
                 crate::cues::play(crate::cues::Cue::Error);
             }
@@ -962,6 +1074,79 @@ mod tests {
     use super::{Dictation, Mode, prune_history, spaced};
     use crate::config::HistoryRetention;
     use std::time::{Duration, SystemTime};
+
+    fn test_paths(name: &str) -> crate::paths::AppPaths {
+        let dir = std::env::temp_dir().join(format!("typeaside-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::paths::AppPaths {
+            config_file: dir.join("config.json"),
+            history_file: dir.join("history.jsonl"),
+            config_dir: dir.clone(),
+            data_dir: dir,
+        }
+    }
+
+    #[test]
+    fn reload_waits_for_recording_and_transcription_and_uses_latest_config() {
+        let mut pending = Some(1);
+        assert_eq!(super::idle_reload(&mut pending, true, false), None);
+        pending = Some(2);
+        assert_eq!(super::idle_reload(&mut pending, false, true), None);
+        assert_eq!(super::idle_reload(&mut pending, false, false), Some(2));
+        assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn history_failure_happens_after_delivery_and_emits_a_notice() {
+        let paths = test_paths("history-failure");
+        std::fs::create_dir_all(&paths.history_file).unwrap();
+        let dictation = Dictation {
+            at: SystemTime::now(),
+            raw: "test".into(),
+            cleaned: "test".into(),
+            app_id: None,
+            audio_ms: 1000,
+            latency_ms: 1,
+            mode: Mode::Dictate,
+        };
+        let (tx, rx) = async_channel::unbounded();
+        let mut delivered = false;
+        super::deliver_and_record(&paths, &dictation, HistoryRetention::Forever, &tx, || {
+            assert!(rx.is_empty());
+            delivered = true;
+        });
+        assert!(delivered);
+        assert!(matches!(rx.try_recv(), Ok(super::Event::Notice(_))));
+        std::fs::remove_dir_all(paths.data_dir).unwrap();
+    }
+
+    #[test]
+    fn failed_recordings_keep_ten_newest_and_discard_one_item() {
+        let paths = test_paths("failed-queue");
+        std::fs::create_dir_all(paths.data_dir.join("failed")).unwrap();
+        for stamp in 1..=12 {
+            let at = SystemTime::UNIX_EPOCH + Duration::from_nanos(stamp);
+            std::fs::write(super::failed_path(&paths, at).unwrap(), [0; 44]).unwrap();
+        }
+        super::save_failed(&paths, &[0.0; 16]).unwrap();
+        let queue = super::failed_recordings(&paths, None);
+        assert_eq!(queue.len(), 10);
+        assert_eq!(
+            queue.last().unwrap().at,
+            SystemTime::UNIX_EPOCH + Duration::from_nanos(4)
+        );
+        let retry = queue[3].at;
+        let queue = super::failed_recordings(&paths, Some(retry));
+        assert_eq!(queue.iter().filter(|item| item.retrying).count(), 1);
+        super::discard_failed(&paths, retry).unwrap();
+        assert_eq!(super::failed_recordings(&paths, None).len(), 9);
+        assert!(
+            !super::failed_recordings(&paths, None)
+                .iter()
+                .any(|item| item.at == retry)
+        );
+        std::fs::remove_dir_all(paths.data_dir).unwrap();
+    }
 
     #[test]
     fn history_retention_keeps_the_cutoff_and_newer_entries() {

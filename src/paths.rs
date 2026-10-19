@@ -8,7 +8,6 @@ pub struct AppPaths {
     pub config_file: PathBuf,
     pub data_dir: PathBuf,
     pub history_file: PathBuf,
-    pub failed_file: PathBuf,
 }
 
 impl AppPaths {
@@ -20,7 +19,6 @@ impl AppPaths {
         Ok(Self {
             config_file: config_dir.join("config.json"),
             history_file: data_dir.join("history.jsonl"),
-            failed_file: data_dir.join("failed.wav"),
             config_dir,
             data_dir,
         })

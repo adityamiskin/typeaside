@@ -1,6 +1,7 @@
 use crate::paths::AppPaths;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -367,13 +368,25 @@ impl AppConfig {
         Ok(())
     }
 
-    pub fn load(paths: &AppPaths) -> Result<Self> {
+    pub fn load(paths: &AppPaths) -> Result<(Self, Option<String>)> {
         match std::fs::read(&paths.config_file) {
-            Ok(bytes) => serde_json::from_slice(&bytes).context("invalid config JSON"),
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(config) => Ok((config, None)),
+                Err(error) => {
+                    let backup = paths.config_file.with_extension("json.bad");
+                    std::fs::rename(&paths.config_file, &backup)
+                        .context("cannot preserve corrupt config")?;
+                    let notice = format!(
+                        "Invalid config saved as config.json.bad. Started with defaults: {error}"
+                    );
+                    eprintln!("typeaside: {notice}");
+                    Ok((Self::default(), Some(notice)))
+                }
+            },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let config = Self::default();
                 config.save(paths)?;
-                Ok(config)
+                Ok((config, None))
             }
             Err(error) => Err(error).context("failed to read config"),
         }
@@ -382,7 +395,10 @@ impl AppConfig {
     pub fn save(&self, paths: &AppPaths) -> Result<()> {
         paths.ensure()?;
         let temporary = paths.config_file.with_extension("json.tmp");
-        std::fs::write(&temporary, serde_json::to_vec_pretty(self)?)?;
+        let mut file = std::fs::File::create(&temporary)?;
+        file.write_all(&serde_json::to_vec_pretty(self)?)?;
+        file.sync_all()?;
+        drop(file);
         std::fs::rename(temporary, &paths.config_file).context("failed to save config")
     }
 }
@@ -390,6 +406,33 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::{AppCategory, Styles, Tone};
+
+    #[test]
+    fn corrupt_config_is_preserved_and_defaults_can_be_saved() {
+        let dir =
+            std::env::temp_dir().join(format!("typeaside-config-recovery-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths = crate::paths::AppPaths {
+            config_file: dir.join("config.json"),
+            history_file: dir.join("history.jsonl"),
+            config_dir: dir.clone(),
+            data_dir: dir.clone(),
+        };
+        std::fs::write(&paths.config_file, b"{bad json").unwrap();
+        let (config, notice) = super::AppConfig::load(&paths).unwrap();
+        assert!(notice.is_some());
+        assert_eq!(config, super::AppConfig::default());
+        assert_eq!(
+            std::fs::read(dir.join("config.json.bad")).unwrap(),
+            b"{bad json"
+        );
+        config.save(&paths).unwrap();
+        let (loaded, notice) = super::AppConfig::load(&paths).unwrap();
+        assert_eq!(loaded, config);
+        assert!(notice.is_none());
+        assert!(!dir.join("config.json.tmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn app_categories_match_real_ids_without_code_substrings() {
