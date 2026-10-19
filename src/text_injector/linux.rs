@@ -11,7 +11,7 @@ use evdev::{AttributeSet, EventType, InputEvent, KeyCode, uinput::VirtualDevice}
 use std::{
     io::{BufRead, BufReader, Write},
     process::{Command, Stdio},
-    sync::{OnceLock, mpsc},
+    sync::{Mutex, OnceLock, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -260,8 +260,14 @@ pub fn set_clipboard(text: &str) -> Result<()> {
 }
 
 pub(crate) fn selected_text() -> String {
+    // A fresh virtual keyboard needs 100 ms before the compositor sees it.
+    static INJECTOR: Mutex<Option<TextInjector>> = Mutex::new(None);
     fn copy_selection() -> Result<String> {
-        let mut injector = TextInjector::new()?;
+        let mut injector = INJECTOR.lock().unwrap_or_else(|error| error.into_inner());
+        let injector = match &mut *injector {
+            Some(injector) => injector,
+            slot => slot.insert(TextInjector::new()?),
+        };
         let terminal = focused_window()
             .flatten()
             .and_then(|app| app.id)
@@ -296,7 +302,7 @@ pub(crate) fn selected_text() -> String {
             } else {
                 injector.combo(&[KeyCode::KEY_LEFTCTRL], KeyCode::KEY_INSERT)?;
             }
-            if changed.recv_timeout(Duration::from_millis(300)).is_err() {
+            if changed.recv_timeout(Duration::from_millis(120)).is_err() {
                 return Ok(String::new());
             }
             let text = read_clipboard()?.unwrap_or_default();
