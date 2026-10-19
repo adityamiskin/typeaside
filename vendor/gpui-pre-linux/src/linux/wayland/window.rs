@@ -2131,10 +2131,15 @@ impl PlatformWindow for WaylandWindow {
         }
     }
 
-    fn set_layer_shell_keyboard_interactivity(&self, interactivity: gpui::layer_shell::KeyboardInteractivity) {
+    fn set_layer_shell_keyboard_interactivity(
+        &self,
+        interactivity: gpui::layer_shell::KeyboardInteractivity,
+    ) {
         let state = self.borrow();
         if let Some(layer_surface) = state.surface_state.layer_surface() {
-            layer_surface.set_keyboard_interactivity(super::layer_shell::wayland_keyboard_interactivity(interactivity));
+            layer_surface.set_keyboard_interactivity(
+                super::layer_shell::wayland_keyboard_interactivity(interactivity),
+            );
             state.surface.commit();
         }
     }

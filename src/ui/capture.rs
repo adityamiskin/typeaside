@@ -20,6 +20,7 @@ pub struct Capture {
     entered: Instant,
     visible: bool,
     ready: bool,
+    priming: bool,
 }
 impl Capture {
     pub fn insert(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -110,8 +111,13 @@ impl Capture {
 impl Render for Capture {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        if !self.visible {
+        let priming = std::mem::take(&mut self.priming);
+        if !self.visible && !priming {
             return div().size_full().into_any_element();
+        }
+        if priming {
+            // Warm text, icons, and renderer pipelines without exposing the startup frame.
+            cx.notify();
         }
         let value = self.input.read(cx).value();
         let run = gpui::TextRun {
@@ -187,6 +193,7 @@ impl Render for Capture {
         };
         div()
             .size_full()
+            .opacity(if self.visible { 1. } else { 0. })
             .font_family("Inter")
             .text_color(p.fg)
             .capture_action(cx.listener(|this, action: &Enter, window, cx| {
@@ -345,6 +352,11 @@ pub fn prepare(state: &Entity<AppState>, cx: &mut App) {
 #[cfg(target_os = "linux")]
 pub fn show(state: &Entity<AppState>, cx: &mut App) {
     prepare(state, cx);
+    state.update(cx, |s, _| {
+        if s.note_draft.is_empty() {
+            s.note_source = None;
+        }
+    });
     if let Some(handle) = state.read(cx).capture_window {
         let _ = handle.update(cx, |view, window, cx| {
             view.visible = true;
@@ -441,6 +453,7 @@ fn open(state: &Entity<AppState>, visible: bool, cx: &mut App) {
                     entered: now,
                     visible,
                     ready: visible,
+                    priming: !visible,
                 }
             })
         },

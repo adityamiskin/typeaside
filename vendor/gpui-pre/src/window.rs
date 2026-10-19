@@ -2510,8 +2510,13 @@ impl Window {
     }
 
     /// Change keyboard focus policy on a Wayland layer-shell surface.
-    pub fn set_layer_shell_keyboard_interactivity(&self, interactivity: crate::layer_shell::KeyboardInteractivity) {
-        self.platform_window.set_layer_shell_keyboard_interactivity(interactivity);
+    #[cfg(all(target_os = "linux", feature = "wayland"))]
+    pub fn set_layer_shell_keyboard_interactivity(
+        &self,
+        interactivity: crate::layer_shell::KeyboardInteractivity,
+    ) {
+        self.platform_window
+            .set_layer_shell_keyboard_interactivity(interactivity);
     }
 
     /// Linux (wayland) only: Set the window's input region, the area that receives pointer

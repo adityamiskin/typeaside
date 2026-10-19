@@ -174,7 +174,7 @@ layout { background-color "#000000"; }
         time.sleep(.15)
         segment = log_text()[offset:]
         observations = states()
-        observed = next((value for value in observations if value['value'] == expected), observations[-1])
+        observed = next((value for value in reversed(observations) if value['value'] == expected), observations[-1])
         expected = f'"{state["text"]}"\n' if selected else ''
         phases = trace(segment)
         first = {}
