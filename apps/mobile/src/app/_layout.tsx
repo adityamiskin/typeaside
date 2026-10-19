@@ -34,6 +34,7 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Protected guard={status === "signedIn"}>
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="keyboard-session" />
           </Stack.Protected>
           <Stack.Protected guard={status === "signedOut"}>
             <Stack.Screen name="sign-in" />
