@@ -12,12 +12,15 @@ import {
 import { ensureUser, userForIdentity } from "./lib";
 import { rateLimiter } from "./rateLimits";
 import { noteFields } from "./schema";
+import { noteColor, noteColorInput } from "./noteColors";
 
 export const noteIdInput = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const editableInput = z.object({
   id: noteIdInput,
   text: z.string().trim().min(1).max(20_000),
   pinned: z.boolean(),
+  archived: z.boolean(),
+  color: noteColorInput,
 });
 const timestamp = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const noteInput = editableInput.extend({ createdAt: timestamp, updatedAt: timestamp });
@@ -27,6 +30,8 @@ function noteJson(note: Doc<"notes">) {
     id: note.noteId,
     text: note.text,
     pinned: note.pinned,
+    archived: note.archived,
+    color: note.color,
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
   };
@@ -46,6 +51,7 @@ async function findNote(ctx: QueryCtx, userId: Id<"users">, id: string) {
     .unique();
 }
 async function upsert(ctx: MutationCtx, userId: Id<"users">, note: z.infer<typeof noteInput>) {
+  if (note.archived) note = { ...note, pinned: false };
   const stored = await findNote(ctx, userId, note.id);
   if (stored && stored.updatedAt >= note.updatedAt) return noteJson(stored);
   const { id, ...fields } = note;
@@ -69,7 +75,13 @@ export const list = query({
   },
 });
 export const save = mutation({
-  args: { id: v.string(), text: v.string(), pinned: v.boolean() },
+  args: {
+    id: v.string(),
+    text: v.string(),
+    pinned: v.boolean(),
+    archived: v.boolean(),
+    color: noteColor,
+  },
   handler: async (ctx, input) => {
     const parsed = editableInput.safeParse(input);
     if (!parsed.success) throw new ConvexError("Invalid note");

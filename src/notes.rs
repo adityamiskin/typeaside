@@ -3,12 +3,82 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NoteColor {
+    None,
+    Sky,
+    Lilac,
+    Sage,
+    Sand,
+    Rose,
+}
+impl NoteColor {
+    pub const ALL: [Self; 6] = [
+        Self::None,
+        Self::Sky,
+        Self::Lilac,
+        Self::Sage,
+        Self::Sand,
+        Self::Rose,
+    ];
+}
+
+pub fn hashtag_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    static HASHTAG: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?:^|\s)(#[\p{L}\p{N}_-]+)").expect("valid hashtag regex")
+    });
+    HASHTAG
+        .captures_iter(text)
+        .map(|capture| capture.get(1).expect("hashtag capture").range())
+        .collect()
+}
+
+pub fn labels(text: &str) -> Vec<String> {
+    let mut labels: Vec<_> = hashtag_ranges(text)
+        .into_iter()
+        .map(|range| text[range.start + 1..range.end].to_lowercase())
+        .collect();
+    labels.sort();
+    labels.dedup();
+    labels
+}
+
+pub fn checklist_item(line: &str) -> Option<(bool, &str)> {
+    let prefix = line.get(..6)?;
+    if prefix == "- [ ] " {
+        Some((false, &line[6..]))
+    } else if prefix.eq_ignore_ascii_case("- [x] ") {
+        Some((true, &line[6..]))
+    } else {
+        None
+    }
+}
+
+pub fn toggle_checklist(text: &str, index: usize) -> String {
+    text.split('\n')
+        .enumerate()
+        .map(|(i, line)| {
+            if i == index
+                && let Some((checked, item)) = checklist_item(line)
+            {
+                format!("- [{}] {item}", if checked { " " } else { "x" })
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Note {
     pub id: String,
     pub text: String,
     pub pinned: bool,
+    pub archived: bool,
+    pub color: NoteColor,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -102,6 +172,8 @@ pub fn new_note(text: String) -> Result<Note> {
         id,
         text,
         pinned: false,
+        archived: false,
+        color: NoteColor::None,
         created_at: now,
         updated_at: now,
     })

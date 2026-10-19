@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { noteColor } from "./noteColors";
 
 export const subscriptionStatus = v.union(
   v.literal("active"),
@@ -51,6 +52,8 @@ export const settingsFields = {
 };
 
 export const noteFields = {
+  archived: v.boolean(),
+  color: noteColor,
   text: v.string(),
   pinned: v.boolean(),
   createdAt: v.number(),
