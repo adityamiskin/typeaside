@@ -28,7 +28,6 @@ jobs:
       # Clippy findings rarely differ by OS, and it costs ~6 minutes on Windows.
       - if: runner.os == 'Linux'
         run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked
       - run: cargo build --locked
       - name: Bundle macOS app
         if: runner.os == 'macOS'

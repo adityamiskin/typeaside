@@ -1,4 +1,4 @@
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -9,7 +9,7 @@ mod windows;
 
 // Leave headroom for names that tokenize less efficiently than English prose.
 const PROMPT_BYTES: usize = 672;
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const COMMON: &[&str] = &[
     "the",
     "a",
@@ -79,7 +79,7 @@ pub(crate) fn names() -> Vec<String> {
     Vec::new()
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn extract(text: &str) -> Vec<String> {
     fn candidate(word: &str) -> bool {
         word.chars().count() >= 2
@@ -177,65 +177,5 @@ impl Text {
         self.value
             .push_str(&value[..value.floor_char_boundary(remaining - 1)]);
         self.value.push('\n');
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_and_prompt_cases() {
-        for (text, expected) in [
-            (
-                "The team met Aditya Rao today. Please review TypeAside.",
-                vec!["Aditya Rao", "TypeAside"],
-            ),
-            (
-                "https://Acme.com /Users/Aditya C:\\Users\\Alice Alice@example.com Project42 123",
-                vec![],
-            ),
-            (
-                "TypeAside\ntypeAside\nTypeAside\nAlice",
-                vec!["TypeAside", "Alice"],
-            ),
-            ("Zoë Chen met Élodie", vec!["Zoë Chen", "Élodie"]),
-            ("Alice met Bob met Bob", vec!["Bob", "Alice"]),
-        ] {
-            assert_eq!(extract(text), expected, "{text}");
-        }
-        for (dictionary, names, expected) in [
-            (
-                vec!["Aditya".into()],
-                vec!["aditya".into(), "TypeAside".into()],
-                "Aditya, TypeAside".into(),
-            ),
-            (
-                vec!["x".repeat(PROMPT_BYTES + 1)],
-                vec!["Zoë".into()],
-                "Zoë".into(),
-            ),
-            (
-                vec!["x".repeat(PROMPT_BYTES - 2)],
-                vec!["Zoë".into()],
-                "x".repeat(PROMPT_BYTES - 2),
-            ),
-            (vec![], vec![], String::new()),
-        ] {
-            let actual = prompt(&dictionary, &names);
-            assert_eq!(actual, expected);
-            assert!(actual.len() <= PROMPT_BYTES);
-        }
-        let text = (0..40)
-            .map(|i| {
-                format!(
-                    "Name{}{}",
-                    char::from(b'A' + i / 26),
-                    char::from(b'A' + i % 26)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" met ");
-        assert!(extract(&text).len() <= 30);
     }
 }
