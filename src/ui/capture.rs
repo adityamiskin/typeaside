@@ -118,7 +118,7 @@ impl Render for Capture {
                     .sum::<usize>()
             })
             .unwrap_or(1)
-            .clamp(1, 10);
+            .clamp(4, 14);
         let height = 80. + lines as f32 * 22.;
         #[cfg(target_os = "linux")]
         window.set_input_region(Some(&[Bounds::new(
@@ -306,7 +306,7 @@ pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, 
                     bounds.origin.x + (bounds.size.width - px(680.)) / 2.,
                     bounds.origin.y + top,
                 ),
-                size(px(680.), px(372.)),
+                size(px(680.), px(460.)),
             ))),
             #[cfg(target_os = "linux")]
             kind: WindowKind::LayerShell(LayerShellOptions {
