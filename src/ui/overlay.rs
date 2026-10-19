@@ -775,7 +775,7 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
 
 /// GPUI gives untitled windows a titled frame, whose border and shadow outline the whole surface.
 #[cfg(target_os = "macos")]
-fn borderless(window: &Window) {
+pub(super) fn borderless(window: &Window) {
     use objc2_app_kit::{NSView, NSWindowStyleMask};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     let Ok(handle) = HasWindowHandle::window_handle(window) else {

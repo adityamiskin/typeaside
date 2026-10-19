@@ -594,6 +594,43 @@ impl MainWindow {
         })
         .detach();
     }
+    pub fn record_shortcut(&mut self, key: String, cx: &mut Context<Self>) {
+        let Some(target) = self.capture else { return };
+        let now = std::time::Instant::now();
+        let down = self.shortcut_down.take().unwrap_or(now);
+        let quick = now.duration_since(down).as_millis() < 300 && !key.contains('+');
+        if quick
+            && self.shortcut_tap.as_ref().is_some_and(|(first, at)| {
+                first == &key && now.duration_since(*at).as_millis() <= 350
+            })
+        {
+            self.shortcut_task = None;
+            self.shortcut_tap = None;
+            self.capture = None;
+            self.save_shortcut(target, format!("{key}*2"), cx);
+            return;
+        }
+        if !quick {
+            self.capture = None;
+            self.save_shortcut(target, key, cx);
+            return;
+        }
+        self.shortcut_tap = Some((key.clone(), down));
+        self.shortcut_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(
+                    std::time::Duration::from_millis(350).saturating_sub(now.duration_since(down)),
+                )
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.capture == Some(target) {
+                    this.capture = None;
+                    this.shortcut_tap = None;
+                    this.save_shortcut(target, key, cx);
+                }
+            });
+        }));
+    }
     pub fn save_shortcut(&mut self, target: Shortcut, key: String, cx: &mut Context<Self>) {
         self.state.update(cx, |s, cx| {
             match target {
@@ -601,11 +638,12 @@ impl MainWindow {
                 Shortcut::Command => s.config.command_hotkey = Some(key),
                 Shortcut::Translate => s.config.translate_hotkey = Some(key),
                 Shortcut::Pause => s.config.pause_hotkey = Some(key),
+                Shortcut::Note => s.config.note_hotkey = Some(key),
             }
             s.persist();
             cx.notify();
         });
-        self.capture_modifiers = gpui::Modifiers::default();
+        typeaside::hotkeys::set_shortcut_recording(false);
         cx.notify();
     }
     fn shortcut(
@@ -623,6 +661,7 @@ impl MainWindow {
                 Shortcut::Command => "command-key",
                 Shortcut::Translate => "translate-key",
                 Shortcut::Pause => "pause-key",
+                Shortcut::Note => "note-key",
             })
             .cursor_pointer()
             .child(if self.capture == Some(target) {
@@ -653,8 +692,12 @@ impl MainWindow {
                 )
             })
             .on_click(cx.listener(move |this, _, w, cx| {
+                typeaside::hotkeys::set_shortcut_recording(true);
+                this.shortcut_down = None;
+                this.shortcut_tap = None;
+                this.shortcut_task = None;
+                this.shortcut_key = None;
                 this.capture = Some(target);
-                this.capture_modifiers = gpui::Modifiers::default();
                 w.focus(&this.focus, cx);
                 cx.notify();
             }))
@@ -767,6 +810,7 @@ impl MainWindow {
                         Ok(account) => {
                             s.account_revision += 1;
                             s.account = Some(account);
+                            let _ = s.notes_sync.try_send(());
                             s.config.transcription = Source::Hosted;
                             s.persist();
                         }
@@ -1164,6 +1208,11 @@ impl MainWindow {
                 Setting::new("Pause / resume")
                     .description("Tap while recording.")
                     .child(self.shortcut(Shortcut::Pause, c.pause_hotkey.as_deref(), cx)),
+                Setting::new("New note").child(self.shortcut(
+                    Shortcut::Note,
+                    c.note_hotkey.as_deref(),
+                    cx,
+                )),
                 Setting::new("Ask anything")
                     .description("Ask a question, or edit selected text.")
                     .child(self.shortcut(Shortcut::Command, c.command_hotkey.as_deref(), cx)),
@@ -1330,58 +1379,6 @@ pub fn meter(level: f32, bars: usize, height: f32, p: Palette) -> impl IntoEleme
                 .rounded(px(1.5))
                 .bg(p.accent)
         }))
-}
-#[cfg(not(target_os = "linux"))]
-pub fn shortcut_combo(k: &gpui::Keystroke) -> String {
-    let key = match k.key.as_str() {
-        "escape" => "ESCAPE",
-        "enter" => "ENTER",
-        "backspace" => "BACKSPACE",
-        "space" => "SPACE",
-        "tab" => "TAB",
-        "up" => "UP",
-        "down" => "DOWN",
-        "left" => "LEFT",
-        "right" => "RIGHT",
-        "pageup" => "PAGEUP",
-        "pagedown" => "PAGEDOWN",
-        "home" => "HOME",
-        "end" => "END",
-        "delete" => "DELETE",
-        "insert" => "INSERT",
-        "-" => "MINUS",
-        "=" => "EQUAL",
-        "," => "COMMA",
-        "." => "DOT",
-        "/" => "SLASH",
-        ";" => "SEMICOLON",
-        "[" => "LEFTBRACE",
-        "]" => "RIGHTBRACE",
-        "'" => "APOSTROPHE",
-        "\\" => "BACKSLASH",
-        "`" => "GRAVE",
-        "control_r" => "RIGHTCTRL",
-        "control_l" => "LEFTCTRL",
-        "alt_r" => "RIGHTALT",
-        "alt_l" => "LEFTALT",
-        other => other,
-    };
-    let [ctrl, alt, shift, meta] = ["CTRL", "ALT", "SHIFT", "META"];
-    let mut parts = Vec::new();
-    if k.modifiers.control && !key.ends_with("CTRL") {
-        parts.push(ctrl.into());
-    }
-    if k.modifiers.alt && !key.ends_with("ALT") {
-        parts.push(alt.into());
-    }
-    if k.modifiers.shift && !key.ends_with("SHIFT") {
-        parts.push(shift.into());
-    }
-    if k.modifiers.platform && !key.ends_with("META") {
-        parts.push(meta.into());
-    }
-    parts.push(key.to_uppercase());
-    parts.join("+")
 }
 
 pub(super) fn grouped(value: u64) -> String {

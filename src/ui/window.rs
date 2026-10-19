@@ -13,6 +13,7 @@ use typeaside::{config::AppCategory, engine::Command};
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
     Home,
+    Notes,
     Dictionary,
     Snippets,
     Style,
@@ -23,6 +24,7 @@ pub enum Page {
 impl Page {
     pub fn from_demo() -> Self {
         match std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() {
+            Ok("notes") => Self::Notes,
             Ok("dictionary") => Self::Dictionary,
             Ok("snippets") => Self::Snippets,
             Ok("style") => Self::Style,
@@ -39,6 +41,7 @@ pub enum Shortcut {
     Command,
     Translate,
     Pause,
+    Note,
 }
 
 pub struct MainWindow {
@@ -46,6 +49,10 @@ pub struct MainWindow {
     pub settings: SettingsInputs,
     pub word_input: Entity<InputState>,
     pub search_input: Entity<InputState>,
+    pub note_composer: Entity<gpui_kit::component::input::TextareaState>,
+    pub note_search: Entity<InputState>,
+    pub note_editor: Option<super::notes::Editor>,
+    pub hovered_note: Option<String>,
     pub toast: Option<&'static str>,
     pub toast_task: Option<gpui::Task<()>>,
     pub history_tab: super::home::HistoryTab,
@@ -56,7 +63,10 @@ pub struct MainWindow {
     pub hovered_history: Option<usize>,
     pub hovered_word: Option<usize>,
     pub capture: Option<Shortcut>,
-    pub capture_modifiers: gpui::Modifiers,
+    pub shortcut_down: Option<std::time::Instant>,
+    pub shortcut_tap: Option<(String, std::time::Instant)>,
+    pub shortcut_key: Option<String>,
+    pub shortcut_task: Option<gpui::Task<()>>,
     pub settings_scroll: gpui::ScrollHandle,
     pub settings_jump: Option<(usize, gpui::Pixels)>,
     pub focus: FocusHandle,
@@ -75,6 +85,7 @@ impl MainWindow {
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.state.update(cx, |s, _| {
+                    let _ = s.notes_sync.try_send(());
                     if s.sync_focus_at
                         .is_none_or(|at| at.elapsed().as_secs() >= 60)
                     {
@@ -128,6 +139,7 @@ impl MainWindow {
         .detach();
         let weak = state.downgrade();
         window.on_window_should_close(cx, move |_, cx| {
+            typeaside::hotkeys::set_shortcut_recording(false);
             #[cfg(target_os = "macos")]
             show_in_dock(false);
             let _ = weak.update(cx, |s, cx| {
@@ -145,6 +157,14 @@ impl MainWindow {
             settings,
             word_input,
             search_input,
+            note_composer: cx.new(|cx| {
+                gpui_kit::component::input::TextareaState::new(window, cx)
+                    .placeholder("Write a note…")
+                    .auto_grow(1, 10)
+            }),
+            note_search: cx.new(|cx| InputState::new(window, cx).placeholder("Search notes")),
+            note_editor: None,
+            hovered_note: (state.read(cx).is_demo && page == Page::Notes).then(|| "demo-1".into()),
             snippet_editor: None,
             toast: None,
             toast_task: None,
@@ -154,8 +174,11 @@ impl MainWindow {
             app_instructions: super::style::AppInstructions::new(window, cx),
             hovered_history: None,
             hovered_word: None,
+            shortcut_down: None,
+            shortcut_tap: None,
+            shortcut_key: None,
+            shortcut_task: None,
             capture: None,
-            capture_modifiers: gpui::Modifiers::default(),
             settings_scroll: gpui::ScrollHandle::new(),
             settings_jump: None,
             focus: cx.focus_handle(),
@@ -163,6 +186,14 @@ impl MainWindow {
             onboarding: super::onboarding::Onboarding::new(state.read(cx).onboarding_steps.clone()),
             trace_started,
         };
+        this.bind_notes(window, cx);
+        if page == Page::Notes
+            && state.read(cx).is_demo
+            && std::env::var("TYPEASIDE_DEMO_NOTES").as_deref() == Ok("empty")
+        {
+            this.note_composer
+                .update(cx, |input, cx| input.focus(window, cx));
+        }
         this.bind_settings(window, cx);
         this.bind_app_instructions(window, cx);
         if this.state.read(cx).is_demo {
@@ -244,9 +275,14 @@ impl MainWindow {
             super::refresh_account(&self.state, cx);
             super::refresh_devices(&self.state, cx);
         }
+        self.save_note(cx);
+        if page == Page::Notes {
+            let _ = self.state.read(cx).notes_sync.try_send(());
+        }
         self.page = page;
         self.state.update(cx, |s, _| s.initial_page = page);
         self.capture = None;
+        typeaside::hotkeys::set_shortcut_recording(false);
         cx.notify();
     }
     pub fn start_mic(&mut self, cx: &mut Context<Self>) {
@@ -425,6 +461,7 @@ impl Render for MainWindow {
             .children(
                 [
                     (Page::Home, "Home", "icons/house.svg"),
+                    (Page::Notes, "Notes", "icons/notebook-pen.svg"),
                     (Page::Dictionary, "Dictionary", "icons/book-a.svg"),
                     (Page::Snippets, "Snippets", "icons/text-quote.svg"),
                     (Page::Style, "Style", "icons/palette.svg"),
@@ -443,7 +480,13 @@ impl Render for MainWindow {
                         .items_center()
                         .gap(px(10.))
                         .cursor_pointer()
-                        .bg(if selected { p.tint } else { p.side })
+                        .bg(if selected && page == Page::Notes {
+                            p.panel
+                        } else if selected {
+                            p.tint
+                        } else {
+                            p.side
+                        })
                         .text_color(if selected { p.fg } else { p.muted })
                         .hover(|s| s.bg(p.hover))
                         .child(
@@ -536,6 +579,7 @@ impl Render for MainWindow {
         } else {
             match self.page {
                 Page::Home => self.home(cx).into_any_element(),
+                Page::Notes => self.notes(window, cx).into_any_element(),
                 Page::Dictionary => self.dictionary(cx).into_any_element(),
                 Page::Snippets => self.snippets(cx).into_any_element(),
                 Page::Style => self.style(cx).into_any_element(),
@@ -634,12 +678,11 @@ impl Render for MainWindow {
                 cx.stop_propagation();
                 return;
             }
-            if let Some(target) = this.capture.take() {
-                #[cfg(target_os = "linux")]
+            if this.capture.is_some() {
+                this.shortcut_down
+                    .get_or_insert_with(std::time::Instant::now);
                 let combo = typeaside::hotkeys::chord();
-                #[cfg(not(target_os = "linux"))]
-                let combo = super::settings::shortcut_combo(&event.keystroke);
-                this.save_shortcut(target, combo, cx);
+                this.shortcut_key = Some(combo);
                 cx.stop_propagation();
             } else if !this.state.read(cx).config.onboarded {
                 match event.keystroke.key.as_str() {
@@ -647,6 +690,11 @@ impl Render for MainWindow {
                     "escape" => this.onboarding_back(cx),
                     _ => {}
                 }
+            }
+        }))
+        .on_key_up(cx.listener(|this, _: &gpui::KeyUpEvent, _, cx| {
+            if let Some(key) = this.shortcut_key.take() {
+                this.record_shortcut(key, cx);
             }
         }))
         .on_modifiers_changed(cx.listener(
@@ -657,30 +705,10 @@ impl Render for MainWindow {
                 }
                 if this.capture.is_some() {
                     if event.modifiers.modified() {
-                        this.capture_modifiers.control |= event.modifiers.control;
-                        this.capture_modifiers.alt |= event.modifiers.alt;
-                        this.capture_modifiers.shift |= event.modifiers.shift;
-                        this.capture_modifiers.platform |= event.modifiers.platform;
-                        this.capture_modifiers.function |= event.modifiers.function;
-                    } else if let Some(target) = this.capture.take() {
-                        #[cfg(target_os = "linux")]
-                        this.save_shortcut(target, typeaside::hotkeys::chord(), cx);
-                        #[cfg(not(target_os = "linux"))]
-                        {
-                            let modifiers = this.capture_modifiers;
-                            let combo = [
-                                (modifiers.control, "CTRL"),
-                                (modifiers.alt, "ALT"),
-                                (modifiers.shift, "SHIFT"),
-                                (modifiers.platform, "META"),
-                                (modifiers.function, "FN"),
-                            ]
-                            .into_iter()
-                            .filter_map(|(held, name)| held.then_some(name))
-                            .collect::<Vec<_>>()
-                            .join("+");
-                            this.save_shortcut(target, combo, cx);
-                        }
+                        this.shortcut_down
+                            .get_or_insert_with(std::time::Instant::now);
+                    } else if this.shortcut_key.is_none() {
+                        this.record_shortcut(typeaside::hotkeys::chord(), cx);
                     }
                 }
             },

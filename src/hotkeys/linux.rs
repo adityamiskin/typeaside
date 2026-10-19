@@ -42,6 +42,7 @@ pub enum HotkeyEvent {
     Command(bool),
     Translate(bool),
     Pause(bool),
+    Note(bool),
 }
 
 pub struct HotkeyService {
@@ -52,11 +53,17 @@ pub struct HotkeyService {
 struct Combo {
     keys: Vec<Vec<KeyCode>>,
     active: bool,
+    tap: Option<super::double_tap::DoubleTap>,
     event: fn(bool) -> HotkeyEvent,
 }
 
 impl Combo {
     fn parse(value: &str, event: fn(bool) -> HotkeyEvent) -> Result<Self> {
+        let double = value.ends_with("*2");
+        let value = value.strip_suffix("*2").unwrap_or(value);
+        if double && value.contains('+') {
+            bail!("double tap requires one key");
+        }
         let keys = value
             .split('+')
             .map(|part| {
@@ -80,6 +87,7 @@ impl Combo {
         Ok(Self {
             keys,
             active: false,
+            tap: double.then(super::double_tap::DoubleTap::default),
             event,
         })
     }
@@ -98,6 +106,7 @@ impl HotkeyService {
             ),
             (&config.translate_hotkey, HotkeyEvent::Translate),
             (&config.pause_hotkey, HotkeyEvent::Pause),
+            (&config.note_hotkey, HotkeyEvent::Note),
         ] {
             if let Some(value) = value {
                 combos.push(Combo::parse(value, event)?);
@@ -184,6 +193,13 @@ impl HotkeyService {
                                     }
                                     _ => continue,
                                 }
+                                for combo in &mut combos {
+                                    if let Some(tap) = &mut combo.tap
+                                        && tap.key(combo.keys[0].contains(&code), value == 1, Instant::now()) {
+                                            emit((combo.event)(true));
+                                            emit((combo.event)(false));
+                                    }
+                                }
                                 update_combos(&mut combos, &pressed, &emit);
                             }
                         }
@@ -245,6 +261,9 @@ fn keyboards(combos: &[Combo]) -> Vec<(PathBuf, evdev::Device)> {
 
 fn update_combos(combos: &mut [Combo], pressed: &[HashSet<KeyCode>], emit: &impl Fn(HotkeyEvent)) {
     for combo in combos {
+        if combo.tap.is_some() {
+            continue;
+        }
         let active = combo.keys.iter().all(|group| {
             group
                 .iter()

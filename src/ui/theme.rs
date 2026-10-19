@@ -337,10 +337,12 @@ fn key_names(value: &str) -> impl Iterator<Item = String> + '_ {
     value.split('+').map(|key| {
         let key = key.trim().to_ascii_uppercase();
         let key = key.trim_start_matches("KEY_");
+        let double = key.ends_with("*2");
+        let key = key.strip_suffix("*2").unwrap_or(key);
         let modifier = |base: &&str| ["CTRL", "ALT", "SHIFT", "META"].contains(base);
         let (side, base) = match (key.strip_prefix("RIGHT"), key.strip_prefix("LEFT")) {
             (Some(base), _) if modifier(&base) => ("Right ", base),
-            (_, Some(base)) if modifier(&base) => ("", base),
+            (_, Some(base)) if modifier(&base) => ("Left ", base),
             _ => ("", key),
         };
         let name = match base {
@@ -350,7 +352,7 @@ fn key_names(value: &str) -> impl Iterator<Item = String> + '_ {
             "META" | "SUPER" if cfg!(target_os = "macos") => "Cmd",
             "META" | "SUPER" if cfg!(target_os = "windows") => "Win",
             "META" | "SUPER" => "Super",
-            "ESC" => "Escape",
+            "ESC" => "Esc",
             "PAGEUP" => "Page Up",
             "PAGEDOWN" => "Page Down",
             "CAPSLOCK" => "Caps Lock",
@@ -362,15 +364,19 @@ fn key_names(value: &str) -> impl Iterator<Item = String> + '_ {
                 if other.chars().count() == 1
                     || other.starts_with('F') && other[1..].parse::<u8>().is_ok() =>
             {
-                return other.to_string();
+                return format!("{other}{}", if double { " ×2" } else { "" });
             }
             other => {
                 let mut chars = other.chars();
                 let first = chars.next().unwrap_or_default();
-                return format!("{first}{}", chars.as_str().to_ascii_lowercase());
+                return format!(
+                    "{first}{}{}",
+                    chars.as_str().to_ascii_lowercase(),
+                    if double { " ×2" } else { "" }
+                );
             }
         };
-        format!("{side}{name}")
+        format!("{side}{name}{}", if double { " ×2" } else { "" })
     })
 }
 pub const SURFACE_WIDTH: f32 = 640.;

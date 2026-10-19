@@ -797,7 +797,11 @@ impl MainWindow {
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, w, cx| {
                         this.capture = Some(Shortcut::Dictate);
-                        this.capture_modifiers = gpui::Modifiers::default();
+                        typeaside::hotkeys::set_shortcut_recording(true);
+                        this.shortcut_down = None;
+                        this.shortcut_tap = None;
+                        this.shortcut_task = None;
+                        this.shortcut_key = None;
                         w.focus(&this.focus, cx);
                         cx.notify();
                     })),

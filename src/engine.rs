@@ -65,6 +65,12 @@ pub struct FailedRecording {
 
 #[derive(Debug, Clone)]
 pub enum Event {
+    Capture {
+        selection: String,
+        app: Option<String>,
+    },
+    CaptureText(String),
+    CloseCapture,
     Phase(Phase),
     /// Mic level in 0.0..=1.0, sent at ~30 Hz while listening.
     Level(f32),
@@ -89,6 +95,7 @@ pub enum Event {
 
 #[derive(Debug, Clone)]
 pub enum Command {
+    CloseCapture,
     Start,
     Stop,
     RetryFailed(SystemTime),
@@ -393,6 +400,7 @@ fn run(
     let mut effects = None;
     let mut restoring = Vec::new();
     let mut reply_visible = false;
+    let mut capture_open = false;
     let mut tick = Instant::now();
     loop {
         if events.is_closed() {
@@ -451,7 +459,28 @@ fn run(
                 command
             }
             Message::Hotkey(source, event) if source == epoch => match event {
-                HotkeyEvent::Cancel(true) => Command::Cancel,
+                HotkeyEvent::Note(true) => {
+                    if crate::hotkeys::shortcut_recording() {
+                        continue;
+                    }
+                    if capture_open {
+                        capture_open = false;
+                        let _ = events.try_send(Event::CloseCapture);
+                    } else {
+                        let app = focused_app().and_then(|app| app.id);
+                        let selection = crate::text_injector::primary_selection();
+                        capture_open = true;
+                        let _ = events.try_send(Event::Capture { selection, app });
+                    }
+                    continue;
+                }
+                HotkeyEvent::Cancel(true) => {
+                    if capture_open {
+                        capture_open = false;
+                        let _ = events.try_send(Event::CloseCapture);
+                    }
+                    Command::Cancel
+                }
                 HotkeyEvent::Pause(true) => {
                     if let Some(capture) = &recorder {
                         let paused = capture.toggle_paused();
@@ -557,6 +586,9 @@ fn run(
                                         }
                                         Err(error) => report_error(&events, error),
                                     }
+                                } else if capture_open && dictation.mode == Mode::Dictate {
+                                    let _ = events
+                                        .try_send(Event::CaptureText(dictation.cleaned.clone()));
                                 } else if let Some(at) = retrying {
                                     match crate::text_injector::set_clipboard(&dictation.cleaned) {
                                         Ok(()) => {
@@ -971,6 +1003,9 @@ fn run(
                 }
                 phase(&events, Phase::Idle);
                 hotkeys = open_hotkeys(&config, &tx, epoch, &events);
+            }
+            Command::CloseCapture => {
+                capture_open = false;
             }
             Command::DismissReply => {
                 reply_visible = false;
