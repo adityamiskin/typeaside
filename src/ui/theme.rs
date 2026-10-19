@@ -374,7 +374,7 @@ fn key_names(value: &str) -> impl Iterator<Item = String> + '_ {
     })
 }
 pub const SURFACE_WIDTH: f32 = 640.;
-pub const SURFACE_HEIGHT: f32 = 96.;
+pub const SURFACE_HEIGHT: f32 = 180.;
 pub const ENTER_FADE: f32 = 0.12;
 pub const OPEN_DELAY: f32 = 0.075;
 pub const STAGGER: f32 = 0.015;

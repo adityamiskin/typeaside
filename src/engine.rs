@@ -40,6 +40,7 @@ pub enum Phase {
     Transcribing,
     Cleaning,
     Error(String),
+    LimitReached { resets_at: i64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +69,7 @@ pub enum Event {
     /// Mic level in 0.0..=1.0, sent at ~30 Hz while listening.
     Level(f32),
     Done(Dictation),
+    Usage(crate::account::Usage),
     Copied(String),
     Reply {
         prompt: String,
@@ -319,7 +321,10 @@ enum Message {
     Command(Command),
     Hotkey(u64, HotkeyEvent),
     Cleaning(u64),
-    Finished(u64, Result<(Dictation, Delivery)>),
+    Finished(
+        u64,
+        Result<(Dictation, Delivery, Option<crate::account::Usage>)>,
+    ),
     Shutdown,
 }
 
@@ -523,8 +528,9 @@ fn run(
                 }
                 busy = None;
                 let audio = pending_audio.take();
+                let mut usage = None;
                 match result {
-                    Ok((dictation, _)) if dictation.cleaned.is_empty() => {
+                    Ok((dictation, _, _)) if dictation.cleaned.is_empty() => {
                         if let Some(at) = retrying {
                             if let Err(error) = discard_failed(&paths, at) {
                                 report_error(&events, error);
@@ -532,7 +538,10 @@ fn run(
                             let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
                         }
                     }
-                    Ok((dictation, delivery)) => {
+                    Ok((dictation, delivery, metered)) => {
+                        if dictation.mode == Mode::Dictate {
+                            usage = metered;
+                        }
                         deliver_and_record(
                             &paths,
                             &dictation,
@@ -616,17 +625,33 @@ fn run(
                         }
                     }
                     Err(error) => {
+                        let limit =
+                            error
+                                .downcast_ref::<crate::http::HostedError>()
+                                .and_then(|error| match error {
+                                    crate::http::HostedError::Limit { resets_at } => {
+                                        Some(*resets_at)
+                                    }
+                                    _ => None,
+                                });
+                        let mut recording_saved = retrying.is_some();
                         if retrying.is_none()
-                            && context.0 == Mode::Dictate
+                            && (context.0 == Mode::Dictate || limit.is_some())
                             && let Some(audio) = audio
                         {
                             let saved = save_failed(&paths, &audio);
+                            recording_saved = saved.is_ok();
                             if let Err(error) = saved {
                                 eprintln!("typeaside: cannot save failed recording: {error:#}");
                             }
                         }
                         let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
-                        report_error(&events, error);
+                        if let Some(resets_at) = limit.filter(|_| recording_saved) {
+                            phase(&events, Phase::LimitReached { resets_at });
+                            phase(&events, Phase::Idle);
+                        } else {
+                            report_error(&events, error);
+                        }
                         if config.sounds {
                             crate::cues::play(crate::cues::Cue::Error);
                         }
@@ -634,6 +659,9 @@ fn run(
                     }
                 }
                 phase(&events, Phase::Idle);
+                if let Some(usage) = usage {
+                    let _ = events.try_send(Event::Usage(usage));
+                }
                 continue;
             }
         };
@@ -752,6 +780,7 @@ fn run(
                                         mode: Mode::File,
                                     },
                                     Delivery::Insert,
+                                    None,
                                 ))
                             });
                         let _ = worker_tx.send(Message::Finished(id, result));
@@ -848,42 +877,44 @@ fn run(
                     .name("typeaside-transcription".into())
                     .spawn(move || {
                         let tx = pipeline_tx;
-                        let result = (|| -> Result<(Dictation, Delivery)> {
-                            let started = Instant::now();
-                            let names = names
-                                .and_then(|names| names.try_recv().ok())
-                                .unwrap_or_default();
-                            let output = crate::pipeline::run(
-                                &pipeline_config,
-                                &audio,
-                                app.as_ref(),
-                                mode,
-                                &selection,
-                                &names,
-                                caret.as_ref(),
-                                stream,
-                                || {
-                                    let _ = tx.send(Message::Cleaning(id));
-                                },
-                            )?;
-                            Ok((
-                                Dictation {
-                                    at: SystemTime::now(),
-                                    raw: output.raw,
-                                    cleaned: output.text,
-                                    app_id: app.and_then(|app| app.id),
-                                    audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX))
-                                        as u32,
-                                    latency_ms: started
-                                        .elapsed()
-                                        .as_millis()
-                                        .min(u128::from(u32::MAX))
-                                        as u32,
+                        let result =
+                            (|| -> Result<(Dictation, Delivery, Option<crate::account::Usage>)> {
+                                let started = Instant::now();
+                                let names = names
+                                    .and_then(|names| names.try_recv().ok())
+                                    .unwrap_or_default();
+                                let output = crate::pipeline::run(
+                                    &pipeline_config,
+                                    &audio,
+                                    app.as_ref(),
                                     mode,
-                                },
-                                output.delivery,
-                            ))
-                        })();
+                                    &selection,
+                                    &names,
+                                    caret.as_ref(),
+                                    stream,
+                                    || {
+                                        let _ = tx.send(Message::Cleaning(id));
+                                    },
+                                )?;
+                                Ok((
+                                    Dictation {
+                                        at: SystemTime::now(),
+                                        raw: output.raw,
+                                        cleaned: output.text,
+                                        app_id: app.and_then(|app| app.id),
+                                        audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX))
+                                            as u32,
+                                        latency_ms: started
+                                            .elapsed()
+                                            .as_millis()
+                                            .min(u128::from(u32::MAX))
+                                            as u32,
+                                        mode,
+                                    },
+                                    output.delivery,
+                                    output.usage,
+                                ))
+                            })();
                         let _ = tx.send(Message::Finished(id, result));
                     });
                 if let Err(error) = spawned {

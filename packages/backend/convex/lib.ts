@@ -74,7 +74,9 @@ export async function accountState(ctx: QueryCtx, userId: Id<"users">) {
   const active = subscriptions
     .filter((s) => isPro(s))
     .sort((a, b) => b.currentPeriodEnd - a.currentPeriodEnd)[0];
+  const newest = subscriptions.sort((a, b) => b._creationTime - a._creationTime)[0];
   return {
+    billingIssue: newest?.status === "on_hold" || newest?.status === "failed",
     plan: active ? ("pro" as const) : ("free" as const),
     currentPeriodEnd: active?.currentPeriodEnd ?? null,
     usage: {

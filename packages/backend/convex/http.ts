@@ -123,7 +123,9 @@ async function saveSubscription(
         ? "cancelled"
         : data.status === "expired"
           ? "expired"
-          : "on_hold";
+          : data.status === "failed"
+            ? "failed"
+            : "on_hold";
   const subject: unknown = data.metadata.typeaside_subject;
   await ctx.runMutation(internal.billing.subscription, {
     subject: typeof subject === "string" ? subject : undefined,

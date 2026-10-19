@@ -59,14 +59,14 @@ async function finish(
   env: Env,
   authorization: string,
   ctx: ExecutionContext,
-): Promise<Result | Failure> {
+): Promise<(NonNullable<Result> & { usage: Account["usage"] }) | Failure> {
   const result = await work;
   if (!result) return error(502, "provider", "Dictation provider is unavailable");
   const text = result.text.trim();
   const words = text ? text.split(/\s+/u).length : 0;
   account.usage.words += words;
   ctx.waitUntil(reportUsage(env, authorization, words));
-  return result;
+  return { ...result, usage: account.usage };
 }
 
 async function reportUsage(env: Env, authorization: string, words: number) {
