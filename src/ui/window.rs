@@ -160,7 +160,7 @@ impl MainWindow {
             note_composer: cx.new(|cx| {
                 gpui_kit::component::input::TextareaState::new(window, cx)
                     .placeholder("Write a note…")
-                    .auto_grow(1, 10)
+                    .auto_grow(4, 14)
             }),
             note_search: cx.new(|cx| InputState::new(window, cx).placeholder("Search notes")),
             note_editor: None,
