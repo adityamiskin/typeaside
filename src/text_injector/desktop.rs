@@ -131,7 +131,7 @@ impl SavedClipboard {
     }
 }
 
-pub(crate) fn primary_selection() -> String {
+pub(crate) fn selected_text() -> String {
     #[cfg(target_os = "windows")]
     if focused_app().is_some_and(|app| app.id.as_deref().is_some_and(is_terminal)) {
         return String::new();

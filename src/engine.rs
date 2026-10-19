@@ -467,8 +467,8 @@ fn run(
                         capture_open = false;
                         let _ = events.try_send(Event::CloseCapture);
                     } else {
-                        let app = focused_app().and_then(|app| app.id);
-                        let selection = crate::text_injector::primary_selection();
+                        let app = focused_app().and_then(|app| app.name);
+                        let selection = crate::text_injector::selected_text();
                         capture_open = true;
                         let _ = events.try_send(Event::Capture { selection, app });
                     }
@@ -513,7 +513,7 @@ fn run(
                         // A chord that extends the held shortcut, like Right Alt then Shift.
                         if pressed && held == Some(context.0) {
                             if mode != Mode::Dictate && context.2.is_empty() {
-                                context.2 = crate::text_injector::primary_selection();
+                                context.2 = crate::text_injector::selected_text();
                             }
                             context.0 = mode;
                             held = Some(mode);
@@ -746,7 +746,7 @@ fn run(
                         recorder = Some(capture);
                         let app = focused_app();
                         let selection = if start_mode != Mode::Dictate {
-                            crate::text_injector::primary_selection()
+                            crate::text_injector::selected_text()
                         } else {
                             String::new()
                         };

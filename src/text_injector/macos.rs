@@ -42,7 +42,11 @@ pub fn focused_app() -> Option<super::FocusedApp> {
         let title = attribute(&window, "AXTitle")?;
         Some(title.downcast::<CFString>()?.to_string())
     })();
-    Some(super::FocusedApp { id, title })
+    Some(super::FocusedApp {
+        id,
+        title,
+        name: app.localizedName().map(|name| name.to_string()),
+    })
 }
 
 /// macOS always has a frontmost app; a paste that fails still falls back to the clipboard.
