@@ -331,7 +331,7 @@ pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, 
                     TextareaState::new(window, cx)
                         .default_value(state.read(cx).note_draft.clone())
                         .placeholder("Write a note…")
-                        .auto_grow(1, 10)
+                        .auto_grow(4, 14)
                 });
                 input.update(cx, |input, cx| {
                     input.focus(window, cx);
