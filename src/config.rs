@@ -415,7 +415,6 @@ mod tests {
         let paths = crate::paths::AppPaths {
             config_file: dir.join("config.json"),
             history_file: dir.join("history.jsonl"),
-            failed_file: dir.join("failed.wav"),
             config_dir: dir.clone(),
             data_dir: dir.clone(),
         };

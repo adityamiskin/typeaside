@@ -24,7 +24,6 @@ fn sync(config: &mut AppConfig, label: &str) -> Result<()> {
         config_file: root.join(format!("{label}.json")),
         data_dir: root.clone(),
         history_file: root.join("history.jsonl"),
-        failed_file: root.join("failed.wav"),
     };
     config.save(&paths)
 }

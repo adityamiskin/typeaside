@@ -1023,7 +1023,10 @@ fn deliver(
 ) -> bool {
     use crate::text_injector::{Delivery, deliver_text};
     *watch = None;
-    if focused_app().and_then(|app| app.id).as_deref() != app_id {
+    // Unknown focus on either side is not evidence the window changed.
+    if let (Some(started), Some(now)) = (app_id, focused_app().and_then(|app| app.id))
+        && started != now
+    {
         return match crate::text_injector::set_clipboard(text) {
             Ok(()) => {
                 let _ = events.try_send(Event::Copied(text.to_owned()));
@@ -1078,7 +1081,6 @@ mod tests {
         crate::paths::AppPaths {
             config_file: dir.join("config.json"),
             history_file: dir.join("history.jsonl"),
-            failed_file: dir.join("failed.wav"),
             config_dir: dir.clone(),
             data_dir: dir,
         }
