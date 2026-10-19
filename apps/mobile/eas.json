@@ -1,0 +1,33 @@
+{
+  "cli": {
+    "version": ">= 25.2.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "base": {
+      "bun": "1.3.13",
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://doting-rhinoceros-418.convex.cloud",
+        "EXPO_PUBLIC_API_URL": "https://api.typeaside.app",
+        "EXPO_PUBLIC_WORKOS_CLIENT_ID": "PENDING_PRODUCTION_CLIENT_ID"
+      }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "android": { "buildType": "apk" }
+    },
+    "production": {
+      "extends": "base",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
