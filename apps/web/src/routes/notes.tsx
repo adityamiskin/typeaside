@@ -225,7 +225,7 @@ function NotesContent() {
         </p>
       )}
       {notes === undefined && <p>Loading…</p>}
-      {notes !== undefined && matching.length === 0 && (
+      {notes !== undefined && view.length === 0 && (
         <Empty className="notes-empty" data-archive={archive}>
           <EmptyTitle>{archive ? "No archived notes" : "No notes yet"}</EmptyTitle>
           {!archive && (

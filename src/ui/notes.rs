@@ -353,7 +353,6 @@ impl MainWindow {
             })
             .collect();
         notes.sort_by_key(|note| (!note.pinned, std::cmp::Reverse(note.created_at)));
-        let matching_count = notes.len();
         let mut previous = None;
         for (index, note) in notes.into_iter().enumerate() {
             let Some(at) = chrono::DateTime::from_timestamp_millis(note.created_at)
@@ -733,7 +732,7 @@ impl MainWindow {
                     .into_any_element(),
             );
         }
-        if matching_count == 0 {
+        if view.is_empty() {
             rows.push(
                 div()
                     .py(px(56.))
