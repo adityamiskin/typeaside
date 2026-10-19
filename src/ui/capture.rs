@@ -1,4 +1,4 @@
-use super::{AppState, theme::*};
+use super::{AppState, overlay::ANSWER_BOTTOM, theme::*};
 #[cfg(target_os = "linux")]
 use gpui::layer_shell::*;
 use gpui::{
@@ -12,6 +12,9 @@ use gpui_kit::component::{
 };
 use std::time::{Duration, Instant};
 use typeaside::{engine::Command, notes::Op};
+
+const WINDOW_HEIGHT: f32 = 460.;
+const SHADOW_BELOW: f32 = 48.;
 
 pub struct Capture {
     state: Entity<AppState>,
@@ -134,10 +137,12 @@ impl Render for Capture {
             .unwrap_or(1)
             .clamp(4, 14);
         let height = 80. + lines as f32 * 22.;
+        // Bottom-anchored so the panel grows upward from just above the pill.
+        let top = WINDOW_HEIGHT - SHADOW_BELOW - height;
         #[cfg(target_os = "linux")]
         if self.ready {
             window.set_input_region(Some(&[Bounds::new(
-                point(px(40.), px(24.)),
+                point(px(40.), px(top)),
                 size(px(600.), px(height)),
             )]));
         }
@@ -207,7 +212,7 @@ impl Render for Capture {
                 div()
                     .absolute()
                     .left(px(40.))
-                    .top(px(24.))
+                    .top(px(top))
                     .w(px(600.))
                     .px(px(16.))
                     .py(px(12.))
@@ -371,7 +376,6 @@ fn open(state: &Entity<AppState>, visible: bool, cx: &mut App) {
             point(px(0.), px(0.)),
             size(px(1280.), px(720.)),
         ));
-    let top = bounds.size.height * 0.22 - px(24.);
     let state = state.clone();
     let result = cx.open_window(
         WindowOptions {
@@ -383,17 +387,18 @@ fn open(state: &Entity<AppState>, visible: bool, cx: &mut App) {
             window_bounds: Some(WindowBounds::Windowed(Bounds::new(
                 point(
                     bounds.origin.x + (bounds.size.width - px(680.)) / 2.,
-                    bounds.origin.y + top,
+                    bounds.origin.y + bounds.size.height
+                        - px(ANSWER_BOTTOM - SHADOW_BELOW + WINDOW_HEIGHT),
                 ),
-                size(px(680.), px(460.)),
+                size(px(680.), px(WINDOW_HEIGHT)),
             ))),
             #[cfg(target_os = "linux")]
             kind: WindowKind::LayerShell(LayerShellOptions {
                 namespace: "typeaside-capture".into(),
                 layer: Layer::Overlay,
-                anchor: Anchor::TOP,
+                anchor: Anchor::BOTTOM,
                 keyboard_interactivity: KeyboardInteractivity::None,
-                margin: Some((top, px(0.), px(0.), px(0.))),
+                margin: Some((px(0.), px(0.), px(ANSWER_BOTTOM - SHADOW_BELOW), px(0.))),
                 ..Default::default()
             }),
             #[cfg(not(target_os = "linux"))]

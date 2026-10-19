@@ -809,7 +809,7 @@ fn text_width(text: &str, window: &Window, cx: &App) -> f32 {
 }
 
 const ANSWER_WIDTH: f32 = 440.;
-const ANSWER_BOTTOM: f32 = SHADOW_SPACE + PILL_HEIGHT + 12.;
+pub(super) const ANSWER_BOTTOM: f32 = SHADOW_SPACE + PILL_HEIGHT + 12.;
 
 pub struct AnswerCard {
     state: Entity<AppState>,
