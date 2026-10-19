@@ -132,7 +132,11 @@ impl SavedClipboard {
 }
 
 pub(crate) fn primary_selection() -> String {
-    selected_text(focused_app().and_then(|app| app.id).as_deref())
+    #[cfg(target_os = "windows")]
+    let app_id = focused_app().and_then(|app| app.id);
+    #[cfg(target_os = "macos")]
+    let app_id: Option<String> = None;
+    selected_text(app_id.as_deref())
 }
 
 pub(crate) fn selected_text(_app_id: Option<&str>) -> String {
