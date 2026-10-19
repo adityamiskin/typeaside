@@ -4,7 +4,7 @@ import type { ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import { action, internalMutation, internalQuery } from "./_generated/server";
-import { ensureUser } from "./lib";
+import { ensureUser, isPro } from "./lib";
 import { subscriptionStatus } from "./schema";
 
 export const customer = internalQuery({
@@ -15,7 +15,17 @@ export const customer = internalQuery({
       .withIndex("by_subject", (q) => q.eq("subject", subject))
       .unique(),
 });
-export const prepare = internalMutation({ args: {}, handler: (ctx) => ensureUser(ctx) });
+export const prepare = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ensureUser(ctx);
+    const subscriptions = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    return { ...user, pro: subscriptions.some((s) => isPro(s)) };
+  },
+});
 function payments() {
   const apiKey = process.env.DODO_PAYMENTS_API_KEY;
   const environment = process.env.DODO_PAYMENTS_ENVIRONMENT;
@@ -34,15 +44,19 @@ function payments() {
 }
 export const checkout = action({
   args: { interval: v.union(v.literal("monthly"), v.literal("yearly")) },
-  handler: async (ctx, { interval }): Promise<{ checkout_url: string }> => {
+  handler: async (ctx, { interval }): Promise<{ url: string }> => {
     const user = await ctx.runMutation(internal.billing.prepare, {});
+    if (user.pro) {
+      const { portal_url } = await payments().customerPortal(ctx, { send_email: false });
+      return { url: portal_url };
+    }
     if (!user.email) throw new Error("An email address is required for billing");
     const product =
       interval === "monthly"
         ? process.env.DODO_PRO_MONTHLY_PRODUCT_ID
         : process.env.DODO_PRO_YEARLY_PRODUCT_ID;
     if (!product) throw new Error("This billing interval is not configured");
-    return payments().checkout(ctx, {
+    const { checkout_url } = await payments().checkout(ctx, {
       payload: {
         product_cart: [{ product_id: product, quantity: 1 }],
         customer: user.dodoCustomerId
@@ -51,6 +65,7 @@ export const checkout = action({
         metadata: { typeaside_subject: user.subject },
       },
     });
+    return { url: checkout_url };
   },
 });
 export const portal = action({
@@ -84,7 +99,7 @@ export const subscription = internalMutation({
       : existing
         ? await ctx.db.get(existing.userId)
         : null;
-    if (!user) throw new Error("Subscription does not match a TypeAside account");
+    if (!user) return;
     if (user.dodoCustomerId !== args.customerId)
       await ctx.db.patch(user._id, { dodoCustomerId: args.customerId });
     const fields = {

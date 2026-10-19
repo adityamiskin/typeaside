@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::{
     io::{BufRead, BufReader, Read, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
@@ -157,9 +157,7 @@ fn receive_callback(
         };
         stream.set_nonblocking(false)?;
         stream.set_read_timeout(Some(Duration::from_secs(1)))?;
-        let mut line = String::new();
-        let _ = BufReader::new(&stream).take(8192).read_line(&mut line);
-        let token = callback_token(&line, state);
+        let token = read_callback_body(&stream).and_then(|body| callback_token(&body, state));
         let (status, body) = match token {
             Some(_) => ("200 OK", CONNECTED_PAGE),
             None => ("404 Not Found", "Not found"),
@@ -176,19 +174,55 @@ fn receive_callback(
     bail!("Sign in timed out")
 }
 
+const FORM_TYPE: &str = "application/x-www-form-urlencoded";
+const MAX_REQUEST_BYTES: u64 = 8192;
+const MAX_BODY_BYTES: usize = 1024;
 const CONNECTED_PAGE: &str = "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f9f9f8;color:#16171a;font-family:Inter,system-ui,sans-serif}</style><p>TypeAside is connected. You can close this tab.</p>";
 
-fn callback_token(request_line: &str, state: &str) -> Option<String> {
-    let target = request_line
-        .strip_prefix("GET /callback?")?
-        .split(' ')
-        .next()?;
-    let url = reqwest::Url::parse(&format!("http://localhost/callback?{target}")).ok()?;
+// Only a form POST to /callback carries the token, so it never lands in browser history.
+fn read_callback_body(stream: &TcpStream) -> Option<String> {
+    let mut reader = BufReader::new(Read::take(stream, MAX_REQUEST_BYTES));
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+    if line.trim_end() != "POST /callback HTTP/1.1" {
+        return None;
+    }
+    let (mut length, mut form) = (None, false);
+    loop {
+        line.clear();
+        reader.read_line(&mut line).ok()?;
+        let header = line.trim_end();
+        if header.is_empty() {
+            break;
+        }
+        let (name, value) = header.split_once(':')?;
+        let value = value.trim();
+        match name.to_ascii_lowercase().as_str() {
+            "content-length" => length = value.parse::<usize>().ok(),
+            "content-type" => {
+                form = value
+                    .split(';')
+                    .next()
+                    .is_some_and(|kind| kind.trim().eq_ignore_ascii_case(FORM_TYPE));
+            }
+            _ => {}
+        }
+    }
+    let length = length.filter(|&length| form && length <= MAX_BODY_BYTES)?;
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body).ok()?;
+    String::from_utf8(body).ok()
+}
+
+fn callback_token(body: &str, state: &str) -> Option<String> {
     let (mut states, mut tokens) = (Vec::new(), Vec::new());
-    for (key, value) in url.query_pairs() {
+    for (key, value) in reqwest::Url::parse(&format!("http://localhost/?{body}"))
+        .ok()?
+        .query_pairs()
+    {
         match &*key {
-            "state" => states.push(value),
-            "token" => tokens.push(value),
+            "state" => states.push(value.into_owned()),
+            "token" => tokens.push(value.into_owned()),
             _ => {}
         }
     }
@@ -207,11 +241,23 @@ fn callback_token(request_line: &str, state: &str) -> Option<String> {
 #[cfg(test)]
 mod wrong_state_malformed_token_other_paths_valid_callback_and_timeout {
     use super::*;
-    use std::{
-        io::{Read, Write},
-        net::TcpStream,
-        thread,
-    };
+    use std::{io::Read, net::TcpStream, thread};
+
+    fn request(method: &str, path: &str, content_type: &str, body: &str) -> String {
+        format!(
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn post(address: std::net::SocketAddr, request: &str) -> Result<String> {
+        let mut stream = TcpStream::connect(address)?;
+        stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+        stream.write_all(request.as_bytes())?;
+        let mut response = String::new();
+        stream.read_to_string(&mut response)?;
+        Ok(response)
+    }
 
     #[test]
     fn rejects_invalid_requests_and_keeps_waiting_until_valid_callback() -> Result<()> {
@@ -226,25 +272,61 @@ mod wrong_state_malformed_token_other_paths_valid_callback_and_timeout {
             )
         });
         let token = format!("hm_{}", "a".repeat(43));
-        for path in [
-            format!("/callback?state=wrong&token={token}"),
-            "/callback?state=expected&token=hm_short".into(),
-            "/favicon.ico".into(),
-            format!("/other?state=expected&token={token}"),
-            format!("/callback?state=expected&token={token}"),
+        let valid_body = format!("state=expected&token={token}");
+        let form = "application/x-www-form-urlencoded";
+        for (request, ok) in [
+            (
+                request(
+                    "POST",
+                    "/callback",
+                    form,
+                    &format!("state=wrong&token={token}"),
+                ),
+                false,
+            ),
+            (
+                request("POST", "/callback", form, "state=expected&token=hm_short"),
+                false,
+            ),
+            (
+                request(
+                    "POST",
+                    "/callback",
+                    form,
+                    &format!("state=expected&state=expected&token={token}"),
+                ),
+                false,
+            ),
+            (
+                request(
+                    "POST",
+                    "/callback",
+                    form,
+                    &format!("state=expected&token={token}&token={token}"),
+                ),
+                false,
+            ),
+            (
+                request("POST", "/callback", "text/plain", &valid_body),
+                false,
+            ),
+            (request("POST", "/other", form, &valid_body), false),
+            (
+                request("POST", "/callback?state=expected", form, &valid_body),
+                false,
+            ),
+            (request("GET", "/callback", form, &valid_body), false),
+            (
+                format!("GET /callback?{valid_body} HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+                false,
+            ),
+            (request("POST", "/callback", form, &valid_body), true),
         ] {
-            let mut stream = TcpStream::connect(address)?;
-            stream.set_read_timeout(Some(Duration::from_secs(3)))?;
-            write!(stream, "GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n")?;
-            let mut response = String::new();
-            stream.read_to_string(&mut response)?;
-            assert!(response.starts_with(
-                if path.starts_with("/callback?state=expected&token=hm_aaa") {
-                    "HTTP/1.1 200"
-                } else {
-                    "HTTP/1.1 404"
-                }
-            ));
+            let response = post(address, &request)?;
+            assert!(
+                response.starts_with(if ok { "HTTP/1.1 200" } else { "HTTP/1.1 404" }),
+                "{request}"
+            );
         }
         assert_eq!(worker.join().expect("listener thread")?, token);
         Ok(())
@@ -268,11 +350,7 @@ mod wrong_state_malformed_token_other_paths_valid_callback_and_timeout {
     #[test]
     fn curl_connects_to_the_sign_in_listener() -> Result<()> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
-        let url = format!(
-            "http://{}/callback?state=curl&token=hm_{}",
-            listener.local_addr()?,
-            "b".repeat(43)
-        );
+        let url = format!("http://{}/callback", listener.local_addr()?);
         let worker = thread::spawn(move || {
             receive_callback(
                 listener,
@@ -288,6 +366,10 @@ mod wrong_state_malformed_token_other_paths_valid_callback_and_timeout {
                 "--fail",
                 "--max-time",
                 "2",
+                "--data-urlencode",
+                "state=curl",
+                "--data-urlencode",
+                &format!("token=hm_{}", "b".repeat(43)),
                 &url,
             ])
             .output()?;

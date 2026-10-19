@@ -26,6 +26,16 @@ export const pingFields = {
   latencyMs: v.number(),
 };
 
+export const rollupFields = {
+  day: v.number(),
+  activeInstalls: v.number(),
+  dictations: v.number(),
+  words: v.number(),
+  newUsers: v.number(),
+  activeUsers: v.number(),
+  hostedWords: v.number(),
+};
+
 export const settingsFields = {
   dictionary: v.array(v.string()),
   removedWords: v.array(v.string()),
@@ -50,7 +60,9 @@ export default defineSchema({
     version: v.optional(v.string()),
     os: v.optional(operatingSystem),
     createdAt: v.number(),
-  }).index("by_created_at", ["createdAt"]),
+  })
+    .index("by_created_at", ["createdAt"])
+    .index("by_user", ["userId"]),
   users: defineTable({
     subject: v.string(),
     email: v.optional(v.string()),
@@ -66,7 +78,8 @@ export default defineSchema({
     eventAt: v.number(),
   })
     .index("by_user", ["userId"])
-    .index("by_subscription", ["subscriptionId"]),
+    .index("by_subscription", ["subscriptionId"])
+    .index("by_status", ["status"]),
   desktopTokens: defineTable({
     userId: v.id("users"),
     hash: v.string(),
@@ -76,6 +89,7 @@ export default defineSchema({
   })
     .index("by_hash", ["hash"])
     .index("by_user", ["userId"]),
+  rollups: defineTable(rollupFields).index("by_day", ["day"]),
   daily: defineTable({ userId: v.id("users"), day: v.number(), words: v.number() })
     .index("by_user_day", ["userId", "day"])
     .index("by_day", ["day"]),

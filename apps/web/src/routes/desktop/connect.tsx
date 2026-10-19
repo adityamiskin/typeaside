@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { ConvexError } from "convex/values";
 import { useMutation, Authenticated, AuthLoading, Unauthenticated } from "convex/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@typeaside/backend/convex/_generated/api";
 import { Button } from "@typeaside/ui/components/button";
 import { auth } from "../../integrations/auth";
@@ -69,14 +70,26 @@ function ConnectContent({ port, state }: { port: number; state: string }) {
   const createToken = useMutation(api.desktop.createToken);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (token) form.current?.submit();
+  }, [token]);
   return (
     <main className="container page narrow">
+      {token && (
+        <form ref={form} method="post" action={`http://127.0.0.1:${port}/callback`}>
+          <input type="hidden" name="state" value={state} />
+          <input type="hidden" name="token" value={token} />
+        </form>
+      )}
       {connected ? (
         <p className="lead">Connected. You can close this tab.</p>
       ) : (
         <>
           <p className="connect-prompt">Connect TypeAside on this computer?</p>
+          <p>Sends your sign-in to the app listening on port {port}.</p>
           <div className="connect-actions">
             <Button
               disabled={busy}
@@ -84,16 +97,16 @@ function ConnectContent({ port, state }: { port: number; state: string }) {
                 setBusy(true);
                 setError(null);
                 try {
-                  const token = await createToken({
-                    name: detectOS(navigator.userAgent) ?? "Computer",
-                  });
-                  const callback = new URL(`http://127.0.0.1:${port}/callback`);
-                  callback.searchParams.set("state", state);
-                  callback.searchParams.set("token", token);
+                  setToken(
+                    await createToken({ name: detectOS(navigator.userAgent) ?? "Computer" }),
+                  );
                   setConnected(true);
-                  window.location.assign(callback.href);
-                } catch {
-                  setError("Could not connect. Please try again.");
+                } catch (cause) {
+                  setError(
+                    cause instanceof ConvexError && typeof cause.data === "string"
+                      ? cause.data
+                      : "Could not connect. Please try again.",
+                  );
                   setBusy(false);
                 }
               }}

@@ -71,7 +71,7 @@ export function CheckoutButton({
           setError(null);
           try {
             const result = await checkout({ interval });
-            window.location.assign(result.checkout_url);
+            window.location.assign(result.url);
           } catch {
             setError("Checkout is unavailable. Please try again.");
             setBusy(false);

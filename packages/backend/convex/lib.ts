@@ -1,5 +1,6 @@
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { addToRollup } from "./rollups";
 
 export const FREE_WEEKLY_WORDS = 2000;
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -43,6 +44,7 @@ export async function ensureUser(ctx: MutationCtx, profile?: { email: string; na
     return { ...existing, ...updates };
   }
   const id = await ctx.db.insert("users", fields);
+  await addToRollup(ctx, dayStart(), { newUsers: 1 });
   return { _id: id, ...fields, dodoCustomerId: undefined };
 }
 export async function userForIdentity(ctx: QueryCtx) {
