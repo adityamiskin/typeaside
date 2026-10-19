@@ -9,7 +9,7 @@
       "env": {
         "EXPO_PUBLIC_CONVEX_URL": "https://doting-rhinoceros-418.convex.cloud",
         "EXPO_PUBLIC_API_URL": "https://api.typeaside.app",
-        "EXPO_PUBLIC_WORKOS_CLIENT_ID": "PENDING_PRODUCTION_CLIENT_ID"
+        "EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01M50AEXHXQ891KPGBSZ8W7ZYQ"
       }
     },
     "development": {

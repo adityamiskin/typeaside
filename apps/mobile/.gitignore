@@ -43,3 +43,7 @@ example
 /android
 
 .env
+
+# Continuous Native Generation
+/ios
+/android
