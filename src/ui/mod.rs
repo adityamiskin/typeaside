@@ -404,8 +404,6 @@ fn start_ui(
         })
         .detach();
     }
-    #[cfg(target_os = "linux")]
-    capture::prepare(&state, cx);
     let startup_config = state.read(cx).config.clone();
     let startup = cx.background_executor().spawn(async move {
         if is_demo {

@@ -68,16 +68,16 @@ revision, and uncommitted instrumentation patch.
 
 `results.json` also records process RSS in KiB at idle startup and after each
 closed capture. Compare the same harness on the base revision and changed
-revision; the startup difference includes the cost of warming the window and
-renderer. No host application memory or clipboard text is sampled.
+revision; capture windows are created on first use, so startup has no GPU cost.
+No host application memory or clipboard text is sampled.
 
 The second Shift release uses the guest kernel's evdev timestamp, bracketed by
 the driver's writes. First-visible timing ends after the first successful wgpu `frame.present`
 following a visible `Capture::render`, including layout and draw submission.
 Keyboard-focus timing ends at GPUI's activation notification from the real
 compositor keyboard-enter event, rather than the exclusive-focus request.
-The cold capture is the first capture of a fresh process, after its hidden
-startup priming and two seconds after the hotkey service is ready. Warm captures
+The cold capture is the first capture of a fresh process, which creates the
+retained window, two seconds after the hotkey service is ready. Warm captures
 reuse that process and injector. This is a
 rendered-frame submission measurement; physical scanout is not measured. Debug
 builds, lavapipe rendering, and VM filesystem/CPU overhead make these numbers
