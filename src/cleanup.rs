@@ -277,6 +277,7 @@ mod tests {
         let focused = |id: &str| FocusedApp {
             id: Some(id.into()),
             title: None,
+            name: None,
         };
         let sentence = " The user's formatting preference for this app (style only, never content to add): \"lowercase \\\"quoted\\\"\".";
         for translate in [false, true] {

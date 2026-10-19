@@ -16,8 +16,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod app_name;
+
 pub fn focused_app() -> Option<super::FocusedApp> {
-    focused_window().flatten()
+    focused_window().flatten().map(|mut app| {
+        app.name = app.id.as_deref().map(app_name::resolve);
+        app
+    })
 }
 
 pub fn has_focused_window() -> bool {
@@ -104,6 +109,7 @@ async fn query_atspi_focused_app() -> Result<Option<super::FocusedApp>> {
                     .ok()
                     .filter(|name| !name.is_empty()),
                 title: window.name().await.ok().filter(|name| !name.is_empty()),
+                name: None,
             }));
         }
     }
@@ -121,6 +127,8 @@ impl TextInjector {
             KeyCode::KEY_LEFTCTRL,
             KeyCode::KEY_LEFTSHIFT,
             KeyCode::KEY_V,
+            KeyCode::KEY_C,
+            KeyCode::KEY_INSERT,
             KeyCode::KEY_ENTER,
         ] {
             keys.insert(key);
@@ -157,30 +165,8 @@ impl TextInjector {
                 }
                 thread::sleep(Duration::from_millis(10));
             }
-            let terminal = app_id.is_some_and(|id| {
-                let id = id.to_ascii_lowercase();
-                matches!(id.as_str(), "org.gnome.terminal" | "org.gnome.console")
-                    || [
-                        "ghostty",
-                        "kitty",
-                        "foot",
-                        "alacritty",
-                        "wezterm",
-                        "konsole",
-                        "gnome-terminal",
-                        "gnome-terminal-server",
-                        "ptyxis",
-                        "kgx",
-                        "tilix",
-                        "terminator",
-                        "xfce4-terminal",
-                        "blackbox",
-                    ]
-                    .iter()
-                    .any(|name| id.split('.').any(|part| part == *name))
-            });
             let mut modifiers = vec![KeyCode::KEY_LEFTCTRL];
-            if terminal {
+            if app_id.is_some_and(is_terminal) {
                 modifiers.push(KeyCode::KEY_LEFTSHIFT);
             }
             self.combo(&modifiers, KeyCode::KEY_V)?;
@@ -273,6 +259,52 @@ pub fn set_clipboard(text: &str) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn selected_text() -> String {
+    fn copy_selection() -> Result<String> {
+        let mut injector = TextInjector::new()?;
+        let terminal = focused_window()
+            .flatten()
+            .and_then(|app| app.id)
+            .as_deref()
+            .is_some_and(is_terminal);
+        let previous = read_clipboard()?;
+        // None may be an image or password offer; leave it intact unless copying replaces it.
+        if previous.is_some() {
+            clear_clipboard()?;
+        }
+        let result = (|| {
+            if terminal {
+                injector.combo(
+                    &[KeyCode::KEY_LEFTCTRL, KeyCode::KEY_LEFTSHIFT],
+                    KeyCode::KEY_C,
+                )?;
+            } else {
+                injector.combo(&[KeyCode::KEY_LEFTCTRL], KeyCode::KEY_INSERT)?;
+            }
+            for _ in 0..30 {
+                thread::sleep(Duration::from_millis(10));
+                if let Some(text) = read_clipboard()? {
+                    return Ok(Some(text));
+                }
+            }
+            Ok(None)
+        })();
+        let restored = if let Some(previous) = previous {
+            set_clipboard(&previous)
+        } else if result.as_ref().is_ok_and(|text| text.is_some()) {
+            clear_clipboard()
+        } else {
+            Ok(())
+        };
+        result.and_then(|text| restored.map(|()| text.unwrap_or_default()))
+    }
+    copy_selection().unwrap_or_else(|error| {
+        eprintln!("typeaside: cannot copy selection: {error:#}");
+        String::new()
+    })
+}
+
+/// Held shortcuts would turn a simulated copy into a different chord, so these flows read PRIMARY.
 pub(crate) fn primary_selection() -> String {
     Command::new("timeout")
         .args([
@@ -289,4 +321,34 @@ pub(crate) fn primary_selection() -> String {
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .unwrap_or_default()
+}
+
+fn clear_clipboard() -> Result<()> {
+    if !Command::new("wl-copy").arg("--clear").status()?.success() {
+        bail!("cannot clear clipboard");
+    }
+    Ok(())
+}
+
+fn is_terminal(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    matches!(id.as_str(), "org.gnome.terminal" | "org.gnome.console")
+        || [
+            "ghostty",
+            "kitty",
+            "foot",
+            "alacritty",
+            "wezterm",
+            "konsole",
+            "gnome-terminal",
+            "gnome-terminal-server",
+            "ptyxis",
+            "kgx",
+            "tilix",
+            "terminator",
+            "xfce4-terminal",
+            "blackbox",
+        ]
+        .iter()
+        .any(|name| id.split('.').any(|part| part == *name))
 }

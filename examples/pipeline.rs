@@ -147,6 +147,7 @@ fn fixtures(generate: bool) -> Result<()> {
             Some(&FocusedApp {
                 id: Some("org.mozilla.Thunderbird".into()),
                 title: None,
+                name: None,
             }),
             if selection.is_some() {
                 Mode::Command
@@ -466,7 +467,11 @@ fn main() -> Result<()> {
     let output = pipeline::run(
         &config,
         &audio,
-        Some(&FocusedApp { id: app, title }),
+        Some(&FocusedApp {
+            id: app,
+            title,
+            name: None,
+        }),
         mode,
         text.as_deref().or(selection.as_deref()).unwrap_or_default(),
         &[],

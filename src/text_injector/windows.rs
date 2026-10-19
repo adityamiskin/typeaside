@@ -37,7 +37,14 @@ pub fn focused_app() -> Option<super::FocusedApp> {
                 .to_str()
                 .map(str::to_owned)
         })();
-        Some(super::FocusedApp { id, title })
+        let name = id.as_deref().map(|id| {
+            super::fallback_app_name(
+                id.rsplit_once('.')
+                    .filter(|(_, extension)| extension.eq_ignore_ascii_case("exe"))
+                    .map_or(id, |(stem, _)| stem),
+            )
+        });
+        Some(super::FocusedApp { id, title, name })
     }
 }
 

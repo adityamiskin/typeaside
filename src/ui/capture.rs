@@ -276,10 +276,7 @@ pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, 
         }
         if s.note_draft.is_empty() && !selection.trim().is_empty() {
             s.note_draft = format!("\"{}\"\n", selection.trim());
-            s.note_source = app.map(|app| match app.as_str() {
-                "firefox" | "org.mozilla.firefox" => "Firefox".into(),
-                _ => app,
-            });
+            s.note_source = app;
         }
         if s.is_demo
             && let Ok(text) = std::env::var("TYPEASIDE_DEMO_CAPTURE_TEXT")
