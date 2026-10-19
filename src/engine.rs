@@ -393,9 +393,9 @@ fn run(
         if events.is_closed() {
             break;
         }
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         crate::hotkeys::set_cancelable(
-            recorder.is_some() || busy.is_some() || reply_visible,
+            recorder.is_some() || reply_visible || (cfg!(target_os = "windows") && busy.is_some()),
             recorder.is_some(),
         );
         restoring.retain(|thread: &thread::JoinHandle<()>| !thread.is_finished());

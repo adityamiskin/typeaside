@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, ensure};
 use keyring_core::{Entry, Error};
 use std::{
     collections::HashMap,
@@ -21,14 +21,18 @@ fn entry(host: &str) -> Result<Entry> {
 }
 
 pub fn get_credential(host: &str) -> Result<Option<String>> {
-    if let Some(key) = cache().lock().expect("credential cache").get(host) {
+    if let Some(key) = cache()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(host)
+    {
         return Ok(Some(key.clone()));
     }
     match entry(host)?.get_password() {
         Ok(key) => {
             cache()
                 .lock()
-                .expect("credential cache")
+                .unwrap_or_else(|error| error.into_inner())
                 .insert(host.into(), key.clone());
             Ok(Some(key))
         }
@@ -43,17 +47,20 @@ pub fn save_credential(host: &str, key: &str) -> Result<()> {
         .with_context(|| format!("failed to save credential for {host}"))?;
     cache()
         .lock()
-        .expect("credential cache")
+        .unwrap_or_else(|error| error.into_inner())
         .insert(host.into(), key.into());
     Ok(())
 }
 
 pub fn endpoint_host(base_url: &str) -> Result<String> {
-    reqwest::Url::parse(base_url)
-        .context("invalid endpoint URL")?
-        .host_str()
-        .map(str::to_owned)
-        .context("endpoint has no host")
+    let url = reqwest::Url::parse(base_url).context("invalid endpoint URL")?;
+    let host = url.host_str().context("endpoint has no host")?;
+    ensure!(
+        url.scheme() == "https"
+            || (url.scheme() == "http" && matches!(host, "localhost" | "127.0.0.1" | "[::1]")),
+        "endpoint must use HTTPS (HTTP is allowed only for loopback hosts)"
+    );
+    Ok(host.to_owned())
 }
 
 pub(crate) fn endpoint_key(base_url: &str) -> Result<String> {
@@ -64,7 +71,8 @@ pub(crate) fn endpoint_key(base_url: &str) -> Result<String> {
     {
         return Ok(key.clone());
     }
-    if let Ok(key) = std::env::var("TYPEASIDE_API_KEY")
+    if host == "api.typeaside.app"
+        && let Ok(key) = std::env::var("TYPEASIDE_API_KEY")
         && !key.trim().is_empty()
     {
         return Ok(key);
@@ -93,6 +101,9 @@ pub fn delete_credential(host: &str) -> Result<()> {
         Ok(()) | Err(Error::NoEntry) => {}
         Err(error) => return Err(anyhow!("failed to delete credential for {host}: {error}")),
     }
-    cache().lock().expect("credential cache").remove(host);
+    cache()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(host);
     Ok(())
 }

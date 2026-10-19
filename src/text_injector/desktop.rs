@@ -132,6 +132,10 @@ impl SavedClipboard {
 }
 
 pub(crate) fn primary_selection() -> String {
+    #[cfg(target_os = "windows")]
+    if focused_app().is_some_and(|app| app.id.as_deref().is_some_and(is_terminal)) {
+        return String::new();
+    }
     fn copy_selection() -> Result<String> {
         let mut clipboard = Clipboard::new()?;
         let previous = SavedClipboard::read(&mut clipboard)?;
@@ -164,4 +168,30 @@ pub(crate) fn read_clipboard() -> Result<Option<String>> {
 pub fn set_clipboard(text: &str) -> Result<()> {
     Clipboard::new()?.set_text(text)?;
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn is_terminal(app_id: &str) -> bool {
+    let id = app_id.to_ascii_lowercase();
+    matches!(
+        id.strip_suffix(".exe").unwrap_or(&id),
+        "windowsterminal"
+            | "windowsterminalpreview"
+            | "wt"
+            | "conhost"
+            | "openconsole"
+            | "cmd"
+            | "powershell"
+            | "pwsh"
+            | "wezterm-gui"
+            | "alacritty"
+            | "mintty"
+            | "bash"
+            | "wsl"
+            | "ubuntu"
+            | "debian"
+            | "hyper"
+            | "tabby"
+            | "ghostty"
+    )
 }
