@@ -27,13 +27,27 @@ export function readContext(field: string): Context | null {
   return contextInput.safeParse(json).data ?? null;
 }
 
+// Matches the desktop's 20 MB file limit; the body allowance covers the multipart framing and context JSON.
+const MAX_AUDIO_BYTES = 20_000_000;
+const MAX_BODY_BYTES = MAX_AUDIO_BYTES + 256_000;
+const AUDIO_TYPE = /^(audio\/|video\/(mp4|mpeg|webm)(;|$))/u;
+
+export function withinBodyLimit(request: Request) {
+  const length = request.headers.get("Content-Length");
+  return length !== null && Number(length) <= MAX_BODY_BYTES;
+}
+
 export async function readInput(request: Request) {
   const form = await request.formData().catch(() => null);
   const field = form?.get("context");
   if (!form || typeof field !== "string") return null;
   const context = readContext(field);
   const audio = form.get("audio");
-  if (!context || (audio !== null && !(audio instanceof Blob && audio.size > 0))) return null;
+  if (!context) return null;
+  if (audio !== null) {
+    const valid = audio instanceof Blob && audio.size > 0 && audio.size <= MAX_AUDIO_BYTES;
+    if (!(valid && AUDIO_TYPE.test(audio.type))) return null;
+  }
   if ((audio === null) === (context.text === undefined)) return null;
   return { context, audio };
 }
@@ -88,6 +102,7 @@ function cleanupSystem(context: Context, translate: boolean) {
 const completionResponse = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1),
 });
+const LEAK_LENGTH = 12;
 const answerInput = z.object({ delivery: z.enum(["insert", "reply", "open"]), text: z.string() });
 type Answer = z.infer<typeof answerInput>;
 
@@ -145,6 +160,23 @@ async function cleanup(key: string, raw: string, context: Context) {
   }
 }
 
+// Selected text is untrusted, so an opened URL must not carry any of it out in its query string.
+function leaksSelection(url: URL, selection: string) {
+  const squash = (value: string) => value.replace(/\s+/gu, " ").trim().toLowerCase();
+  const plus = url.href.replaceAll("+", " ");
+  let decoded = plus;
+  try {
+    decoded = decodeURIComponent(plus);
+  } catch {
+    /* Malformed escapes are compared as written. */
+  }
+  const target = squash(decoded);
+  const chars = squash(selection);
+  for (let i = 0; i + LEAK_LENGTH <= chars.length; i++)
+    if (target.includes(chars.slice(i, i + LEAK_LENGTH))) return true;
+  return false;
+}
+
 async function command(key: string, instruction: string, selection: string): Promise<Answer> {
   const output = (
     await completion(
@@ -167,10 +199,10 @@ async function command(key: string, instruction: string, selection: string): Pro
   if (answer.delivery === "open") {
     try {
       const url = new URL(answer.text);
-      if (["http:", "https:", "mailto:"].includes(url.protocol))
+      if (["http:", "https:", "mailto:"].includes(url.protocol) && !leaksSelection(url, selection))
         return { delivery: "open", text: url.href };
     } catch {
-      /* Invalid navigation targets become plain replies. */
+      /* Invalid or selection-leaking navigation targets become plain replies. */
     }
     return { delivery: "reply", text: answer.text };
   }
