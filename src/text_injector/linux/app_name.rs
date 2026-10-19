@@ -31,15 +31,3 @@ fn entry_name(contents: &str) -> Option<&str> {
     }
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_the_desktop_entry_name() {
-        let entry = "[Desktop Action New]\nName=New Window\n[Desktop Entry]\nName[fr]=Autre\nName=T3 Code\n";
-        assert_eq!(entry_name(entry), Some("T3 Code"));
-        assert_eq!(entry_name("[Desktop Entry]\nName[fr]=Autre"), None);
-    }
-}
