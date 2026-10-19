@@ -8,7 +8,21 @@ import { Button } from "@typeaside/ui/components/button";
 import { Input } from "@typeaside/ui/components/input";
 import { Textarea } from "@typeaside/ui/components/textarea";
 import { Empty, EmptyTitle, EmptyDescription } from "@typeaside/ui/components/empty";
-import { Copy, Pin, Search, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Check,
+  Copy,
+  Palette,
+  Pin,
+  Search,
+  Square,
+  SquareCheck,
+  Trash2,
+} from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@typeaside/ui/components/popover";
+import { noteColors, type NoteColor } from "@typeaside/backend/convex/noteColors";
+import { labels, hashtagParts, checklistItem, toggleChecklist } from "../lib/notes";
 import { SignIn } from "../components/site";
 import { noindex } from "../lib/seo";
 
@@ -77,6 +91,8 @@ function KeyHints() {
 function NotesContent() {
   const notes = useQuery(api.notes.list);
   const save = useMutation(api.notes.save);
+  const [archive, setArchive] = useState(false);
+  const [label, setLabel] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -102,7 +118,13 @@ function NotesContent() {
     setBusy(true);
     setError("");
     try {
-      await save({ id: crypto.randomUUID(), text: draft, pinned: false });
+      await save({
+        id: crypto.randomUUID(),
+        text: draft,
+        pinned: false,
+        archived: false,
+        color: "none",
+      });
       setDraft("");
     } catch (cause) {
       reportError(cause);
@@ -111,14 +133,21 @@ function NotesContent() {
       setBusy(false);
     }
   }
+  const view = notes?.filter((note) => note.archived === archive) ?? [];
+  const counts = new Map<string, number>();
+  for (const note of view)
+    for (const name of labels(note.text)) counts.set(name, (counts.get(name) ?? 0) + 1);
+  const sortedLabels = [...counts].sort(([a, ac], [b, bc]) => bc - ac || a.localeCompare(b));
   const groups = new Map<string, Note[]>();
-  const matching =
-    notes?.filter((note) => note.text.toLocaleLowerCase().includes(search.toLocaleLowerCase())) ??
-    [];
-  const pinned = matching.filter((note) => note.pinned);
+  const matching = view.filter(
+    (note) =>
+      note.text.toLowerCase().includes(search.toLowerCase()) &&
+      (!label || labels(note.text).includes(label)),
+  );
+  const pinned = matching.filter((note) => !archive && note.pinned);
   if (pinned.length) groups.set("Pinned", pinned);
   for (const note of matching) {
-    if (note.pinned) continue;
+    if (!archive && note.pinned) continue;
     const label = dayLabel(note.createdAt);
     const group = groups.get(label);
     if (group) group.push(note);
@@ -128,7 +157,7 @@ function NotesContent() {
     <main className="notes-page">
       <div className="notes-heading">
         <h1>Notes</h1>
-        <span className="notes-count">{notes?.length ?? 0}</span>
+        <span className="notes-count">{view.length}</span>
         <label className="notes-search">
           <Search aria-hidden="true" />
           <Input
@@ -139,38 +168,71 @@ function NotesContent() {
           />
         </label>
       </div>
-      <div className="notes-composer">
-        <Textarea
-          aria-label="New note"
-          placeholder="Write a note…"
-          rows={1}
-          maxLength={20_000}
-          value={draft}
-          readOnly={busy}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => submitOnEnter(event, () => void createNote())}
-        />
-        <div className="notes-composer-footer" data-has-text={!!draft.trim()}>
-          <KeyHints />
-          {draft.trim() && (
-            <Button className="notes-save" disabled={busy} onClick={() => void createNote()}>
-              Save
-            </Button>
-          )}
-        </div>
+      <div className="notes-filters">
+        {sortedLabels.length > 0 && (
+          <>
+            <button data-selected={!label} onClick={() => setLabel(null)}>
+              All
+            </button>
+            {sortedLabels.map(([name]) => (
+              <button
+                key={name}
+                data-selected={label === name}
+                onClick={() => setLabel(label === name ? null : name)}
+              >
+                #{name}
+              </button>
+            ))}
+          </>
+        )}
+        <button
+          className="notes-archive"
+          data-selected={archive}
+          onClick={() => {
+            setArchive(!archive);
+            setLabel(null);
+          }}
+        >
+          <Archive />
+          Archive
+        </button>
       </div>
+      {!archive && (
+        <div className="notes-composer">
+          <Textarea
+            aria-label="New note"
+            placeholder="Write a note…"
+            rows={1}
+            maxLength={20_000}
+            value={draft}
+            readOnly={busy}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => submitOnEnter(event, () => void createNote())}
+          />
+          <div className="notes-composer-footer" data-has-text={!!draft.trim()}>
+            <KeyHints />
+            {draft.trim() && (
+              <Button className="notes-save" disabled={busy} onClick={() => void createNote()}>
+                Save
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
       {notes === undefined && <p>Loading…</p>}
-      {notes?.length === 0 && (
-        <Empty className="notes-empty">
-          <EmptyTitle>No notes yet</EmptyTitle>
-          <EmptyDescription>
-            Press Left Shift twice in the TypeAside app to write one, or type above.
-          </EmptyDescription>
+      {notes !== undefined && view.length === 0 && (
+        <Empty className="notes-empty" data-archive={archive}>
+          <EmptyTitle>{archive ? "No archived notes" : "No notes yet"}</EmptyTitle>
+          {!archive && (
+            <EmptyDescription>
+              Press Left Shift twice in the TypeAside app to write one, or type above.
+            </EmptyDescription>
+          )}
         </Empty>
       )}
       {[...groups].map(([label, items]) => (
@@ -206,20 +268,30 @@ function NoteRow({
   const [draft, setDraft] = useState(note.text);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
-  const [title, ...body] = note.text.split("\n");
-  async function commit(pinned = note.pinned) {
+  const [colorOpen, setColorOpen] = useState(false);
+  async function commit(
+    changes: Partial<Pick<Note, "pinned" | "archived" | "color" | "text">> = {},
+  ) {
     if (submitting.current) return;
     submitting.current = true;
     setBusy(true);
     try {
-      const text = editing ? draft : note.text;
+      const text = changes.text ?? (editing ? draft : note.text);
       if (!text.trim()) {
         await remove({ id: note.id });
         notify("Deleted");
-      } else if (text.trim() !== note.text || pinned !== note.pinned) {
-        await save({ id: note.id, text, pinned });
+      } else if (text.trim() !== note.text || Object.keys(changes).length > 0) {
+        await save({
+          id: note.id,
+          text,
+          pinned: note.pinned,
+          archived: note.archived,
+          color: note.color,
+          ...changes,
+        });
       }
       setEditing(false);
+      return true;
     } catch (cause) {
       reportError(cause);
     } finally {
@@ -238,18 +310,67 @@ function NoteRow({
     }
   }
   const actions = (
-    <div className="note-actions">
+    <div className="note-actions" onClick={(event) => event.stopPropagation()}>
+      {!note.archived && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="note-action"
+          aria-label={note.pinned ? "Unpin" : "Pin"}
+          title={note.pinned ? "Unpin" : "Pin"}
+          aria-pressed={note.pinned}
+          disabled={busy}
+          onClick={() => void commit({ pinned: !note.pinned })}
+        >
+          <Pin fill={note.pinned ? "currentColor" : "none"} />
+        </Button>
+      )}
+      <Popover open={colorOpen} onOpenChange={setColorOpen}>
+        <PopoverTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="note-action"
+              aria-label="Color"
+              title="Color"
+              disabled={busy}
+            />
+          }
+        >
+          <Palette />
+        </PopoverTrigger>
+        <PopoverContent className="note-colors" align="start" aria-label="Note color">
+          {noteColors.map((color) => (
+            <button
+              key={color}
+              aria-label={color}
+              aria-pressed={note.color === color}
+              disabled={busy}
+              style={{ background: noteTints[color] }}
+              onClick={() => {
+                setColorOpen(false);
+                void commit({ color });
+              }}
+            >
+              {note.color === color && <Check />}
+            </button>
+          ))}
+        </PopoverContent>
+      </Popover>
       <Button
         variant="ghost"
         size="icon"
         className="note-action"
-        aria-label={note.pinned ? "Unpin" : "Pin"}
-        title={note.pinned ? "Unpin" : "Pin"}
-        aria-pressed={note.pinned}
+        aria-label={note.archived ? "Unarchive" : "Archive"}
+        title={note.archived ? "Unarchive" : "Archive"}
         disabled={busy}
-        onClick={() => void commit(!note.pinned)}
+        onClick={async () => {
+          if (await commit({ archived: !note.archived, pinned: false }))
+            notify(note.archived ? "Restored" : "Archived");
+        }}
       >
-        <Pin fill={note.pinned ? "currentColor" : "none"} />
+        {note.archived ? <ArchiveRestore /> : <Archive />}
       </Button>
       <Button
         variant="ghost"
@@ -285,9 +406,12 @@ function NoteRow({
     <div
       className="note-row"
       data-editing={editing}
+      data-color-open={colorOpen}
+      style={{ "--note-tint": noteTints[note.color] } as React.CSSProperties}
       onMouseDown={(event) => {
         // Keep the empty composer's hints from collapsing before the row receives its click.
-        if (!editing) event.preventDefault();
+        if (!editing && !(event.target instanceof Element && event.target.closest(".note-actions")))
+          event.preventDefault();
       }}
       onBlur={(event) => {
         if (editing && !event.currentTarget.contains(event.relatedTarget)) void commit();
@@ -322,22 +446,15 @@ function NoteRow({
         </>
       ) : (
         <>
-          <button
-            className="note-text"
-            onClick={() => {
+          <NoteText
+            text={note.text}
+            busy={busy}
+            edit={() => {
               setDraft(note.text);
               setEditing(true);
             }}
-          >
-            {body.length ? (
-              <>
-                <span className="note-title">{title}</span>
-                <span className="note-body">{body.join("\n")}</span>
-              </>
-            ) : (
-              note.text
-            )}
-          </button>
+            toggle={(index) => void commit({ text: toggleChecklist(note.text, index) })}
+          />
           <time className="note-time" dateTime={new Date(note.createdAt).toISOString()}>
             {new Date(note.createdAt).toLocaleString(
               undefined,
@@ -349,6 +466,93 @@ function NoteRow({
           {actions}
         </>
       )}
+    </div>
+  );
+}
+
+const noteTints = {
+  none: "var(--bg)",
+  sky: "#e6effa",
+  lilac: "#efe7f5",
+  sage: "#e5f1e8",
+  sand: "#f6efdf",
+  rose: "#f8e6e6",
+} satisfies Record<NoteColor, string>;
+
+function Hashtags({ text }: { text: string }) {
+  return hashtagParts(text).map((part, index) =>
+    index % 2 ? (
+      <span className="note-hashtag" key={index}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+function NoteText({
+  text,
+  busy,
+  edit,
+  toggle,
+}: {
+  text: string;
+  busy: boolean;
+  edit: () => void;
+  toggle: (index: number) => void;
+}) {
+  const lines = text.split("\n");
+  const hasChecklist = lines.some((line) => checklistItem(line));
+  if (!hasChecklist)
+    return (
+      <button className="note-text" onClick={edit}>
+        {lines.length > 1 ? (
+          <>
+            <span className="note-title">
+              <Hashtags text={lines[0]!} />
+            </span>
+            <span className="note-body">
+              <Hashtags text={lines.slice(1).join("\n")} />
+            </span>
+          </>
+        ) : (
+          <Hashtags text={text} />
+        )}
+      </button>
+    );
+  let shown = 0;
+  const total = lines.filter((line) => checklistItem(line)).length;
+  return (
+    <div className="note-text" onClick={edit}>
+      {lines.map((line, index) => {
+        const item = checklistItem(line);
+        if (!item)
+          return (
+            <div key={index} className={index === 0 ? "note-title" : "note-plain-line"}>
+              <Hashtags text={line} />
+            </div>
+          );
+        if (++shown > 8) return null;
+        return (
+          <div className="note-checklist" key={index} data-checked={item.checked}>
+            <button
+              aria-label={item.checked ? "Uncheck item" : "Check item"}
+              disabled={busy}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggle(index);
+              }}
+            >
+              {item.checked ? <SquareCheck /> : <Square />}
+            </button>
+            <span>
+              <Hashtags text={item.text} />
+            </span>
+          </div>
+        );
+      })}
+      {total > 8 && <div className="note-more">+{total - 8} more</div>}
     </div>
   );
 }

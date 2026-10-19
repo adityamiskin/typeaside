@@ -53,6 +53,9 @@ pub struct MainWindow {
     pub note_search: Entity<InputState>,
     pub note_editor: Option<super::notes::Editor>,
     pub hovered_note: Option<String>,
+    pub note_label: Option<String>,
+    pub note_archive: bool,
+    pub note_color_menu: Option<String>,
     pub toast: Option<&'static str>,
     pub toast_task: Option<gpui::Task<()>>,
     pub history_tab: super::home::HistoryTab,
@@ -164,6 +167,9 @@ impl MainWindow {
             }),
             note_search: cx.new(|cx| InputState::new(window, cx).placeholder("Search notes")),
             note_editor: None,
+            note_label: None,
+            note_archive: false,
+            note_color_menu: None,
             hovered_note: (state.read(cx).is_demo && page == Page::Notes).then(|| "demo-1".into()),
             snippet_editor: None,
             toast: None,
@@ -676,6 +682,11 @@ impl Render for MainWindow {
         .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, w, cx| {
             if this.skip_intro(cx) {
                 cx.stop_propagation();
+                return;
+            }
+            if event.keystroke.key == "escape" && this.note_color_menu.take().is_some() {
+                cx.stop_propagation();
+                cx.notify();
                 return;
             }
             if this.capture.is_some() {

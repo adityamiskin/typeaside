@@ -308,15 +308,15 @@ pub fn notes() -> typeaside::notes::Store {
     }
     let today = Local::now().date_naive();
     let notes = [
-        ("Launch checklist\nPrivacy page mentions notes. Rate limit on /v1/notes. AUR release after the web deploy. Tell Leo about the Linux build.", 2, 10, 0, true),
+        ("Launch checklist #work\n- [ ] Review privacy page\n- [x] Check rate limits\n- [ ] Tell Leo about the Linux build.", 2, 10, 0, true),
         ("Call the bank about the card limit before Friday", 0, 14, 32, false),
         ("\"Convex rate limiter supports token buckets per key\"\ncheck this for the notes endpoint, maybe 120/min", 0, 14, 2, false),
-        ("Ideas for onboarding\nShow the shortcut on the first screen, not the third. Let people try a dictation before signing in.", 0, 11, 48, false),
+        ("Ideas for onboarding #idea\nShow the shortcut on the first screen, not the third. Let people try a dictation before signing in.", 0, 11, 48, false),
         ("Buy: oat milk, coffee filters, AA batteries", 0, 9, 15, false),
-        ("Ask Riya for the Figma file with the pricing page", 1, 18, 40, false),
+        ("Ask Riya for the Figma file with the pricing page #work", 1, 18, 40, false),
     ].into_iter().enumerate().map(|(i, (text, ago, h, m, pinned))| {
         let at = Local.from_local_datetime(&(today - chrono::Duration::days(ago)).and_hms_opt(h,m,0).unwrap()).earliest().unwrap().timestamp_millis();
-        typeaside::notes::Note { id: format!("demo-{i}"), text: text.into(), pinned, created_at: at, updated_at: at }
+        typeaside::notes::Note { id: format!("demo-{i}"), text: text.into(), pinned, archived: i == 5, color: if i == 0 { typeaside::notes::NoteColor::Sky } else { typeaside::notes::NoteColor::None }, created_at: at, updated_at: at }
     }).collect();
     typeaside::notes::Store {
         notes,

@@ -4,7 +4,9 @@ use gpui::{
     Window, div, prelude::*, px,
 };
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, TextareaState};
-use typeaside::notes::{Note, Op};
+use typeaside::notes::{
+    Note, NoteColor, Op, checklist_item, hashtag_ranges, labels, toggle_checklist,
+};
 
 impl AppState {
     pub fn change_note(&mut self, op: Op) -> bool {
@@ -94,7 +96,33 @@ pub fn hints(p: Palette) -> gpui::Div {
         )
 }
 
+fn hashtag_text(text: &str, p: Palette) -> gpui::StyledText {
+    gpui::StyledText::new(text.to_owned()).with_highlights(hashtag_ranges(text).into_iter().map(
+        |range| {
+            (
+                range,
+                gpui::HighlightStyle {
+                    color: Some(p.muted.opacity(1.)),
+                    fade_out: Some(1. - p.muted.a),
+                    ..Default::default()
+                },
+            )
+        },
+    ))
+}
+
 impl MainWindow {
+    fn put_note(&mut self, mut note: Note, cx: &mut Context<Self>) -> bool {
+        note.updated_at = chrono::Utc::now()
+            .timestamp_millis()
+            .max(note.updated_at + 1);
+        self.state.update(cx, |s, cx| {
+            let saved = s.change_note(Op::Put(note));
+            cx.notify();
+            saved
+        })
+    }
+
     pub fn bind_notes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.subscribe_in(
             &self.note_composer,
@@ -234,13 +262,95 @@ impl MainWindow {
                     .child(self.note_composer.clone()),
             )
             .when(focused, |row| row.child(hints(p).mt(px(8.))));
-        rows.push(composer.into_any_element());
-        let query = self.note_search.read(cx).value().to_lowercase();
-        let mut notes: Vec<_> = state
+        let view: Vec<_> = state
             .notes
             .notes
             .iter()
-            .filter(|note| note.text.to_lowercase().contains(&query))
+            .filter(|note| note.archived == self.note_archive)
+            .collect();
+        let mut counts = std::collections::BTreeMap::<String, usize>::new();
+        for note in &view {
+            for label in labels(&note.text) {
+                *counts.entry(label).or_default() += 1;
+            }
+        }
+        let mut counts: Vec<_> = counts.into_iter().collect();
+        counts.sort_by(|(a, ac), (b, bc)| bc.cmp(ac).then(a.cmp(b)));
+        let filter = |name: String, label: Option<String>| {
+            let selected = self.note_label == label;
+            div()
+                .id(gpui::SharedString::from(format!("label-{name}")))
+                .cursor_pointer()
+                .text_color(if selected { p.fg } else { p.faint })
+                .when(selected, |el| el.font_weight(FontWeight::MEDIUM))
+                .hover(|el| el.text_color(if selected { p.fg } else { p.muted }))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.save_note(cx);
+                    this.note_label = if this.note_label == label {
+                        None
+                    } else {
+                        label.clone()
+                    };
+                    cx.notify();
+                }))
+                .child(name)
+        };
+        rows.push(
+            div()
+                .flex()
+                .items_center()
+                .h(px(28.))
+                .text_size(px(13.))
+                .gap(px(14.))
+                .mb(px(12.))
+                .when(!counts.is_empty(), |row| {
+                    row.child(filter("All".into(), None)).children(
+                        counts
+                            .iter()
+                            .map(|(name, _)| filter(format!("#{name}"), Some(name.clone()))),
+                    )
+                })
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .id("archive-filter")
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .cursor_pointer()
+                        .text_color(if self.note_archive { p.fg } else { p.faint })
+                        .when(self.note_archive, |el| el.font_weight(FontWeight::MEDIUM))
+                        .hover(|el| el.text_color(if self.note_archive { p.fg } else { p.muted }))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.save_note(cx);
+                            this.note_archive = !this.note_archive;
+                            this.note_label = None;
+                            this.note_color_menu = None;
+                            cx.notify();
+                        }))
+                        .child(
+                            gpui_kit::component::Icon::default()
+                                .path("icons/archive.svg")
+                                .size(px(13.)),
+                        )
+                        .child("Archive"),
+                )
+                .into_any_element(),
+        );
+        if !self.note_archive {
+            rows.push(composer.into_any_element());
+        }
+        let query = self.note_search.read(cx).value().to_lowercase();
+        let mut notes: Vec<_> = view
+            .iter()
+            .copied()
+            .filter(|note| {
+                note.text.to_lowercase().contains(&query)
+                    && self
+                        .note_label
+                        .as_ref()
+                        .is_none_or(|label| labels(&note.text).contains(label))
+            })
             .collect();
         notes.sort_by_key(|note| (!note.pinned, std::cmp::Reverse(note.created_at)));
         let mut previous = None;
@@ -250,7 +360,7 @@ impl MainWindow {
             else {
                 continue;
             };
-            let group = if note.pinned {
+            let group = if note.pinned && !self.note_archive {
                 "Pinned".to_owned()
             } else {
                 super::home::day_label(at)
@@ -265,7 +375,7 @@ impl MainWindow {
                         .gap(px(6.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_size(px(12.))
-                        .when(note.pinned, |row| {
+                        .when(note.pinned && !self.note_archive, |row| {
                             row.child(
                                 gpui_kit::component::Icon::default()
                                     .path("icons/pin.svg")
@@ -320,80 +430,251 @@ impl MainWindow {
                 );
                 continue;
             }
-            let hovered = self.hovered_note.as_deref() == Some(&note.id);
+            let hovered = self.hovered_note.as_deref() == Some(&note.id)
+                || self.note_color_menu.as_deref() == Some(&note.id);
             let mut text = div().flex_1().min_w_0();
-            if let Some((title, more)) = note.text.split_once('\n') {
+            let lines: Vec<_> = note.text.split('\n').collect();
+            if lines.iter().any(|line| checklist_item(line).is_some()) {
+                let mut shown = 0;
+                let total = lines
+                    .iter()
+                    .filter(|line| checklist_item(line).is_some())
+                    .count();
+                for (line_index, line) in lines.iter().enumerate() {
+                    if let Some((checked, item)) = checklist_item(line) {
+                        shown += 1;
+                        if shown > 8 {
+                            continue;
+                        }
+                        let note = note.clone();
+                        text = text.child(
+                            div()
+                                .flex()
+                                .items_start()
+                                .gap(px(8.))
+                                .child(
+                                    div()
+                                        .id(("check", line_index))
+                                        .cursor_pointer()
+                                        .h(px(21.))
+                                        .flex()
+                                        .items_center()
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            let mut note = note.clone();
+                                            note.text = toggle_checklist(&note.text, line_index);
+                                            this.put_note(note, cx);
+                                        }))
+                                        .child(
+                                            gpui_kit::component::Icon::default()
+                                                .path(if checked {
+                                                    "icons/square-check.svg"
+                                                } else {
+                                                    "icons/square.svg"
+                                                })
+                                                .size(px(14.))
+                                                .text_color(if checked {
+                                                    p.muted
+                                                } else {
+                                                    p.faint
+                                                }),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_color(if checked { p.muted } else { p.fg })
+                                        .when(checked, |el| el.line_through())
+                                        .child(hashtag_text(item, p)),
+                                ),
+                        );
+                    } else {
+                        text = text.child(
+                            div()
+                                .when(line_index == 0, |el| el.font_weight(FontWeight::MEDIUM))
+                                .when(line_index > 0, |el| el.text_color(p.muted))
+                                .child(hashtag_text(line, p)),
+                        );
+                    }
+                }
+                if total > 8 {
+                    text = text.child(
+                        div()
+                            .text_color(p.faint)
+                            .child(format!("+{} more", total - 8)),
+                    );
+                }
+            } else if let Some((title, more)) = note.text.split_once('\n') {
                 text = text
                     .child(
                         div()
                             .font_weight(FontWeight::MEDIUM)
-                            .child(title.to_owned()),
+                            .child(hashtag_text(title, p)),
                     )
                     .child(
                         div()
                             .text_color(p.muted)
                             .line_clamp(3)
-                            .child(more.to_owned()),
+                            .child(hashtag_text(more, p)),
                     );
             } else {
-                text = text.child(note.text.clone());
+                text = text.child(hashtag_text(&note.text, p));
             }
-            let actions = div().flex().gap(px(2.)).mt(px(-4.)).mb(px(-4.)).children(
-                [
-                    (
-                        "pin",
-                        if note.pinned {
-                            "icons/pin-filled.svg"
-                        } else {
-                            "icons/pin.svg"
-                        },
-                        if note.pinned { "Unpin" } else { "Pin" },
-                    ),
-                    ("copy", "icons/copy.svg", "Copy"),
-                    ("delete", "icons/trash.svg", "Delete"),
-                ]
-                .into_iter()
-                .map(|(action, icon, label)| {
-                    let note = note.clone();
-                    history_button(
-                        (action, index),
-                        icon,
-                        label,
-                        action == "pin" && note.pinned,
-                        cx,
-                    )
-                    .size(px(26.))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        match action {
-                            "copy" => {
-                                cx.write_to_clipboard(ClipboardItem::new_string(note.text.clone()));
-                                this.show_toast("Copied", cx);
-                            }
-                            "pin" => {
-                                let mut note = note.clone();
-                                note.pinned = !note.pinned;
-                                note.updated_at = chrono::Utc::now()
-                                    .timestamp_millis()
-                                    .max(note.updated_at + 1);
-                                this.state.update(cx, |s, cx| {
-                                    s.change_note(Op::Put(note));
-                                    cx.notify();
-                                });
-                            }
-                            _ => {
-                                if this.state.update(cx, |s, cx| {
-                                    let saved = s.change_note(Op::Delete(note.id.clone()));
-                                    cx.notify();
-                                    saved
-                                }) {
-                                    this.show_toast("Deleted", cx);
+            let actions = div()
+                .flex()
+                .w(px(138.))
+                .flex_shrink_0()
+                .justify_end()
+                .gap(px(2.))
+                .mt(px(-4.))
+                .mb(px(-4.))
+                .children(
+                    [
+                        (
+                            "pin",
+                            if note.pinned {
+                                "icons/pin-filled.svg"
+                            } else {
+                                "icons/pin.svg"
+                            },
+                            if note.pinned { "Unpin" } else { "Pin" },
+                        ),
+                        ("color", "icons/palette.svg", "Color"),
+                        (
+                            "archive",
+                            if note.archived {
+                                "icons/archive-restore.svg"
+                            } else {
+                                "icons/archive.svg"
+                            },
+                            if note.archived {
+                                "Unarchive"
+                            } else {
+                                "Archive"
+                            },
+                        ),
+                        ("copy", "icons/copy.svg", "Copy"),
+                        ("delete", "icons/trash.svg", "Delete"),
+                    ]
+                    .into_iter()
+                    .filter(|(action, _, _)| *action != "pin" || !note.archived)
+                    .map(|(action, icon, label)| {
+                        let note = note.clone();
+                        let action_note = note.clone();
+                        let button = history_button(
+                            (action, index),
+                            icon,
+                            label,
+                            action == "pin" && note.pinned,
+                            cx,
+                        )
+                        .size(px(26.))
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                let note = &action_note;
+                                match action {
+                                    "copy" => {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            note.text.clone(),
+                                        ));
+                                        this.show_toast("Copied", cx);
+                                    }
+                                    "pin" => {
+                                        let mut note = note.clone();
+                                        note.pinned = !note.pinned;
+                                        this.put_note(note, cx);
+                                    }
+                                    "color" => {
+                                        this.note_color_menu = Some(note.id.clone());
+                                        this.focus.focus(window, cx);
+                                        cx.notify();
+                                    }
+                                    "archive" => {
+                                        let mut note = note.clone();
+                                        note.archived = !note.archived;
+                                        note.pinned = false;
+                                        let message = if note.archived {
+                                            "Archived"
+                                        } else {
+                                            "Restored"
+                                        };
+                                        if this.put_note(note, cx) {
+                                            this.show_toast(message, cx);
+                                        }
+                                    }
+                                    _ => {
+                                        if this.state.update(cx, |s, cx| {
+                                            let saved = s.change_note(Op::Delete(note.id.clone()));
+                                            cx.notify();
+                                            saved
+                                        }) {
+                                            this.show_toast("Deleted", cx);
+                                        }
+                                    }
                                 }
-                            }
+                            },
+                        ));
+                        let mut wrapper = div().relative().child(button);
+                        if action == "color" && self.note_color_menu.as_deref() == Some(&note.id) {
+                            let swatches =
+                                NoteColor::ALL.into_iter().enumerate().map(|(i, color)| {
+                                    let note = note.clone();
+                                    let selected = note.color == color;
+                                    div()
+                                        .id(("swatch", i))
+                                        .size(px(18.))
+                                        .rounded_full()
+                                        .bg(p.note_tint(color))
+                                        .border_1()
+                                        .border_color(p.border)
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            let mut note = note.clone();
+                                            note.color = color;
+                                            this.put_note(note, cx);
+                                            this.note_color_menu = None;
+                                            cx.notify();
+                                        }))
+                                        .when(selected, |el| {
+                                            el.child(
+                                                gpui_kit::component::Icon::default()
+                                                    .path("icons/check.svg")
+                                                    .size(px(12.))
+                                                    .text_color(p.fg),
+                                            )
+                                        })
+                                });
+                            wrapper = wrapper.child(
+                                gpui::deferred(
+                                    gpui::anchored().offset(gpui::point(px(0.), px(4.))).child(
+                                        div()
+                                            .id("note-colors")
+                                            .flex()
+                                            .gap(px(6.))
+                                            .p(px(6.))
+                                            .rounded(px(8.))
+                                            .bg(p.panel)
+                                            .border_1()
+                                            .border_color(p.border)
+                                            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                                this.note_color_menu = None;
+                                                cx.notify();
+                                            }))
+                                            .children(swatches),
+                                    ),
+                                )
+                                .with_priority(1),
+                            );
                         }
-                    }))
-                }),
-            );
+                        wrapper
+                    }),
+                );
             let note = note.clone();
             let pinned = note.pinned;
             let id = note.id.clone();
@@ -407,7 +688,15 @@ impl MainWindow {
                     .mx(px(-8.))
                     .py(px(8.))
                     .rounded(px(6.))
-                    .when(hovered, |row| row.bg(p.hover))
+                    .bg(if hovered {
+                        if note.color == NoteColor::None {
+                            p.hover
+                        } else {
+                            p.note_tint(note.color).blend(p.hover.opacity(0.2))
+                        }
+                    } else {
+                        p.note_tint(note.color)
+                    })
                     .on_hover(cx.listener(move |this, hovered, _, cx| {
                         if *hovered {
                             this.hovered_note = Some(id.clone());
@@ -424,7 +713,7 @@ impl MainWindow {
                         actions.into_any_element()
                     } else {
                         div()
-                            .w(px(64.))
+                            .w(px(138.))
                             .flex_shrink_0()
                             .text_right()
                             .font_family(MONO)
@@ -443,7 +732,7 @@ impl MainWindow {
                     .into_any_element(),
             );
         }
-        if state.notes.notes.is_empty() {
+        if view.is_empty() {
             rows.push(
                 div()
                     .py(px(56.))
@@ -455,18 +744,24 @@ impl MainWindow {
                             .text_color(p.fg)
                             .text_size(px(14.))
                             .mb(px(4.))
-                            .child("No notes yet"),
+                            .child(if self.note_archive {
+                                "No archived notes"
+                            } else {
+                                "No notes yet"
+                            }),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_center()
-                            .items_center()
-                            .gap(px(5.))
-                            .child("Press")
-                            .child(kbd("LEFTSHIFT", p))
-                            .child("twice anywhere to write one."),
-                    )
+                    .when(!self.note_archive, |el| {
+                        el.child(
+                            div()
+                                .flex()
+                                .justify_center()
+                                .items_center()
+                                .gap(px(5.))
+                                .child("Press")
+                                .child(kbd("LEFTSHIFT", p))
+                                .child("twice anywhere to write one."),
+                        )
+                    })
                     .into_any_element(),
             );
         }
@@ -478,7 +773,7 @@ impl MainWindow {
                         .ml(px(-8.))
                         .text_size(px(13.))
                         .text_color(p.faint)
-                        .child(state.notes.notes.len().to_string()),
+                        .child(view.len().to_string()),
                 )
                 .child(div().flex_1())
                 .child(

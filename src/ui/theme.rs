@@ -53,6 +53,19 @@ pub struct Palette {
 impl Global for Palette {}
 
 impl Palette {
+    pub fn note_tint(self, color: typeaside::notes::NoteColor) -> Hsla {
+        use typeaside::notes::NoteColor;
+        let dark = self.mode == ThemeMode::Dark;
+        match color {
+            NoteColor::None => self.bg,
+            NoteColor::Sky => rgb(if dark { 0x1c2533 } else { 0xe6effa }).into(),
+            NoteColor::Lilac => rgb(if dark { 0x282133 } else { 0xefe7f5 }).into(),
+            NoteColor::Sage => rgb(if dark { 0x1c2a22 } else { 0xe5f1e8 }).into(),
+            NoteColor::Sand => rgb(if dark { 0x2d281d } else { 0xf6efdf }).into(),
+            NoteColor::Rose => rgb(if dark { 0x2e1f22 } else { 0xf8e6e6 }).into(),
+        }
+    }
+
     pub fn dark() -> Self {
         let fg: Hsla = rgb(0xf2f2f1).into();
         Self {
