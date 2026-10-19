@@ -24,7 +24,8 @@ gpui_kit::assets::icon_assets!(
         Trash,
         ChevronUp,
         ChevronDown,
-        RotateCw
+        RotateCw,
+        X
     ]
 );
 

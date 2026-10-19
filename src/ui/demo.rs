@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant, SystemTime};
 use typeaside::{
-    config::{AppConfig, Snippet},
+    config::{AppConfig, AppInstruction, Snippet},
     engine::{Dictation, Event, FailedRecording, Mode, Phase},
 };
 
@@ -49,6 +49,20 @@ pub fn config() -> AppConfig {
             text: text.into(),
         })
         .collect(),
+        app_instructions: if std::env::var("TYPEASIDE_DEMO_APPS").as_deref() == Ok("none") {
+            Vec::new()
+        } else {
+            [
+                ("slack", "lowercase, no trailing period"),
+                ("thunderbird", "sign off with just my first name"),
+            ]
+            .into_iter()
+            .map(|(app, text)| AppInstruction {
+                app: app.into(),
+                text: text.into(),
+            })
+            .collect()
+        },
         ..Default::default()
     }
 }
