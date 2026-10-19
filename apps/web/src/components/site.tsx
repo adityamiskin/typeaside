@@ -8,6 +8,7 @@ import {
   SheetDescription,
   SheetClose,
 } from "@typeaside/ui/components/sheet";
+import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
 import { auth } from "../integrations/auth";
 import { useOS } from "../lib/downloads";
@@ -43,28 +44,35 @@ export function Logo({ size }: { size?: number } = {}) {
 }
 export function Header() {
   const isNotes = useRouterState({ select: (state) => state.location.pathname === "/notes" });
+  const [condensed, setCondensed] = useState(false);
+  useEffect(() => {
+    const update = () => setCondensed(window.scrollY > 80);
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    return () => window.removeEventListener("scroll", update);
+  }, []);
   const { viewer } = useRouteContext({ from: "__root__" });
   const accountLink = {
     label: viewer ? "Account" : "Sign in",
     href: viewer ? "/account" : auth.signInHref("/account"),
   };
+  const navLinks = [
+    ...links.slice(0, 2),
+    { label: "Notes", href: viewer ? "/notes" : "/features/notes" },
+    ...links.slice(2),
+  ];
   return (
-    <header className="site-header wrap" data-notes={isNotes}>
+    <header className={`site-header wrap ${condensed ? "condensed" : ""}`} data-notes={isNotes}>
       <nav className="nav" aria-label="Main navigation">
         <a href="/" className="logo">
           <Logo />
           TypeAside
         </a>
-        {links.map((link) => (
+        {navLinks.map((link) => (
           <a className="link opt" key={link.label} href={link.href}>
             {link.label}
           </a>
         ))}
-        {viewer && (
-          <a className="link opt" href="/notes" aria-current={isNotes ? "page" : undefined}>
-            Notes
-          </a>
-        )}
         <a className="link" href={accountLink.href}>
           {accountLink.label}
         </a>
@@ -84,9 +92,8 @@ export function Header() {
             <SheetTitle className="logo">TypeAside</SheetTitle>
             <SheetDescription className="sr-only">Site navigation</SheetDescription>
             {[
-              ...links,
+              ...navLinks,
               { label: "Download", href: "/download" },
-              ...(viewer ? [{ label: "Notes", href: "/notes" }] : []),
               accountLink,
             ].map((link) => (
               <SheetClose nativeButton={false} key={link.label} render={<a href={link.href} />}>
@@ -110,21 +117,24 @@ export function DownloadButton() {
 export function Footer() {
   return (
     <footer className="wrap">
-      <nav className="foot-links" aria-label="Footer navigation">
-        {[
-          { label: "Docs", href: "/docs" },
-          { label: "Download", href: "/download" },
-          { label: "Pricing", href: "/#pricing" },
-          { label: "Account", href: "/account" },
-          { label: "Feedback", href: "/feedback" },
-          { label: "Privacy", href: "/privacy" },
-          { label: "Terms", href: "/terms" },
-        ].map((link) => (
-          <a key={link.label} href={link.href}>
-            {link.label}
-          </a>
-        ))}
-        <span>Made for people who think out loud</span>
+      <nav className="footer-columns" aria-label="Footer navigation">
+        <div className="footer-brand">
+          <b>TypeAside</b>
+          <p>Voice dictation and quick notes for Linux, macOS and Windows.</p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <a href="/download">Download</a>
+          <a href="/features/notes">Notes</a>
+          <a href="/#pricing">Pricing</a>
+        </div>
+        <div>
+          <h4>Resources</h4>
+          <a href="/docs">Docs</a>
+          <a href="/feedback">Feedback</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
       </nav>
       <div className="wordmark" aria-hidden="true">
         TypeAside

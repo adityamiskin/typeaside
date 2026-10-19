@@ -17,7 +17,9 @@ export function AppMarquee() {
     const element = marquee.current;
     if (!element) return;
     const observer = new IntersectionObserver(([entry]) => {
-      element.classList.toggle("in-view", entry.isIntersecting);
+      if (!entry.isIntersecting) return;
+      element.classList.add("in-view");
+      observer.disconnect();
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -63,43 +65,20 @@ export function LandingApps() {
     const element = section.current;
     if (!element) return;
     const media = matchMedia("(prefers-reduced-motion: reduce)");
-    let frame = 0;
-    let near = false;
-    const update = () => {
-      frame = 0;
-      const rect = element.getBoundingClientRect();
-      const progress = (window.innerHeight - rect.top) / (window.innerHeight + rect.height);
-      setIndex(Math.max(0, Math.min(words.length - 1, Math.floor(progress * words.length))));
-    };
-    const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(update);
-    };
-    const sync = () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-      cancelAnimationFrame(frame);
-      frame = 0;
-      if (near && !media.matches) {
-        window.addEventListener("scroll", onScroll, { passive: true });
-        window.addEventListener("resize", onScroll);
-        onScroll();
-      }
-    };
+    const timers: ReturnType<typeof setTimeout>[] = [];
     const observer = new IntersectionObserver(
       ([entry]) => {
-        near = entry.isIntersecting;
-        sync();
+        if (!entry.isIntersecting) return;
+        observer.disconnect();
+        if (media.matches) return;
+        words.forEach((_, i) => timers.push(setTimeout(() => setIndex(i), i * 650)));
       },
-      { rootMargin: "200px" },
+      { threshold: 0.3 },
     );
     observer.observe(element);
-    media.addEventListener("change", sync);
     return () => {
       observer.disconnect();
-      media.removeEventListener("change", sync);
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-      cancelAnimationFrame(frame);
+      timers.forEach(clearTimeout);
     };
   }, []);
   return (
