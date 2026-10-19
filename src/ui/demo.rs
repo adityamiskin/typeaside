@@ -122,6 +122,8 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                     )
                 }
                 Event::Copied(_) => eprintln!("typeaside demo: Copied"),
+                #[cfg(target_os = "linux")]
+                Event::ShowCapture => {}
                 Event::CloseCapture
                 | Event::Capture { .. }
                 | Event::CaptureText(_)

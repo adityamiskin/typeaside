@@ -131,9 +131,17 @@ impl SavedClipboard {
     }
 }
 
-pub(crate) fn selected_text() -> String {
+pub(crate) fn primary_selection() -> String {
     #[cfg(target_os = "windows")]
-    if focused_app().is_some_and(|app| app.id.as_deref().is_some_and(is_terminal)) {
+    let app_id = focused_app().and_then(|app| app.id);
+    #[cfg(target_os = "macos")]
+    let app_id: Option<String> = None;
+    selected_text(app_id.as_deref())
+}
+
+pub(crate) fn selected_text(_app_id: Option<&str>) -> String {
+    #[cfg(target_os = "windows")]
+    if _app_id.is_some_and(is_terminal) {
         return String::new();
     }
     fn copy_selection() -> Result<String> {

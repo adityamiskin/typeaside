@@ -47,8 +47,13 @@ clipboard events, and `wl-paste --watch`. A desktop entry resolves its reverse-D
 application ID to `Capture Fixture`. Eight real double Left Shift taps alternate
 selected and unselected text, with an unrelated multiline clipboard sentinel.
 The first selected case uses a fresh application and injector. Subsequent cases
-reuse both. The driver clears drafts through the real textarea and closes with
-Escape, so a retained draft cannot pass the empty-note regression accidentally.
+reuse both. The driver types `x` as soon as it observes compositor keyboard focus, checks that
+it reaches only the note, clears drafts through the real textarea, and closes
+with Escape. It records the fixture and capture key events to verify that the
+real Ctrl+Insert reaches only the original app. It also checks that focus follows
+selection copying, Escape retains a draft, Enter persists it, and the next
+capture clears the saved draft. Startup and closed-window screenshots verify
+that the persistent surface is invisible.
 
 `results.json` and `report.txt` contain the gate result, each assertion, individual
 latencies, and cold/warm timing breakdowns. `run-N.json` includes exact expected
@@ -61,9 +66,19 @@ clipboard comparison because niri screenshots modify the guest clipboard.
 udev, seatd, build, and boot logs are retained alongside the binary hash, source
 revision, and uncommitted instrumentation patch.
 
+`results.json` also records process RSS in KiB at idle startup and after each
+closed capture. Compare the same harness on the base revision and changed
+revision; the startup difference includes the cost of warming the window and
+renderer. No host application memory or clipboard text is sampled.
+
 The second Shift release uses the guest kernel's evdev timestamp, bracketed by
-the driver's writes. Timing ends after the first successful wgpu `frame.present`
-following `Capture::render`, including layout and draw submission. This is a
+the driver's writes. First-visible timing ends after the first successful wgpu `frame.present`
+following a visible `Capture::render`, including layout and draw submission.
+Keyboard-focus timing ends at GPUI's activation notification from the real
+compositor keyboard-enter event, rather than the exclusive-focus request.
+The cold capture is the first capture of a fresh process, after its hidden
+startup priming and two seconds after the hotkey service is ready. Warm captures
+reuse that process and injector. This is a
 rendered-frame submission measurement; physical scanout is not measured. Debug
 builds, lavapipe rendering, and VM filesystem/CPU overhead make these numbers
 unsuitable as direct native-session performance estimates. The breakdown still

@@ -124,9 +124,16 @@ layout { background-color "#000000"; }
 
     focus_fixture(True, -1)
     run('niri', 'msg', 'action', 'screenshot-screen', '--show-pointer', 'false', '--path', '/mnt/fixture-before.png')
-    launch(['/mnt/typeaside', '--hidden'], 'app', dict(os.environ, TYPEASIDE_TRACE='1', WAYLAND_DEBUG='client', GALLIUM_DRIVER='llvmpipe', LIBGL_ALWAYS_SOFTWARE='1'))
+    app_process = launch(['/mnt/typeaside', '--hidden'], 'app', dict(os.environ, TYPEASIDE_TRACE='1', WAYLAND_DEBUG='client', GALLIUM_DRIVER='llvmpipe', LIBGL_ALWAYS_SOFTWARE='1'))
     wait_for(lambda: 'keyboards_ready' in log_text(), 'app hotkey service', timeout=45)
-    time.sleep(1)
+    time.sleep(2)
+
+    def rss():
+        return int(re.search(r'^VmRSS:\s+(\d+)', Path(f'/proc/{app_process.pid}/status').read_text(), re.M)[1])
+
+    results['idle_rss_kib'] = {'startup': rss(), 'closed': []}
+    run('niri', 'msg', 'action', 'screenshot-screen', '--show-pointer', 'false', '--path', '/mnt/startup-hidden.png')
+    assert niri('focused-window')['id'] == window['id']
 
     def key(code, value):
         keyboard.write(ecodes.EV_KEY, code, value)
@@ -142,6 +149,7 @@ layout { background-color "#000000"; }
         previous = f'unrelated clipboard sentinel {index}: Ω\nsecond line'
         subprocess.run(['wl-copy', '--type', 'text/plain;charset=utf-8'], input=previous.encode(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=True)
         assert clipboard() == previous
+        fixture_offset = len(Path('/tmp/fixture.log').read_text())
         offset = len(log_text())
         tap(ecodes.KEY_LEFTSHIFT)
         time.sleep(.075)
@@ -156,11 +164,19 @@ layout { background-color "#000000"; }
         assert abs(release_kernel - released) < 10_000_000
         release_before = released
         released = release_kernel
-        wait_for(lambda: 'E2E_STATE ' in log_text()[offset:], 'capture render after double Left Shift')
-        wait_for(lambda: any(stage == 'present' for _, stage in trace(log_text()[offset:])), 'capture surface presentation')
-        time.sleep(.4)
+        wait_for(lambda: any(stage == 'keyboard_focus' for _, stage in trace(log_text()[offset:])), 'compositor keyboard focus')
+        focus_observed = time.time_ns()
+        tap(ecodes.KEY_X)
+        expected = f'"{state["text"]}"\n' if selected else ''
+
+        def states():
+            return [json.loads(value) for value in re.findall(r'^E2E_STATE (.+)$', log_text()[offset:], re.M)]
+
+        wait_for(lambda: any(value['value'] == expected + 'x' for value in states()), 'typing after focus reaches capture')
+        time.sleep(.15)
         segment = log_text()[offset:]
-        observed = json.loads(re.findall(r'^E2E_STATE (.+)$', segment, re.M)[0])
+        observations = states()
+        observed = next((value for value in reversed(observations) if value['value'] == expected), observations[-1])
         expected = f'"{state["text"]}"\n' if selected else ''
         phases = trace(segment)
         first = {}
@@ -169,6 +185,8 @@ layout { background-color "#000000"; }
                 first[stage] = (ns - released) / 1e6
         render_ns = next(ns for ns, stage in phases if stage == 'render')
         first['present'] = next((ns - released) / 1e6 for ns, stage in phases if stage == 'present' and ns >= render_ns)
+        fixture_keys = [json.loads(line) for line in Path('/tmp/fixture.log').read_text()[fixture_offset:].splitlines() if line.startswith('{')]
+        capture_keys = [json.loads(line) for line in re.findall(r'^E2E_KEY (.+)$', segment, re.M)]
         restored = clipboard()
         record = {
             'index': index, 'cold': index == 0, 'selected': selected,
@@ -180,6 +198,10 @@ layout { background-color "#000000"; }
             'clipboard_pass': restored == previous,
             'rows_pass': observed['rows'] == 4 and observed['input_height'] == 88,
             'phases_ms': first,
+            'focus_observed_ns': focus_observed,
+            'typing_pass': any(value['value'] == expected + 'x' for value in observations) and not any(value.get('keyval') == ord('x') for value in fixture_keys),
+            'copy_target_pass': any(value.get('keyval') == 65379 for value in fixture_keys) and not any(value['control'] and value['key'] in ('insert', 'c') for value in capture_keys),
+            'focus_after_copy_pass': first['keyboard_focus'] >= first['selected_text'],
         }
         results['runs'].append(record)
         (ARTIFACTS / f'run-{index}.json').write_text(json.dumps(record, indent=2))
@@ -187,22 +209,62 @@ layout { background-color "#000000"; }
         run('niri', 'msg', 'action', 'screenshot-screen', '--show-pointer', 'false', '--path', f'/mnt/capture-{index}.png')
         wait_for(lambda: (ARTIFACTS / f'capture-{index}.png').exists(), 'guest screenshot')
         # Clear the draft through the real textarea, keeping the same app/injector alive.
-        if selected:
-            key(ecodes.KEY_LEFTCTRL, 1)
-            tap(ecodes.KEY_A)
-            key(ecodes.KEY_LEFTCTRL, 0)
-            tap(ecodes.KEY_BACKSPACE)
-            wait_for(lambda: json.loads(re.findall(r'^E2E_STATE (.+)$', log_text()[offset:], re.M)[-1])['value'] == '', 'cleared capture draft')
+        key(ecodes.KEY_LEFTCTRL, 1)
+        tap(ecodes.KEY_A)
+        key(ecodes.KEY_LEFTCTRL, 0)
+        tap(ecodes.KEY_BACKSPACE)
+        wait_for(lambda: json.loads(re.findall(r'^E2E_STATE (.+)$', log_text()[offset:], re.M)[-1])['value'] == '', 'cleared capture draft')
         tap(ecodes.KEY_ESC)
         time.sleep(.3)
+        results['idle_rss_kib']['closed'].append(rss())
         (ARTIFACTS / 'app-progress.log').write_text(log_text())
 
+    run('niri', 'msg', 'action', 'screenshot-screen', '--show-pointer', 'false', '--path', '/mnt/closed-hidden.png')
+
+    def open_for_draft_check(selected, index):
+        focus_fixture(selected, index)
+        subprocess.run(['wl-copy'], input=b'draft test sentinel', check=True)
+        start = len(log_text())
+        tap(ecodes.KEY_LEFTSHIFT)
+        time.sleep(.075)
+        tap(ecodes.KEY_LEFTSHIFT)
+        wait_for(lambda: 'keyboard_focus' in log_text()[start:], 'draft check focus')
+        return start
+
+    def latest_state(start):
+        values = re.findall(r'^E2E_STATE (.+)$', log_text()[start:], re.M)
+        return json.loads(values[-1]) if values else None
+
+    start = open_for_draft_check(False, 8)
+    tap(ecodes.KEY_X)
+    wait_for(lambda: latest_state(start) and latest_state(start)['value'] == 'x', 'draft text')
+    tap(ecodes.KEY_ESC)
+    time.sleep(.3)
+    start = open_for_draft_check(True, 9)
+    wait_for(lambda: latest_state(start) and latest_state(start)['value'] == 'x', 'Escape preserves draft instead of replacing it with selection')
+    draft_state = latest_state(start)
+    tap(ecodes.KEY_ENTER)
+    notes = Path(os.environ['XDG_DATA_HOME']) / 'typeaside/notes.json'
+    wait_for(lambda: notes.exists() and any(note['text'] == 'x' for note in json.loads(notes.read_text())['notes']), 'Enter persists note')
+    time.sleep(.5)
+    start = open_for_draft_check(False, 10)
+    wait_for(lambda: latest_state(start) and latest_state(start)['value'] == '', 'saved draft clears')
+    saved_state = latest_state(start)
+    (ARTIFACTS / 'draft-lifecycle.json').write_text(json.dumps({'escaped_draft': draft_state, 'after_save': saved_state, 'store': json.loads(notes.read_text())}, indent=2))
+    tap(ecodes.KEY_ESC)
+
     results['assertions'] = {
+        'escape_keeps_draft': draft_state['value'] == 'x',
+        'enter_saves_and_clears_draft': saved_state['value'] == '' and saved_state['source'] is None,
+        'focus_after_selection_copy': all(r['focus_after_copy_pass'] for r in results['runs']),
         'double_shift_opens': len(results['runs']) == 8,
         'exact_selection_and_readable_header': all(r['prefill_pass'] and r['header_pass'] for r in results['runs'] if r['selected']),
         'no_selection_is_empty': all(r['prefill_pass'] for r in results['runs'] if not r['selected']),
         'clipboard_preserved': all(r['clipboard_pass'] for r in results['runs']),
         'four_empty_rows': all(r['rows_pass'] for r in results['runs'] if not r['selected']),
+        'typing_reaches_capture': all(r['typing_pass'] for r in results['runs']),
+        'copy_only_reaches_original_app': all(r['copy_target_pass'] for r in results['runs']),
+        'keyboard_focus_measured': all('keyboard_focus' in r['phases_ms'] for r in results['runs']),
         'latency_measured': all('present' in r['phases_ms'] for r in results['runs']),
     }
     results['warm_median_ms'] = statistics.median(r['phases_ms']['present'] for r in results['runs'][1:])
