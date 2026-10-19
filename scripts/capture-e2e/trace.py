@@ -68,6 +68,10 @@ pub fn capture_e2e_trace(stage: &str) {
         eprintln!("E2E_STATE {}", serde_json::json!({"value": value.to_string(), "source": self.state.read(cx).note_source, "rows": lines, "input_height": lines as f32 * 22., "panel_height": height}));'''),
         ('Err(error) => state.update(cx, |s, cx| {', 'Err(error) => state.update(cx, |s, cx| { eprintln!("E2E_CAPTURE_ERROR {error:#}");'),
     ])
-    edit('vendor/gpui-pre-wgpu/src/wgpu_renderer.rs', [('frame.present();', '''frame.present();
+    edit('vendor/gpui-pre-wgpu/src/wgpu_renderer.rs', [
+        ('pub fn draw(&mut self, scene: &Scene) -> bool {', '''pub fn draw(&mut self, scene: &Scene) -> bool {
+        eprintln!("E2E_SCENE quads={} glyphs={} shadows={}", scene.quads.len(), scene.monochrome_sprites.len(), scene.shadows.len());
+        eprintln!("E2E {} draw", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());'''),
+        ('frame.present();', '''frame.present();
         eprintln!("E2E {} present", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());''')])
     (artifacts / 'trace.patch').write_text(''.join(patches))

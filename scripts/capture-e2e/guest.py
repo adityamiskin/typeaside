@@ -132,6 +132,8 @@ layout { background-color "#000000"; }
         return int(re.search(r'^VmRSS:\s+(\d+)', Path(f'/proc/{app_process.pid}/status').read_text(), re.M)[1])
 
     results['idle_rss_kib'] = {'startup': rss(), 'closed': []}
+    run('niri', 'msg', 'action', 'screenshot-screen', '--show-pointer', 'false', '--path', '/mnt/startup-hidden.png')
+    assert niri('focused-window')['id'] == window['id']
 
     def key(code, value):
         keyboard.write(ecodes.EV_KEY, code, value)
@@ -183,6 +185,8 @@ layout { background-color "#000000"; }
                 first[stage] = (ns - released) / 1e6
         render_ns = next(ns for ns, stage in phases if stage == 'render')
         first['present'] = next((ns - released) / 1e6 for ns, stage in phases if stage == 'present' and ns >= render_ns)
+        fixture_keys = [json.loads(line) for line in Path('/tmp/fixture.log').read_text()[fixture_offset:].splitlines() if line.startswith('{')]
+        capture_keys = [json.loads(line) for line in re.findall(r'^E2E_KEY (.+)$', segment, re.M)]
         restored = clipboard()
         record = {
             'index': index, 'cold': index == 0, 'selected': selected,
@@ -195,8 +199,9 @@ layout { background-color "#000000"; }
             'rows_pass': observed['rows'] == 4 and observed['input_height'] == 88,
             'phases_ms': first,
             'focus_observed_ns': focus_observed,
-            'typing_pass': any(value['value'] == expected + 'x' for value in observations),
-            'copy_target_pass': any(json.loads(line).get('keyval') == 65379 for line in Path('/tmp/fixture.log').read_text()[fixture_offset:].splitlines() if line.startswith('{')) and not any(value['control'] and value['key'] in ('insert', 'c') for value in [json.loads(line) for line in re.findall(r'^E2E_KEY (.+)$', segment, re.M)]),
+            'typing_pass': any(value['value'] == expected + 'x' for value in observations) and not any(value.get('keyval') == ord('x') for value in fixture_keys),
+            'copy_target_pass': any(value.get('keyval') == 65379 for value in fixture_keys) and not any(value['control'] and value['key'] in ('insert', 'c') for value in capture_keys),
+            'focus_after_copy_pass': first['keyboard_focus'] >= first['selected_text'],
         }
         results['runs'].append(record)
         (ARTIFACTS / f'run-{index}.json').write_text(json.dumps(record, indent=2))
@@ -214,7 +219,44 @@ layout { background-color "#000000"; }
         results['idle_rss_kib']['closed'].append(rss())
         (ARTIFACTS / 'app-progress.log').write_text(log_text())
 
+    run('niri', 'msg', 'action', 'screenshot-screen', '--show-pointer', 'false', '--path', '/mnt/closed-hidden.png')
+
+    def open_for_draft_check(selected, index):
+        focus_fixture(selected, index)
+        subprocess.run(['wl-copy'], input=b'draft test sentinel', check=True)
+        start = len(log_text())
+        tap(ecodes.KEY_LEFTSHIFT)
+        time.sleep(.075)
+        tap(ecodes.KEY_LEFTSHIFT)
+        wait_for(lambda: 'keyboard_focus' in log_text()[start:], 'draft check focus')
+        return start
+
+    def latest_state(start):
+        values = re.findall(r'^E2E_STATE (.+)$', log_text()[start:], re.M)
+        return json.loads(values[-1]) if values else None
+
+    start = open_for_draft_check(False, 8)
+    tap(ecodes.KEY_X)
+    wait_for(lambda: latest_state(start) and latest_state(start)['value'] == 'x', 'draft text')
+    tap(ecodes.KEY_ESC)
+    time.sleep(.3)
+    start = open_for_draft_check(True, 9)
+    wait_for(lambda: latest_state(start) and latest_state(start)['value'] == 'x', 'Escape preserves draft instead of replacing it with selection')
+    draft_state = latest_state(start)
+    tap(ecodes.KEY_ENTER)
+    notes = Path(os.environ['XDG_DATA_HOME']) / 'typeaside/notes.json'
+    wait_for(lambda: notes.exists() and any(note['text'] == 'x' for note in json.loads(notes.read_text())['notes']), 'Enter persists note')
+    time.sleep(.5)
+    start = open_for_draft_check(False, 10)
+    wait_for(lambda: latest_state(start) and latest_state(start)['value'] == '', 'saved draft clears')
+    saved_state = latest_state(start)
+    (ARTIFACTS / 'draft-lifecycle.json').write_text(json.dumps({'escaped_draft': draft_state, 'after_save': saved_state, 'store': json.loads(notes.read_text())}, indent=2))
+    tap(ecodes.KEY_ESC)
+
     results['assertions'] = {
+        'escape_keeps_draft': draft_state['value'] == 'x',
+        'enter_saves_and_clears_draft': saved_state['value'] == '' and saved_state['source'] is None,
+        'focus_after_selection_copy': all(r['focus_after_copy_pass'] for r in results['runs']),
         'double_shift_opens': len(results['runs']) == 8,
         'exact_selection_and_readable_header': all(r['prefill_pass'] and r['header_pass'] for r in results['runs'] if r['selected']),
         'no_selection_is_empty': all(r['prefill_pass'] for r in results['runs'] if not r['selected']),

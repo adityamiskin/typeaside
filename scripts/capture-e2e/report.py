@@ -3,23 +3,29 @@ import statistics
 from PIL import Image
 
 
+def panel_height(path):
+    with Image.open(path) as image:
+        rgb = image.convert('RGB')
+        column = [rgb.getpixel((rgb.width // 2, y)) for y in range(rgb.height)]
+    spans = []
+    start = None
+    for y, color in enumerate(column + [None]):
+        if color == (24, 25, 27) and start is None:
+            start = y
+        elif color != (24, 25, 27) and start is not None:
+            spans.append(y - start)
+            start = None
+    return max(spans, default=0)
+
+
 def verify_screenshots(result, artifacts):
     for run in result['runs']:
         if run['selected']:
             continue
-        with Image.open(artifacts / f'capture-{run["index"]}.png') as image:
-            rgb = image.convert('RGB')
-            column = [rgb.getpixel((rgb.width // 2, y)) for y in range(rgb.height)]
-        spans = []
-        start = None
-        for y, color in enumerate(column + [None]):
-            if color == (24, 25, 27) and start is None:
-                start = y
-            elif color != (24, 25, 27) and start is not None:
-                spans.append(y - start)
-                start = None
-        run['screenshot_panel_height_px'] = max(spans, default=0)
+        run['screenshot_panel_height_px'] = panel_height(artifacts / f'capture-{run["index"]}.png')
         run['screenshot_geometry_pass'] = run['screenshot_panel_height_px'] == 168
+    hidden = [artifacts / name for name in ('startup-hidden.png', 'closed-hidden.png')]
+    result['assertions']['hidden_surface_is_invisible'] = all(path.exists() and panel_height(path) < 168 for path in hidden)
     result['assertions']['four_empty_rows'] = result['assertions'].get('four_empty_rows', False) and all(
         run.get('screenshot_geometry_pass', False) for run in result['runs'] if not run['selected']
     )

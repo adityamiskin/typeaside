@@ -111,13 +111,8 @@ impl Capture {
 impl Render for Capture {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        let priming = std::mem::take(&mut self.priming);
-        if !self.visible && !priming {
+        if !self.visible && !self.priming {
             return div().size_full().into_any_element();
-        }
-        if priming {
-            // Warm text, icons, and renderer pipelines without exposing the startup frame.
-            cx.notify();
         }
         let value = self.input.read(cx).value();
         let run = gpui::TextRun {
@@ -445,6 +440,18 @@ fn open(state: &Entity<AppState>, visible: bool, cx: &mut App) {
                     cx.notify();
                 })
                 .detach();
+                if !visible {
+                    let view = cx.weak_entity();
+                    // The first callback can precede Wayland's initial configure/present.
+                    window.on_next_frame(move |window, _| {
+                        window.on_next_frame(move |_, cx| {
+                            let _ = view.update(cx, |view, cx| {
+                                view.priming = false;
+                                cx.notify();
+                            });
+                        });
+                    });
+                }
                 let now = Instant::now();
                 Capture {
                     state: state.clone(),
