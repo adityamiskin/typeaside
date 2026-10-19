@@ -1,4 +1,4 @@
-use super::{AppState, motion::Spring, theme::*};
+use super::{AppState, theme::*};
 #[cfg(target_os = "linux")]
 use gpui::layer_shell::*;
 use gpui::{
@@ -18,18 +18,23 @@ pub struct Capture {
     input: Entity<TextareaState>,
     saved: bool,
     entered: Instant,
-    last_frame: Instant,
-    rise: Spring,
+    visible: bool,
+    ready: bool,
 }
 impl Capture {
     pub fn insert(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.saved {
+        if self.visible && !self.saved {
             self.input
                 .update(cx, |input, cx| input.insert(text, window, cx));
             cx.notify();
         }
     }
-    pub fn close(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.visible {
+            return;
+        }
+        self.visible = false;
+        self.ready = false;
         let draft = if self.saved {
             String::new()
         } else {
@@ -40,12 +45,21 @@ impl Capture {
             if self.saved {
                 s.note_source = None;
             }
-            s.capture_window = None;
+            #[cfg(not(target_os = "linux"))]
+            {
+                s.capture_window = None;
+            }
             s.command(Command::CloseCapture);
             cx.notify();
         });
         #[cfg(target_os = "linux")]
-        window.set_input_region(Some(&[]));
+        {
+            window.set_input_region(Some(&[]));
+            window.set_layer_shell_keyboard_interactivity(KeyboardInteractivity::None);
+            window.blur(cx);
+            cx.notify();
+        }
+        #[cfg(not(target_os = "linux"))]
         window.remove_window();
     }
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -79,11 +93,16 @@ impl Capture {
         }
         self.saved = true;
         cx.notify();
+        let entered = self.entered;
         cx.spawn_in(window, async move |this, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(350))
                 .await;
-            let _ = this.update_in(cx, |this, window, cx| this.close(window, cx));
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.entered == entered {
+                    this.close(window, cx);
+                }
+            });
         })
         .detach();
     }
@@ -91,14 +110,8 @@ impl Capture {
 impl Render for Capture {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        let now = Instant::now();
-        let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.032);
-        self.last_frame = now;
-        self.rise.target = 0.;
-        let moving = self.rise.step(dt, PILL_STIFFNESS, PILL_DAMPING);
-        let opacity = (now.duration_since(self.entered).as_secs_f32() / ENTER_FADE).min(1.);
-        if moving || opacity < 1. {
-            window.request_animation_frame();
+        if !self.visible {
+            return div().size_full().into_any_element();
         }
         let value = self.input.read(cx).value();
         let run = gpui::TextRun {
@@ -121,10 +134,12 @@ impl Render for Capture {
             .clamp(4, 14);
         let height = 80. + lines as f32 * 22.;
         #[cfg(target_os = "linux")]
-        window.set_input_region(Some(&[Bounds::new(
-            point(px(40.), px(24. + self.rise.value)),
-            size(px(600.), px(height)),
-        )]));
+        if self.ready {
+            window.set_input_region(Some(&[Bounds::new(
+                point(px(40.), px(24.)),
+                size(px(600.), px(height)),
+            )]));
+        }
         let s = self.state.read(cx);
         let footer = if self.saved {
             div()
@@ -190,7 +205,7 @@ impl Render for Capture {
                 div()
                     .absolute()
                     .left(px(40.))
-                    .top(px(24. + self.rise.value))
+                    .top(px(24.))
                     .w(px(600.))
                     .px(px(16.))
                     .py(px(12.))
@@ -198,7 +213,6 @@ impl Render for Capture {
                     .border_1()
                     .border_color(p.border)
                     .bg(p.panel)
-                    .opacity(opacity)
                     .shadow(vec![
                         BoxShadow {
                             color: p.shadow,
@@ -257,19 +271,54 @@ impl Render for Capture {
                             .child(footer),
                     ),
             )
+            .into_any_element()
     }
 }
 
 pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, cx: &mut App) {
-    if let Some(handle) = state.read(cx).capture_window {
-        if handle
-            .update(cx, |view, window, cx| view.close(window, cx))
-            .is_ok()
-        {
-            return;
+    #[cfg(target_os = "linux")]
+    {
+        if state.read(cx).is_demo {
+            show(state, cx);
         }
-        state.update(cx, |s, _| s.capture_window = None);
+        if let Some(handle) = state.read(cx).capture_window {
+            let _ = handle.update(cx, |view, window, cx| {
+                if !view.visible {
+                    return;
+                }
+                prefill(state, selection, app, cx);
+                view.input.update(cx, |input, cx| {
+                    input.set_value(state.read(cx).note_draft.clone(), window, cx);
+                    input.focus(window, cx);
+                    input.set_cursor_position(
+                        gpui_kit::component::input::Position::new(u32::MAX, u32::MAX),
+                        window,
+                        cx,
+                    );
+                });
+                view.ready = true;
+                window.set_layer_shell_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+                cx.notify();
+            });
+        }
     }
+    #[cfg(not(target_os = "linux"))]
+    {
+        if let Some(handle) = state.read(cx).capture_window {
+            if handle
+                .update(cx, |view, window, cx| view.close(window, cx))
+                .is_ok()
+            {
+                return;
+            }
+            state.update(cx, |s, _| s.capture_window = None);
+        }
+        prefill(state, selection, app, cx);
+        open(state, true, cx);
+    }
+}
+
+fn prefill(state: &Entity<AppState>, selection: String, app: Option<String>, cx: &mut App) {
     state.update(cx, |s, _| {
         if s.note_draft.is_empty() {
             s.note_source = None;
@@ -284,6 +333,33 @@ pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, 
             s.note_draft.push_str(&text);
         }
     });
+}
+
+#[cfg(target_os = "linux")]
+pub fn prepare(state: &Entity<AppState>, cx: &mut App) {
+    if state.read(cx).capture_window.is_none() {
+        open(state, false, cx);
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn show(state: &Entity<AppState>, cx: &mut App) {
+    prepare(state, cx);
+    if let Some(handle) = state.read(cx).capture_window {
+        let _ = handle.update(cx, |view, window, cx| {
+            view.visible = true;
+            view.ready = false;
+            view.saved = false;
+            view.entered = Instant::now();
+            view.input.update(cx, |input, cx| {
+                input.set_value(state.read(cx).note_draft.clone(), window, cx);
+            });
+            cx.notify();
+        });
+    }
+}
+
+fn open(state: &Entity<AppState>, visible: bool, cx: &mut App) {
     let display = cx.primary_display();
     let bounds = display
         .as_ref()
@@ -297,7 +373,7 @@ pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, 
     let result = cx.open_window(
         WindowOptions {
             titlebar: None,
-            focus: true,
+            focus: visible,
             inactive_frame_interval: None,
             app_id: Some("typeaside-capture".into()),
             window_background: WindowBackgroundAppearance::Transparent,
@@ -313,7 +389,7 @@ pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, 
                 namespace: "typeaside-capture".into(),
                 layer: Layer::Overlay,
                 anchor: Anchor::TOP,
-                keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                keyboard_interactivity: KeyboardInteractivity::None,
                 margin: Some((top, px(0.), px(0.), px(0.))),
                 ..Default::default()
             }),
@@ -333,14 +409,18 @@ pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, 
                         .placeholder("Write a note…")
                         .auto_grow(4, 14)
                 });
-                input.update(cx, |input, cx| {
-                    input.focus(window, cx);
-                    input.set_cursor_position(
-                        gpui_kit::component::input::Position::new(u32::MAX, u32::MAX),
-                        window,
-                        cx,
-                    );
-                });
+                if visible {
+                    input.update(cx, |input, cx| {
+                        input.focus(window, cx);
+                        input.set_cursor_position(
+                            gpui_kit::component::input::Position::new(u32::MAX, u32::MAX),
+                            window,
+                            cx,
+                        );
+                    });
+                }
+                #[cfg(target_os = "linux")]
+                window.set_input_region(Some(&[]));
                 cx.subscribe(&input, |_: &mut Capture, _, event, cx| {
                     if matches!(event, gpui_kit::component::input::InputEvent::Change) {
                         cx.notify();
@@ -359,8 +439,8 @@ pub fn toggle(state: &Entity<AppState>, selection: String, app: Option<String>, 
                     input,
                     saved: false,
                     entered: now,
-                    last_frame: now,
-                    rise: Spring::new(8.),
+                    visible,
+                    ready: visible,
                 }
             })
         },

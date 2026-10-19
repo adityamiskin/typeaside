@@ -404,6 +404,8 @@ fn start_ui(
         })
         .detach();
     }
+    #[cfg(target_os = "linux")]
+    capture::prepare(&state, cx);
     let startup_config = state.read(cx).config.clone();
     let startup = cx.background_executor().spawn(async move {
         if is_demo {
@@ -445,6 +447,8 @@ fn start_ui(
         let mut answer: Option<WindowHandle<overlay::AnswerCard>> = None;
         while let Ok(event) = events.recv().await {
             cx.update(|cx| match event {
+                #[cfg(target_os = "linux")]
+                Event::ShowCapture => capture::show(&state, cx),
                 Event::Capture { selection, app } => capture::toggle(&state, selection, app, cx),
                 Event::CloseCapture => {
                     if let Some(handle) = state.read(cx).capture_window {

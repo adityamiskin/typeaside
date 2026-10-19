@@ -259,20 +259,16 @@ pub fn set_clipboard(text: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn selected_text() -> String {
+pub(crate) fn selected_text(app_id: Option<&str>) -> String {
     // A fresh virtual keyboard needs 100 ms before the compositor sees it.
     static INJECTOR: Mutex<Option<TextInjector>> = Mutex::new(None);
-    fn copy_selection() -> Result<String> {
+    fn copy_selection(app_id: Option<&str>) -> Result<String> {
         let mut injector = INJECTOR.lock().unwrap_or_else(|error| error.into_inner());
         let injector = match &mut *injector {
             Some(injector) => injector,
             slot => slot.insert(TextInjector::new()?),
         };
-        let terminal = focused_window()
-            .flatten()
-            .and_then(|app| app.id)
-            .as_deref()
-            .is_some_and(is_terminal);
+        let terminal = app_id.is_some_and(is_terminal);
         let previous = read_clipboard()?;
         // Clearing is unreliable on some compositors, so detect the copy as a selection change.
         let mut watch = Command::new("wl-paste")
@@ -315,7 +311,7 @@ pub(crate) fn selected_text() -> String {
         let _ = watch.wait();
         result
     }
-    copy_selection().unwrap_or_else(|error| {
+    copy_selection(app_id).unwrap_or_else(|error| {
         eprintln!("typeaside: cannot copy selection: {error:#}");
         String::new()
     })

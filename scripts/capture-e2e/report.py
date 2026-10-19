@@ -31,13 +31,14 @@ def breakdown(run):
         'release to engine hotkey': phase['hotkey'],
         'first focused_app lookup': phase['focused_app'] - phase['hotkey'],
         'injector creation/reuse': phase['injector_ready'] - phase['copy_begin'],
-        'second focused_app lookup': phase['copy_focus'] - phase['injector_ready'],
+        'additional focus lookup': phase['copy_focus'] - phase['injector_ready'],
         'clipboard snapshot + watcher startup': phase['watch_ready'] - phase['copy_focus'],
         'copy key injection': phase['combo_done'] - phase['watch_ready'],
         'copy wait': phase.get('copy_changed', phase.get('copy_timeout')) - phase['combo_done'],
         'selection read + restore + watcher cleanup': phase['selected_text'] - phase.get('copy_changed', phase.get('copy_timeout')),
         'engine to UI delivery': phase['ui_event'] - phase['selected_text'],
-        'window setup + first layout + draw to present': phase['present'] - phase['ui_event'],
+        'release to keyboard focus': phase.get('keyboard_focus', float('nan')),
+        'UI show to first present': phase['present'] - phase.get('show_event', phase['ui_event']),
     }
 
 
@@ -50,6 +51,8 @@ def write(result, artifacts, revision):
     if result.get('error'):
         lines.append(result['error'])
     runs = result['runs']
+    if result.get('idle_rss_kib'):
+        lines.append(f"Idle RSS KiB: {result['idle_rss_kib']}")
     if runs:
         lines.extend(['', f'Cold first frame: {runs[0]["phases_ms"]["present"]:.2f} ms'])
         for name, value in breakdown(runs[0]).items():
@@ -63,7 +66,7 @@ def write(result, artifacts, revision):
                     lines.append(f'  {name} median: {statistics.median(p[name] for p in parts):.2f} ms')
         lines.extend(['', 'Per-run latency and prefill/header/clipboard results:'])
         for run in runs:
-            lines.append(f'  {run["index"]}: {run["phases_ms"]["present"]:.2f} ms; selected={run["selected"]}; prefill={run["prefill_pass"]}; header={run["header_pass"]}; clipboard={run["clipboard_pass"]}')
+            lines.append(f'  {run["index"]}: {run["phases_ms"]["present"]:.2f} ms; selected={run["selected"]}; prefill={run["prefill_pass"]}; header={run["header_pass"]}; clipboard={run["clipboard_pass"]}; focus={run['phases_ms'].get('keyboard_focus', float('nan')):.2f} ms; typing={run.get('typing_pass')}; copy_target={run.get('copy_target_pass')}')
     lines.extend(['', 'Latency ends at the first successful wgpu frame.present() after Capture::render.',
                   'It measures a submitted frame, not physical monitor scanout. This VM uses lavapipe and a debug build.',
                   'Screenshots and run-N.json retain the rendered result and exact text/geometry observations.'])

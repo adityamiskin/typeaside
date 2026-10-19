@@ -65,6 +65,8 @@ pub struct FailedRecording {
 
 #[derive(Debug, Clone)]
 pub enum Event {
+    #[cfg(target_os = "linux")]
+    ShowCapture,
     Capture {
         selection: String,
         app: Option<String>,
@@ -467,9 +469,14 @@ fn run(
                         capture_open = false;
                         let _ = events.try_send(Event::CloseCapture);
                     } else {
-                        let app = focused_app().and_then(|app| app.name);
-                        let selection = crate::text_injector::selected_text();
                         capture_open = true;
+                        #[cfg(target_os = "linux")]
+                        let _ = events.try_send(Event::ShowCapture);
+                        let focused = focused_app();
+                        let selection = crate::text_injector::selected_text(
+                            focused.as_ref().and_then(|app| app.id.as_deref()),
+                        );
+                        let app = focused.and_then(|app| app.name);
                         let _ = events.try_send(Event::Capture { selection, app });
                     }
                     continue;

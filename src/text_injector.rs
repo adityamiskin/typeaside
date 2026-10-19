@@ -15,9 +15,9 @@ pub(crate) use linux::{atspi_connection, primary_selection, selected_text};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod desktop;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(crate) use desktop::{selected_text, selected_text as primary_selection};
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use desktop::*;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub(crate) use desktop::{primary_selection, selected_text};
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
