@@ -233,10 +233,10 @@ async function mai(env: Env, audio: Blob, context: Context) {
     .trim();
 }
 
-export async function dictate(env: Env, { context, audio }: Input, pro: Promise<boolean>) {
+export async function dictate(env: Env, { context, audio }: Input, pro: boolean) {
   const key = env.GROQ_API_KEY;
   let raw = context.text ?? "";
-  if (audio) raw = await ((await pro) ? mai(env, audio, context) : groq(key, audio, context));
+  if (audio) raw = await (pro ? mai(env, audio, context) : groq(key, audio, context));
   let answer: Answer = { text: raw, delivery: "insert" };
   if (context.mode === "command") answer = await command(key, raw, context.selection ?? "");
   else if (context.mode === "translate" && context.text !== undefined) {

@@ -1,11 +1,16 @@
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 export const FREE_WEEKLY_WORDS = 2000;
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const WEEK_MS = 7 * DAY_MS;
 export function dayStart(now = Date.now()) {
   return Math.floor(now / DAY_MS) * DAY_MS;
+}
+// Renewal webhooks can land after the period ends; the grace keeps renewing users on Pro meanwhile.
+const RENEWAL_GRACE_MS = 3 * DAY_MS;
+export function isPro(subscription: Doc<"subscriptions">, now = Date.now()) {
+  return subscription.status === "active" && subscription.currentPeriodEnd + RENEWAL_GRACE_MS > now;
 }
 export function weekStart(now = Date.now()) {
   const date = new Date(now);
@@ -65,7 +70,7 @@ export async function accountState(ctx: QueryCtx, userId: Id<"users">) {
       .collect(),
   ]);
   const active = subscriptions
-    .filter((s) => s.status === "active")
+    .filter((s) => isPro(s))
     .sort((a, b) => b.currentPeriodEnd - a.currentPeriodEnd)[0];
   return {
     plan: active ? ("pro" as const) : ("free" as const),

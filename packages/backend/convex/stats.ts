@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
-import { DAY_MS, dayStart } from "./lib";
+import { DAY_MS, dayStart, isPro } from "./lib";
 
 export const summary = internalQuery({
   args: { days: v.optional(v.number()) },
@@ -55,8 +55,7 @@ export const summary = internalQuery({
     }
     return {
       days: perDay,
-      currentPro: new Set(subscriptions.filter((s) => s.status === "active").map((s) => s.userId))
-        .size,
+      currentPro: new Set(subscriptions.filter((s) => isPro(s)).map((s) => s.userId)).size,
     };
   },
 });
