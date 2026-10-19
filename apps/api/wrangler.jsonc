@@ -17,7 +17,6 @@
   "env": {
     "dev": {
       "name": "typeaside-api-dev",
-      "workers_dev": true,
       "routes": [],
       "vars": {
         "CONVEX_SITE_URL": "https://tangible-ferret-27.convex.site",
