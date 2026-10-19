@@ -398,7 +398,15 @@ fn start_ui(
                     s.engine = engine;
                     s.command(Command::Reload(Box::new(s.config.clone())));
                     if s.mic_testing {
-                        s.command(if !s.config.onboarded && s.onboarding_step == onboarding::Step::Microphone {Command::MicPreview} else {Command::MicTest(true)});
+                        s.command(
+                            if !s.config.onboarded
+                                && s.onboarding_step == onboarding::Step::Microphone
+                            {
+                                Command::MicPreview
+                            } else {
+                                Command::MicTest(true)
+                            },
+                        );
                     }
                     cx.notify();
                 });
@@ -419,8 +427,13 @@ fn start_ui(
                 Event::Level(level) => {
                     state.update(cx, |s, cx| {
                         if s.mic_testing || s.onboarding_step == onboarding::Step::Practice {
-                            if s.onboarding_step == onboarding::Step::Microphone && level > 0.25 { s.onboarding_heard = true; }
-                            if s.level != level { s.level = level; cx.notify(); }
+                            if s.onboarding_step == onboarding::Step::Microphone && level > 0.25 {
+                                s.onboarding_heard = true;
+                            }
+                            if s.level != level {
+                                s.level = level;
+                                cx.notify();
+                            }
                         }
                     });
                     if let Some(surface) = surface {
@@ -442,13 +455,25 @@ fn start_ui(
                 Event::Edited { inserted, edited } => {
                     let mut learned = Vec::new();
                     state.update(cx, |s, cx| {
-                        if !s.config.auto_learn { return; }
-                        let words = typeaside::corrections::learned(&inserted, &edited, s.config.known_words());
-                        if words.is_empty() { return; }
+                        if !s.config.auto_learn {
+                            return;
+                        }
+                        let words = typeaside::corrections::learned(
+                            &inserted,
+                            &edited,
+                            s.config.known_words(),
+                        );
+                        if words.is_empty() {
+                            return;
+                        }
                         for word in &words {
                             s.config.add_word(word.clone());
                         }
-                        s.save_error = s.config.save(&s.paths).err().map(|error| format!("Could not save learned words: {error}"));
+                        s.save_error = s
+                            .config
+                            .save(&s.paths)
+                            .err()
+                            .map(|error| format!("Could not save learned words: {error}"));
                         if s.save_error.is_some() {
                             cx.notify();
                             return;
@@ -459,7 +484,9 @@ fn start_ui(
                         learned = words;
                     });
                     if !learned.is_empty() {
-                        let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.learned(&learned, w, cx)).is_ok());
+                        let updated = surface.is_some_and(|h| {
+                            h.update(cx, |v, w, cx| v.learned(&learned, w, cx)).is_ok()
+                        });
                         if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
                             let _ = h.update(cx, |v, w, cx| v.learned(&learned, w, cx));
                             surface = Some(h);
@@ -493,22 +520,31 @@ fn start_ui(
                 }
                 Event::Open(url) => {
                     cx.open_url(&url);
-                    let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.opened(&url, w, cx)).is_ok());
+                    let updated = surface
+                        .is_some_and(|h| h.update(cx, |v, w, cx| v.opened(&url, w, cx)).is_ok());
                     if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
                         let _ = h.update(cx, |v, w, cx| v.opened(&url, w, cx));
                         surface = Some(h);
                     }
                 }
                 Event::Notice(message) => {
-                    state.update(cx, |s, cx| { s.save_error = Some(message.clone()); cx.notify(); });
-                    let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.warning(&message, w, cx)).is_ok());
+                    state.update(cx, |s, cx| {
+                        s.save_error = Some(message.clone());
+                        cx.notify();
+                    });
+                    let updated = surface.is_some_and(|h| {
+                        h.update(cx, |v, w, cx| v.warning(&message, w, cx)).is_ok()
+                    });
                     if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
                         let _ = h.update(cx, |v, w, cx| v.warning(&message, w, cx));
                         surface = Some(h);
                     }
                 }
                 Event::Copied(text) => {
-                    let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.copied(text.clone(), w, cx)).is_ok());
+                    let updated = surface.is_some_and(|h| {
+                        h.update(cx, |v, w, cx| v.copied(text.clone(), w, cx))
+                            .is_ok()
+                    });
                     if !updated && let Ok(h) = overlay::open(state.clone(), cx) {
                         let _ = h.update(cx, |v, w, cx| v.copied(text, w, cx));
                         surface = Some(h);
@@ -516,7 +552,9 @@ fn start_ui(
                 }
                 Event::Usage(usage) => {
                     let warning = state.update(cx, |s, cx| {
-                        let Some(account) = &mut s.account else { return None; };
+                        let Some(account) = &mut s.account else {
+                            return None;
+                        };
                         account.usage = usage;
                         cx.notify();
                         let usage = &account.usage;
@@ -525,20 +563,25 @@ fn start_ui(
                             && s.config.transcription == Source::Hosted
                             && usage.words > cap * 80 / 100
                             && s.config.usage_notice_week != Some(usage.resets_at))
-                            .then_some((cap.saturating_sub(usage.words), usage.resets_at))
+                        .then(|| usage.clone())
                     });
-                    if let Some((words, week)) = warning {
-                        let updated = surface.is_some_and(|h| h.update(cx, |v, w, cx| v.usage_warning(words, w, cx)).is_ok());
+                    if let Some(usage) = warning {
+                        let updated = surface.is_some_and(|h| {
+                            h.update(cx, |v, w, cx| v.usage_warning(&usage, w, cx))
+                                .is_ok()
+                        });
                         let shown = updated || {
                             if let Ok(h) = overlay::open(state.clone(), cx) {
-                                let _ = h.update(cx, |v, w, cx| v.usage_warning(words, w, cx));
+                                let _ = h.update(cx, |v, w, cx| v.usage_warning(&usage, w, cx));
                                 surface = Some(h);
                                 true
-                            } else { false }
+                            } else {
+                                false
+                            }
                         };
                         if shown {
                             state.update(cx, |s, _| {
-                                s.config.usage_notice_week = Some(week);
+                                s.config.usage_notice_week = Some(usage.resets_at);
                                 s.persist();
                             });
                         }

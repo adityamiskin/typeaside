@@ -2,12 +2,15 @@ use super::{AppState, motion::Spring, theme::*};
 #[cfg(target_os = "linux")]
 use gpui::layer_shell::*;
 use gpui::{
-    App, AppContext, Bounds, BoxShadow, Context, Entity, PathBuilder, Render, TextRun, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div,
-    fill, font, point, prelude::*, px, size,
+    App, AppContext, Bounds, BoxShadow, Context, Entity, FontWeight, PathBuilder, Render, TextRun,
+    Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
+    canvas, div, fill, font, point, prelude::*, px, relative, size,
 };
 use std::time::{Duration, Instant};
-use typeaside::engine::{Command, Mode, Phase};
+use typeaside::{
+    account::Usage,
+    engine::{Command, Mode, Phase},
+};
 
 #[derive(Clone, PartialEq)]
 enum Visual {
@@ -20,7 +23,8 @@ enum Visual {
     Notice(&'static str, String, Vec<String>),
     Upgrade {
         title: String,
-        detail: Option<String>,
+        detail: String,
+        used: f32,
     },
     Exit,
 }
@@ -94,19 +98,11 @@ impl Overlay {
             }
             Phase::Transcribing | Phase::Cleaning => Visual::Processing,
             Phase::Error(message) => Visual::Error(message),
-            Phase::LimitReached { resets_at } => {
-                let resets = chrono::DateTime::from_timestamp_millis(resets_at)
-                    .map(|date| {
-                        date.with_timezone(&chrono::Local)
-                            .format(&format!("%a {}", super::clock::time_format()))
-                            .to_string()
-                    })
-                    .unwrap_or_default();
-                Visual::Upgrade {
-                    title: "Weekly limit reached".into(),
-                    detail: Some(format!("Resets {resets}. This recording is saved.")),
-                }
-            }
+            Phase::LimitReached { resets_at } => Visual::Upgrade {
+                title: "Weekly limit reached".into(),
+                detail: format!("Resets {}. This recording is saved.", resets(resets_at)),
+                used: 1.,
+            },
             Phase::Idle if matches!(self.phase, Visual::Listening | Visual::Paused) => {
                 Visual::Cancel
             }
@@ -120,11 +116,19 @@ impl Overlay {
         self.set(Visual::Success, window, cx);
     }
 
-    pub fn usage_warning(&mut self, words: u64, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn usage_warning(&mut self, usage: &Usage, window: &mut Window, cx: &mut Context<Self>) {
+        let cap = usage.cap.unwrap_or(usage.words).max(1);
         self.set(
             Visual::Upgrade {
-                title: format!("{} words left this week", super::settings::grouped(words)),
-                detail: None,
+                title: format!(
+                    "{} words left this week",
+                    super::settings::grouped(cap.saturating_sub(usage.words))
+                ),
+                detail: format!(
+                    "Resets {}. Pro has no weekly limit.",
+                    resets(usage.resets_at)
+                ),
+                used: (usage.words as f32 / cap as f32).min(1.),
             },
             window,
             cx,
@@ -276,7 +280,7 @@ impl Overlay {
             Visual::Error(_) => Some(ERROR_HOLD),
             Visual::Notice(_, _, ref words) if !words.is_empty() => Some(LEARNED_HOLD),
             Visual::Notice(..) => Some(COPIED_HOLD),
-            Visual::Upgrade { detail: None, .. } => Some(LEARNED_HOLD),
+            Visual::Upgrade { used, .. } if used < 1. => Some(LEARNED_HOLD),
             _ => None,
         };
         if let Some(hold) = hold {
@@ -421,7 +425,7 @@ impl Render for Overlay {
         let scale = self.scale.value;
         let width = self.width.value * scale;
         let card_height = if matches!(self.phase, Visual::Upgrade { .. }) {
-            116.
+            132.
         } else {
             PILL_HEIGHT
         };
@@ -476,43 +480,71 @@ impl Render for Overlay {
             .items_center()
             .justify_center()
             .overflow_hidden();
-        if let Visual::Upgrade { title, detail } = &self.phase {
-            pill =
-                pill.child(
-                    div()
-                        .w_full()
-                        .px(px(16.))
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.))
-                        .text_color(p.fg)
-                        .text_size(px(13.))
-                        .child(title.clone())
-                        .children(
-                            detail
-                                .clone()
-                                .map(|detail| div().text_color(p.muted).child(detail)),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap(px(12.))
-                                .child(button("Upgrade", true, p).id("upgrade").on_click(
-                                    cx.listener(|this, _, window, cx| {
-                                        if !this.state.read(cx).is_demo {
-                                            cx.open_url(&format!(
-                                                "{}/account?upgrade=1",
-                                                typeaside::account::web_url()
-                                            ));
-                                        }
-                                        this.exit(window, cx);
-                                    }),
-                                ))
-                                .child(button("Dismiss", false, p).id("dismiss-upgrade").on_click(
-                                    cx.listener(|this, _, window, cx| this.exit(window, cx)),
-                                )),
-                        ),
-                );
+        if let Visual::Upgrade {
+            title,
+            detail,
+            used,
+        } = &self.phase
+        {
+            let fill = if *used >= 1. { p.red } else { p.fg };
+            pill = pill.child(
+                div()
+                    .size_full()
+                    .px(px(16.))
+                    .py(px(14.))
+                    .flex()
+                    .flex_col()
+                    .text_size(px(13.))
+                    .text_color(p.fg)
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_baseline()
+                            .child(div().font_weight(FontWeight::MEDIUM).child(title.clone()))
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(p.muted)
+                                    .child(format!("{}% used", (used * 100.).round())),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(8.))
+                            .h(px(4.))
+                            .rounded_full()
+                            .bg(p.border)
+                            .child(div().h_full().w(relative(*used)).rounded_full().bg(fill)),
+                    )
+                    .child(
+                        div()
+                            .mt(px(8.))
+                            .text_size(px(12.))
+                            .text_color(p.muted)
+                            .child(detail.clone()),
+                    )
+                    .child(
+                        div()
+                            .mt_auto()
+                            .flex()
+                            .gap(px(8.))
+                            .child(button("Upgrade to Pro", true, p).id("upgrade").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    if !this.state.read(cx).is_demo {
+                                        cx.open_url(&format!(
+                                            "{}/account?upgrade=1",
+                                            typeaside::account::web_url()
+                                        ));
+                                    }
+                                    this.exit(window, cx);
+                                }),
+                            ))
+                            .child(button("Not now", false, p).id("dismiss-upgrade").on_click(
+                                cx.listener(|this, _, window, cx| this.exit(window, cx)),
+                            )),
+                    ),
+            );
         } else if self.phase == Visual::Paused {
             pill = pill.child(div().text_color(p.fg).text_size(px(13.)).child("Ⅱ Paused"));
         } else if let Visual::Error(message) | Visual::Notice(_, message, _) = &self.phase {
@@ -1097,4 +1129,14 @@ pub fn open_answer(
     #[cfg(target_os = "macos")]
     handle.update(cx, |_, window, _| borderless(window))?;
     Ok(handle)
+}
+
+fn resets(at: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(at)
+        .map(|date| {
+            date.with_timezone(&chrono::Local)
+                .format(&format!("%a {}", super::clock::time_format()))
+                .to_string()
+        })
+        .unwrap_or_default()
 }
