@@ -11,6 +11,9 @@ export const settingsInput = z.strictObject({
     .array(z.strictObject({ trigger: z.string().max(100), text: z.string().max(4000) }))
     .max(500),
   styles: z.record(z.string(), z.enum(["formal", "casual", "very_casual"])),
+  appInstructions: z
+    .array(z.strictObject({ app: z.string().max(512), text: z.string().max(300) }))
+    .max(20),
   updatedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
 });
 export const get = internalQuery({

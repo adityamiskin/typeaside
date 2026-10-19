@@ -44,6 +44,8 @@ export const settingsFields = {
     v.string(),
     v.union(v.literal("formal"), v.literal("casual"), v.literal("very_casual")),
   ),
+  // Rows synced before app instructions existed lack the field; clients send it on every write.
+  appInstructions: v.optional(v.array(v.object({ app: v.string(), text: v.string() }))),
   updatedAt: v.number(),
 };
 

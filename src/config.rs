@@ -131,6 +131,15 @@ const CODE_APPS: &[&str] = &[
     "wt",
 ];
 
+/// Case-insensitive app id without a Windows ".exe" suffix.
+pub fn app_key(app_id: &str) -> String {
+    let id = app_id.to_ascii_lowercase();
+    match id.strip_suffix(".exe") {
+        Some(name) => name.to_owned(),
+        None => id,
+    }
+}
+
 impl AppCategory {
     pub const ALL: [Self; 5] = [
         Self::Personal,
@@ -141,12 +150,11 @@ impl AppCategory {
     ];
 
     pub fn of(app_id: Option<&str>) -> Self {
-        let id = app_id.unwrap_or_default().to_ascii_lowercase();
+        let id = app_key(app_id.unwrap_or_default());
         let has = |names: &[&str]| names.iter().any(|name| id.contains(name));
-        let name = id.strip_suffix(".exe").unwrap_or(&id);
-        let code = name.starts_with("jetbrains-")
-            || name.starts_with("com.jetbrains.")
-            || CODE_APPS.contains(&name);
+        let code = id.starts_with("jetbrains-")
+            || id.starts_with("com.jetbrains.")
+            || CODE_APPS.contains(&id.as_str());
         if code {
             Self::Code
         } else if has(&[
@@ -208,6 +216,16 @@ pub struct Snippet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppInstruction {
+    pub app: String,
+    pub text: String,
+}
+
+pub const MAX_APP_INSTRUCTIONS: usize = 20;
+/// UTF-16 units, the unit of the Worker's zod `max`.
+pub const MAX_INSTRUCTION_LEN: usize = 300;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Cleanup {
     pub enabled: bool,
@@ -259,6 +277,7 @@ pub struct AppConfig {
     pub translate_to: String,
     pub styles: Styles,
     pub snippets: Vec<Snippet>,
+    pub app_instructions: Vec<AppInstruction>,
     pub sounds: bool,
     pub duck_media: bool,
     pub launch_at_login: bool,
@@ -297,6 +316,7 @@ impl Default for AppConfig {
             translate_to: "English".into(),
             styles: Styles::default(),
             snippets: Vec::new(),
+            app_instructions: Vec::new(),
             sounds: true,
             duck_media: true,
             launch_at_login: true,
@@ -341,6 +361,23 @@ impl AppConfig {
     /// Dictionary words plus removed ones: neither should be suggested again.
     pub fn known_words(&self) -> impl Iterator<Item = &String> {
         self.dictionary.iter().chain(&self.removed_words)
+    }
+
+    pub fn instructions_for(&self, app_id: Option<&str>) -> Option<&str> {
+        let key = app_key(app_id?);
+        self.app_instructions
+            .iter()
+            .find(|rule| app_key(&rule.app) == key)
+            .map(|rule| rule.text.trim())
+            .filter(|text| !text.is_empty())
+            .map(|text| {
+                let mut units = 0;
+                let end = text.char_indices().find(|(_, c)| {
+                    units += c.len_utf16();
+                    units > MAX_INSTRUCTION_LEN
+                });
+                end.map_or(text, |(end, _)| &text[..end])
+            })
     }
 
     pub fn editing(&self) -> bool {
@@ -405,7 +442,36 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppCategory, Styles, Tone};
+    use super::{AppCategory, AppConfig, AppInstruction, Styles, Tone};
+
+    #[test]
+    fn instructions_match_normalised_app_ids() {
+        let rule = |app: &str, text: &str| AppInstruction {
+            app: app.into(),
+            text: text.into(),
+        };
+        let config = AppConfig {
+            app_instructions: vec![
+                rule("Slack.exe", "  lowercase, no trailing period "),
+                rule("blank", "   "),
+                rule("long", &"😀".repeat(200)),
+            ],
+            ..AppConfig::default()
+        };
+        assert_eq!(
+            config.instructions_for(Some("slack")),
+            Some("lowercase, no trailing period")
+        );
+        assert_eq!(
+            config.instructions_for(Some("SLACK.EXE")),
+            Some("lowercase, no trailing period")
+        );
+        assert_eq!(config.instructions_for(Some("slack-desktop")), None);
+        assert_eq!(config.instructions_for(Some("blank")), None);
+        assert_eq!(config.instructions_for(None), None);
+        let long = config.instructions_for(Some("Long")).unwrap();
+        assert_eq!(long.encode_utf16().count(), 300);
+    }
 
     #[test]
     fn corrupt_config_is_preserved_and_defaults_can_be_saved() {

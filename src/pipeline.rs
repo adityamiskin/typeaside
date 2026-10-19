@@ -284,6 +284,8 @@ fn hosted_context(
         #[serde(skip_serializing_if = "Option::is_none")]
         language: Option<&'a str>,
         tone: Tone,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        instructions: Option<&'a str>,
         translate_to: &'a str,
     }
     let app_id = app.and_then(|app| app.id.as_deref());
@@ -317,6 +319,9 @@ fn hosted_context(
         names,
         language: config.language.as_deref(),
         tone: config.styles.get(category),
+        instructions: matches!(mode, Mode::Dictate | Mode::Translate)
+            .then(|| config.instructions_for(app_id))
+            .flatten(),
         translate_to: &config.translate_to,
     };
     Ok(serde_json::to_string(&context)?)

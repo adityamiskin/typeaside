@@ -52,6 +52,7 @@ pub struct MainWindow {
     pub menu_history: Option<std::time::SystemTime>,
     pub snippet_editor: Option<super::snippets::SnippetEditor>,
     pub style_category: AppCategory,
+    pub app_instructions: super::style::AppInstructions,
     pub hovered_history: Option<usize>,
     pub hovered_word: Option<usize>,
     pub capture: Option<Shortcut>,
@@ -112,6 +113,7 @@ impl MainWindow {
         .detach();
         cx.observe_in(&state, window, |this, _, window, cx| {
             this.settings.refresh(&this.state, window, cx);
+            this.sync_app_instructions(window, cx);
             if this.onboarding.pending_key {
                 if this.state.read(cx).key_hint == "Saved in keyring" {
                     this.onboarding.pending_key = false;
@@ -149,6 +151,7 @@ impl MainWindow {
             menu_history: None,
             history_tab: super::home::HistoryTab::default(),
             style_category: AppCategory::Work,
+            app_instructions: super::style::AppInstructions::new(window, cx),
             hovered_history: None,
             hovered_word: None,
             capture: None,
@@ -161,6 +164,7 @@ impl MainWindow {
             trace_started,
         };
         this.bind_settings(window, cx);
+        this.bind_app_instructions(window, cx);
         if this.state.read(cx).is_demo {
             if page == Page::Home {
                 let at = this.state.read(cx).history.get(1).map(|d| d.at);
