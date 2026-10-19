@@ -338,15 +338,11 @@ fn prefill(state: &Entity<AppState>, selection: String, app: Option<String>, cx:
 }
 
 #[cfg(target_os = "linux")]
-pub fn prepare(state: &Entity<AppState>, cx: &mut App) {
+pub fn show(state: &Entity<AppState>, cx: &mut App) {
+    // Created on first use and kept: the GPU driver costs ~50 MiB, so never pay it at startup.
     if state.read(cx).capture_window.is_none() {
         open(state, false, cx);
     }
-}
-
-#[cfg(target_os = "linux")]
-pub fn show(state: &Entity<AppState>, cx: &mut App) {
-    prepare(state, cx);
     state.update(cx, |s, _| {
         if s.note_draft.is_empty() {
             s.note_source = None;
