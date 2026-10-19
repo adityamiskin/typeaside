@@ -12,9 +12,11 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Recomposer
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -29,6 +31,7 @@ import kotlinx.coroutines.launch
 class DictationKeyboard : InputMethodService(), LifecycleOwner, SavedStateRegistryOwner, Keys {
   private val lifecycleRegistry = LifecycleRegistry(this)
   private val savedStateController = SavedStateRegistryController.create(this)
+  private val recomposer by lazy { Recomposer(AndroidUiDispatcher.Main) }
   override val lifecycle: Lifecycle get() = lifecycleRegistry
   override val savedStateRegistry get() = savedStateController.savedStateRegistry
 
@@ -42,10 +45,12 @@ class DictationKeyboard : InputMethodService(), LifecycleOwner, SavedStateRegist
     super.onCreate()
     savedStateController.performRestore(null)
     lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+    lifecycleScope.launch(AndroidUiDispatcher.Main) { recomposer.runRecomposeAndApplyChanges() }
   }
 
   override fun onDestroy() {
     cancelDictation()
+    recomposer.cancel()
     super.onDestroy()
     lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
   }
@@ -57,8 +62,22 @@ class DictationKeyboard : InputMethodService(), LifecycleOwner, SavedStateRegist
       it.setViewTreeSavedStateRegistryOwner(this)
     }
     return ComposeView(this).apply {
+      setViewTreeLifecycleOwner(this@DictationKeyboard)
+      setViewTreeSavedStateRegistryOwner(this@DictationKeyboard)
+      // IME windows detach during rebinding; their cached window recomposer can already be cancelled.
+      setParentCompositionContext(recomposer)
       setContent { KeyboardTheme { KeyboardPanel(panel, returnAction, this@DictationKeyboard) } }
     }
+  }
+
+  override fun onWindowShown() {
+    super.onWindowShown()
+    recomposer.resumeCompositionFrameClock()
+  }
+
+  override fun onWindowHidden() {
+    recomposer.pauseCompositionFrameClock()
+    super.onWindowHidden()
   }
 
   override fun onEvaluateFullscreenMode() = false
