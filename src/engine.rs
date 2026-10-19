@@ -446,7 +446,12 @@ fn run(
         } else if recorder.as_ref().is_some_and(AudioRecorder::limit_reached) {
             Message::Command(Command::Stop)
         } else {
-            match rx.recv_timeout(Duration::from_millis(33).saturating_sub(tick.elapsed())) {
+            let received = if recorder.is_none() && monitor.is_none() {
+                rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+            } else {
+                rx.recv_timeout(Duration::from_millis(33).saturating_sub(tick.elapsed()))
+            };
+            match received {
                 Ok(message) => message,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
