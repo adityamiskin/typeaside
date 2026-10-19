@@ -1,6 +1,7 @@
 import { fetch } from "expo/fetch";
 import { File } from "expo-file-system";
 import { z } from "zod";
+import { keyboard } from "../../modules/keyboard";
 import { deviceToken, forgetDeviceToken } from "./convex";
 import { env } from "./env";
 
@@ -71,4 +72,13 @@ export async function dictate(audioUri: string) {
         error.data.error.resets_at,
       )
     : new DictationError(`Dictation failed (${response.status})`, "network");
+}
+
+// The system keyboard dictates natively, so it gets its own copy of what it needs.
+export async function connectKeyboard() {
+  await keyboard.setCredentials({
+    token: await deviceToken(),
+    apiUrl: env.apiUrl,
+    dictionary: await loadDictionary(),
+  });
 }
