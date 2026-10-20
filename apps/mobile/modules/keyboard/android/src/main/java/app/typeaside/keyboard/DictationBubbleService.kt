@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -49,19 +50,32 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   private var target: AccessibilityNodeInfo? = null
   private var recorder: Recorder? = null
   private var job: Job? = null
-  private var state by mutableStateOf<Bubble>(Bubble.Idle)
+  private var bubbleState by mutableStateOf<Bubble>(Bubble.Idle)
+  private var state: Bubble
+    get() = bubbleState
+    set(value) {
+      val wasRecording = bubbleState is Bubble.Recording
+      bubbleState = value
+      if (wasRecording != (value is Bubble.Recording)) {
+        val center = params.x + params.width / 2
+        params.width = dp(if (value is Bubble.Recording) RECORDING_WIDTH_DP else HANDLE_WIDTH_DP)
+        params.x = (center - params.width / 2).coerceIn(0, resources.displayMetrics.widthPixels - params.width)
+        view?.let { manager.updateViewLayout(it, params) }
+      }
+    }
   private val params by lazy {
     WindowManager.LayoutParams(
-      dp(BUBBLE_WINDOW_DP), dp(BUBBLE_WINDOW_DP),
+      dp(HANDLE_WIDTH_DP), dp(BUBBLE_WINDOW_HEIGHT_DP),
       WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
       PixelFormat.TRANSLUCENT,
-    ).apply { gravity = Gravity.TOP or Gravity.LEFT }
+    ).apply {
+      gravity = Gravity.TOP or Gravity.LEFT
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setFitInsetsTypes(0)
+    }
   }
   private var downX = 0f
-  private var downY = 0f
   private var originX = 0
-  private var originY = 0
   private var dragging = false
   private var held = false
   private var beganRecording = false
@@ -80,25 +94,26 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   }
 
   override fun onAccessibilityEvent(event: AccessibilityEvent) {
-    val keyboard = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+    val keyboard = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
     val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-    if (!keyboard || node == null || !node.isEditable || node.isPassword || node.packageName == packageName) {
+    if (keyboard == null || node == null || !node.isEditable || node.isPassword || node.packageName == packageName) {
       hide()
       return
     }
     if (target != node) {
       cancel()
       target = node
-      val bounds = Rect().also(node::getBoundsInScreen)
-      params.x = resources.displayMetrics.widthPixels - params.width - dp(8)
-      params.y = (bounds.bottom - dp(BUBBLE_WINDOW_DP)).coerceAtLeast(dp(32))
+      if (view == null) params.x = (resources.displayMetrics.widthPixels - params.width) / 2
     }
+    val keyboardBounds = Rect().also(keyboard::getBoundsInScreen)
+    params.y = (keyboardBounds.top - params.height).coerceAtLeast(0)
+    view?.let { manager.updateViewLayout(it, params) }
     if (view == null) {
       view = ComposeView(this).apply {
         setViewTreeLifecycleOwner(this@DictationBubbleService)
         setViewTreeSavedStateRegistryOwner(this@DictationBubbleService)
         setParentCompositionContext(recomposer)
-        setContent { BubbleTheme { MicBubble(state, ::touch, ::toggle) } }
+        setContent { BubbleTheme { MicBubble(state, ::touch, ::toggle, ::cancel) } }
       }.also { manager.addView(it, params) }
     }
   }
@@ -107,9 +122,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
         downX = event.rawX
-        downY = event.rawY
         originX = params.x
-        originY = params.y
         dragging = false
         held = false
         beganRecording = state is Bubble.Recording
@@ -117,20 +130,19 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
       }
       MotionEvent.ACTION_MOVE -> {
         val dx = event.rawX - downX
-        val dy = event.rawY - downY
-        if (!held && (abs(dx) > ViewConfiguration.get(this).scaledTouchSlop || abs(dy) > ViewConfiguration.get(this).scaledTouchSlop)) {
+        if (!held && abs(dx) > ViewConfiguration.get(this).scaledTouchSlop) {
           dragging = true
           handler.removeCallbacks(hold)
         }
         if (dragging) {
           params.x = (originX + dx.toInt()).coerceIn(0, resources.displayMetrics.widthPixels - params.width)
-          params.y = (originY + dy.toInt()).coerceIn(0, resources.displayMetrics.heightPixels - params.height)
           view?.let { manager.updateViewLayout(it, params) }
         }
       }
       MotionEvent.ACTION_UP -> {
         handler.removeCallbacks(hold)
-        if (held || (beganRecording && !dragging)) recorder?.stop()
+        if (held) recorder?.stop()
+        else if (beganRecording && !dragging && event.x < dp(48)) cancel()
         else if (!dragging) toggle()
         held = false
       }
@@ -162,10 +174,13 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
     if (!node.refresh() || !node.isFocused || node.isPassword) return
     val context = dictationContext(node.field(), credentials.dictionary)
     val recording = Recorder().also { recorder = it }
-    state = Bubble.Recording(0f)
+    state = Bubble.Recording(emptyList())
     job = lifecycleScope.launch {
       try {
-        val pcm = recording.record { _, level -> state = Bubble.Recording(level) }
+        val pcm = recording.record { _, level ->
+          val levels = (state as? Bubble.Recording)?.levels.orEmpty()
+          state = Bubble.Recording((levels + level).takeLast(20))
+        }
         recorder = null
         if (!pcm.isLongEnough()) {
           state = Bubble.Idle

@@ -2,13 +2,16 @@ package app.typeaside.keyboard
 
 import android.os.Build
 import android.view.MotionEvent
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Stop
@@ -21,30 +24,30 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.unit.dp
 
 sealed interface Bubble {
   data object Idle : Bubble
-  data class Recording(val level: Float) : Bubble
+  data class Recording(val levels: List<Float>) : Bubble
   data object Sending : Bubble
   data object Error : Bubble
 }
 
-// The window is larger than the bubble so the level halo and shadow are not clipped.
-const val BUBBLE_WINDOW_DP = 72
-private val BubbleSize = 52.dp
+const val HANDLE_WIDTH_DP = 64
+const val RECORDING_WIDTH_DP = 232
+const val BUBBLE_WINDOW_HEIGHT_DP = 56
 
 @Composable
 fun BubbleTheme(content: @Composable () -> Unit) {
@@ -60,47 +63,46 @@ fun BubbleTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun MicBubble(state: Bubble, onTouch: (MotionEvent) -> Boolean, onToggle: () -> Unit) {
+fun MicBubble(state: Bubble, onTouch: (MotionEvent) -> Boolean, onToggle: () -> Unit, onCancel: () -> Unit) {
   val colors = MaterialTheme.colorScheme
-  val level by animateFloatAsState(if (state is Bubble.Recording) state.level else 0f, label = "level")
-  val (container, content) = when (state) {
-    Bubble.Idle -> colors.primaryContainer to colors.onPrimaryContainer
-    is Bubble.Recording -> colors.primary to colors.onPrimary
-    Bubble.Sending -> colors.surfaceContainerHigh to colors.primary
-    Bubble.Error -> colors.errorContainer to colors.onErrorContainer
-  }
+  val recording = state is Bubble.Recording
+  val width = if (recording) RECORDING_WIDTH_DP else HANDLE_WIDTH_DP
   Box(
-    Modifier
-      .size(BUBBLE_WINDOW_DP.dp)
+    Modifier.size(width.dp, BUBBLE_WINDOW_HEIGHT_DP.dp)
       .pointerInteropFilter(onTouchEvent = onTouch)
       .clearAndSetSemantics {
         role = Role.Button
-        contentDescription = if (state is Bubble.Recording) "Stop dictation" else "Dictate"
-        onClick {
-          onToggle()
-          true
+        contentDescription = when (state) {
+          is Bubble.Recording -> "Stop TypeAside dictation"
+          Bubble.Sending -> "TypeAside is transcribing"
+          else -> "Dictate with TypeAside"
         }
+        if (state != Bubble.Sending) onClick { onToggle(); true }
+        if (recording) customActions = listOf(CustomAccessibilityAction("Cancel dictation") { onCancel(); true })
       },
     contentAlignment = Alignment.Center,
   ) {
-    if (state is Bubble.Recording) {
-      Box(
-        Modifier
-          .size(BubbleSize)
-          .graphicsLayer {
-            scaleX = 1f + level * 0.36f
-            scaleY = 1f + level * 0.36f
-          }
-          .background(colors.primary.copy(alpha = 0.3f), CircleShape),
-      )
-    }
-    Surface(Modifier.size(BubbleSize), shape = CircleShape, color = container, contentColor = content, shadowElevation = 3.dp) {
-      Box(contentAlignment = Alignment.Center) {
+    Surface(
+      Modifier.size(width.dp, 40.dp), shape = CircleShape,
+      color = if (state == Bubble.Error) colors.errorContainer else colors.secondaryContainer,
+      contentColor = if (state == Bubble.Error) colors.onErrorContainer else colors.onSecondaryContainer,
+      shadowElevation = 2.dp,
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
         when (state) {
-          Bubble.Idle -> Icon(Icons.Rounded.Mic, contentDescription = null)
-          is Bubble.Recording -> Icon(Icons.Rounded.Stop, contentDescription = null)
-          Bubble.Sending -> CircularProgressIndicator(Modifier.size(24.dp), color = content, strokeWidth = 3.dp)
-          Bubble.Error -> Icon(Icons.Rounded.ErrorOutline, contentDescription = null)
+          is Bubble.Recording -> {
+            Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(20.dp))
+            Row(Modifier.width(116.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+              repeat(20) { index ->
+                val level = state.levels.getOrNull(index - (20 - state.levels.size)) ?: 0f
+                Box(Modifier.size(3.dp, (3 + level * 22).dp).background(colors.onSecondaryContainer, CircleShape))
+              }
+            }
+            Icon(Icons.Rounded.Stop, contentDescription = null, modifier = Modifier.size(24.dp))
+          }
+          Bubble.Sending -> CircularProgressIndicator(Modifier.size(18.dp), color = colors.onSecondaryContainer, strokeWidth = 2.dp)
+          Bubble.Error -> Icon(Icons.Rounded.ErrorOutline, contentDescription = null, modifier = Modifier.size(22.dp))
+          Bubble.Idle -> Icon(Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(22.dp))
         }
       }
     }
