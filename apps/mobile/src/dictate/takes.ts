@@ -7,8 +7,6 @@ export const take = z.object({
   id: z.string(),
   createdAt: z.number(),
   text: z.string(),
-  // Set until the audio is transcribed; `error` explains why the last attempt failed.
-  pending: z.object({ uri: z.string(), error: z.string().optional() }).optional(),
   noteId: z.string().optional(),
 });
 export type Take = z.infer<typeof take>;

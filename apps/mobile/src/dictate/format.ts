@@ -3,20 +3,15 @@ import type { Take } from "./takes";
 
 export type Action = {
   label: string;
-  icon: "copy" | "save" | "saved" | "delete" | "retry";
+  icon: "copy" | "save" | "saved" | "delete";
   onPress: () => void;
 };
-
-export function takeText(take: Take) {
-  if (!take.pending) return take.text;
-  return take.pending.error ? "Not transcribed yet" : "Cleaning up";
-}
 
 export function takeMeta(take: Take) {
   const words = take.text.split(/\s+/).filter(Boolean).length;
   return [
     new Date(take.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-    take.pending ? take.pending.error : `${words} ${words === 1 ? "word" : "words"}`,
+    `${words} ${words === 1 ? "word" : "words"}`,
     take.noteId && "Saved",
   ]
     .filter(Boolean)

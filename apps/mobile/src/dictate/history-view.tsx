@@ -25,7 +25,7 @@ import { useEffect, useRef, useState } from "react";
 import { useColorScheme, View } from "react-native";
 import { icons } from "@/ui/icons";
 import { seedColor } from "@/ui/theme";
-import { type Action, groupByDay, takeMeta, takeText } from "./format";
+import { type Action, groupByDay, takeMeta } from "./format";
 import type { Take } from "./takes";
 
 export type HistoryViewProps = {
@@ -109,13 +109,13 @@ function TakeItem({
       colors={{
         containerColor: dark ? "#000" : material.surface,
         contentColor: material.onSurface,
-        supportingContentColor: take.pending?.error ? material.error : material.onSurfaceVariant,
+        supportingContentColor: material.onSurfaceVariant,
       }}
       modifiers={[combinedClickable({ onClick: onCopy, onLongClick: () => setMenu(true) })]}
     >
       <ListItem.HeadlineContent>
         <Text style={{ typography: "bodyLarge" }} maxLines={3} overflow="ellipsis">
-          {takeText(take)}
+          {take.text}
         </Text>
       </ListItem.HeadlineContent>
       <ListItem.SupportingContent>
