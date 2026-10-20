@@ -1,4 +1,4 @@
-import { requireNativeModule } from "expo";
+import { NativeModule, requireNativeModule } from "expo";
 
 // Shared with the iOS keyboard extension and Android accessibility service,
 // which dictates through the hosted API without the JS runtime.
@@ -17,13 +17,15 @@ export type BubbleAppearance = {
   position: number;
 };
 
-type KeyboardModule = {
+declare class KeyboardModule extends NativeModule<{ onHistoryChanged: () => void }> {
+  readHistory(): Promise<string>;
+  acknowledgeHistory(ids: string[]): Promise<void>;
   getAppearance(): Promise<BubbleAppearance>;
   setAppearance(appearance: BubbleAppearance): Promise<void>;
   setCredentials(credentials: Credentials): Promise<void>;
   clearCredentials(): Promise<void>;
   isEnabled(): Promise<boolean>;
   openSettings(): Promise<void>;
-};
+}
 
 export const keyboard = requireNativeModule<KeyboardModule>("Keyboard");

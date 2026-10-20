@@ -3,7 +3,7 @@ import type { Take } from "./takes";
 
 export type Action = {
   label: string;
-  icon: "copy" | "share" | "save" | "saved" | "delete" | "retry";
+  icon: "copy" | "save" | "saved" | "delete" | "retry";
   onPress: () => void;
 };
 
@@ -27,11 +27,6 @@ export function usageText({ words, cap }: Account["usage"]) {
   if (cap === null) return `${words.toLocaleString()} words this week`;
   if (words >= cap) return "Weekly limit reached";
   return `${(cap - words).toLocaleString()} words left`;
-}
-
-export function formatElapsed(ms: number) {
-  const seconds = Math.floor(ms / 1000);
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 // Takes arrive newest first, so each day's group is contiguous.

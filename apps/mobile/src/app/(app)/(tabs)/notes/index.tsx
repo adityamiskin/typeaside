@@ -1,6 +1,7 @@
 import { api } from "@typeaside/backend/convex/_generated/api";
 import { useQuery } from "convex/react";
-import { useRouter } from "expo-router";
+import { DrawerActions } from "@react-navigation/native";
+import { useNavigation, useRouter } from "expo-router";
 import { useState } from "react";
 import { useNoteActions } from "@/notes/actions";
 import { arrange } from "@/notes/model";
@@ -8,6 +9,7 @@ import { NotesView } from "@/notes/notes-view";
 
 export default function NotesScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const notes = useQuery(api.notes.list);
   const actions = useNoteActions();
   const [archive, setArchive] = useState(false);
@@ -24,6 +26,8 @@ export default function NotesScreen() {
 
   return (
     <NotesView
+      onMenu={() => navigation.dispatch(DrawerActions.openDrawer())}
+      onAccount={() => router.push("/account")}
       notes={visible}
       empty={empty}
       archive={archive}

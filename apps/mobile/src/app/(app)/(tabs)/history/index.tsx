@@ -2,22 +2,21 @@ import { api } from "@typeaside/backend/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
-import { File, Paths } from "expo-file-system";
+import { File } from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
-import { Alert, Linking, Share } from "react-native";
-import { DictateView } from "@/dictate/dictate-view";
+import { Alert } from "react-native";
+import { HistoryView } from "@/dictate/history-view";
 import type { Action } from "@/dictate/format";
-import { RecordBar } from "@/dictate/record-bar";
 import { type Take, useTakes } from "@/dictate/takes";
 import { DictationError } from "@/lib/dictate";
-import { MicrophoneDenied, transcribe } from "@/lib/recorder";
+import { transcribe } from "@/lib/recorder";
 
-export default function DictateScreen() {
-  const { takes, add, update, remove } = useTakes();
+export default function HistoryScreen() {
+  const { takes, update, remove } = useTakes();
   const account = useQuery(api.viewer.current);
   const saveNote = useMutation(api.notes.save);
-  const [expandedId, setExpandedId] = useState<string>();
+  const [copied, setCopied] = useState(0);
   const [busy, setBusy] = useState(false);
 
   async function process(take: Take, uri: string) {
@@ -35,23 +34,14 @@ export default function DictateScreen() {
     }
   }
 
-  function recorded(recording: string) {
-    // The recorder writes to the cache, which the OS may clear before a retry.
-    const audio = new File(recording);
-    audio.moveSync(Paths.document);
-    const take = { id: Crypto.randomUUID(), createdAt: Date.now(), text: "" };
-    add({ ...take, pending: { uri: audio.uri } });
-    setExpandedId(take.id);
-    void process(take, audio.uri);
-  }
-
-  function failed(error: Error) {
-    if (error instanceof MicrophoneDenied)
-      Alert.alert("Microphone is off", error.message, [
-        { text: "Not now", style: "cancel" },
-        { text: "Settings", onPress: () => void Linking.openSettings() },
-      ]);
-    else Alert.alert("Could not start recording", error.message);
+  function copy(take: Take) {
+    if (take.pending) return;
+    void Clipboard.setStringAsync(take.text)
+      .then(() => {
+        setCopied((count) => count + 1);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      })
+      .catch(() => Alert.alert("Could not copy dictation."));
   }
 
   function actions(take: Take): Action[] {
@@ -79,15 +69,7 @@ export default function DictateScreen() {
       {
         label: "Copy",
         icon: "copy",
-        onPress: () => {
-          void Clipboard.setStringAsync(take.text);
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        },
-      },
-      {
-        label: "Share",
-        icon: "share",
-        onPress: () => void Share.share({ message: take.text }),
+        onPress: () => copy(take),
       },
       {
         label: take.noteId ? "Saved" : "Save as note",
@@ -108,15 +90,12 @@ export default function DictateScreen() {
   }
 
   return (
-    <DictateView
+    <HistoryView
       takes={takes}
-      expandedId={expandedId}
-      onToggle={(take) => setExpandedId(take.id === expandedId ? undefined : take.id)}
+      copied={copied}
+      onCopy={copy}
       actions={actions}
       usage={account?.usage}
-      recordBar={
-        <RecordBar busy={busy} hero={takes.length === 0} onRecorded={recorded} onError={failed} />
-      }
     />
   );
 }

@@ -8,6 +8,7 @@ import type { NotesViewProps } from "./notes-view";
 import { SwipeRow } from "./swipe-row";
 
 export function NotesView({
+  onAccount,
   notes,
   empty,
   archive,
@@ -23,6 +24,13 @@ export function NotesView({
         onChangeText={(event) => onSearch(event.nativeEvent.text)}
         onCancelButtonPress={() => onSearch("")}
       />
+      <Stack.Toolbar placement="left">
+        <Stack.Toolbar.Button
+          icon="person.crop.circle"
+          accessibilityLabel="Account"
+          onPress={onAccount}
+        />
+      </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
           icon="square.and.pencil"
