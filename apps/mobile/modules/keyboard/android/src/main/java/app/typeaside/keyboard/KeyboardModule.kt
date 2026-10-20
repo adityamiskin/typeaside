@@ -2,7 +2,7 @@ package app.typeaside.keyboard
 
 import android.content.Intent
 import android.provider.Settings
-import android.view.inputmethod.InputMethodManager
+import android.content.ComponentName
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
@@ -29,13 +29,14 @@ class KeyboardModule : Module() {
     }
 
     AsyncFunction("isEnabled") {
-      context.getSystemService(InputMethodManager::class.java)
-        .enabledInputMethodList
-        .any { it.packageName == context.packageName }
+      val component = ComponentName(context, DictationBubbleService::class.java)
+      Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        ?.split(':')
+        ?.any { ComponentName.unflattenFromString(it) == component } == true
     }
 
     AsyncFunction("openSettings") {
-      context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
   }
 }

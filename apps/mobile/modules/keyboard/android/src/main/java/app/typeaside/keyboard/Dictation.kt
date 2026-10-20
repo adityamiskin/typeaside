@@ -1,8 +1,5 @@
 package app.typeaside.keyboard
 
-import android.text.InputType
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -23,29 +20,16 @@ sealed interface Outcome {
 private const val CURSOR_CONTEXT = 2_000
 
 /** Mirrors contextInput in apps/api/src/dictate.ts, which rejects unknown keys. */
-fun dictationContext(editor: EditorInfo, connection: InputConnection?, dictionary: List<String>): JSONObject {
-  val variation = editor.inputType and InputType.TYPE_MASK_VARIATION
-  val text = editor.inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT
-  val password = (editor.inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_NUMBER &&
-    variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD) || (text && variation in setOf(
-    InputType.TYPE_TEXT_VARIATION_PASSWORD,
-    InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
-    InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
-  ))
-  return JSONObject()
-    .put("mode", "dictate")
-    .put("category", "personal")
-    .putOpt("app_id", editor.packageName)
-    .apply {
-      if (password || connection == null) return@apply
-      connection.getTextBeforeCursor(CURSOR_CONTEXT, 0)?.let { put("before_cursor", it.takeLast(CURSOR_CONTEXT).toString()) }
-      connection.getTextAfterCursor(CURSOR_CONTEXT, 0)?.let { put("after_cursor", it.take(CURSOR_CONTEXT).toString()) }
-    }
-    .put("dictionary", JSONArray(dictionary))
-    .put("names", JSONArray())
-    .put("tone", "casual")
-    .put("translate_to", "English")
-}
+fun dictationContext(field: Field, dictionary: List<String>): JSONObject = JSONObject()
+  .put("mode", "dictate")
+  .put("category", "personal")
+  .putOpt("app_id", field.packageName)
+  .put("before_cursor", field.text.take(field.start).takeLast(CURSOR_CONTEXT))
+  .put("after_cursor", field.text.drop(field.end).take(CURSOR_CONTEXT))
+  .put("dictionary", JSONArray(dictionary))
+  .put("names", JSONArray())
+  .put("tone", "casual")
+  .put("translate_to", "English")
 
 suspend fun dictate(credentials: Credentials, pcm: ByteArray, context: JSONObject): Outcome = withContext(Dispatchers.IO) {
   val boundary = "typeaside-${UUID.randomUUID()}"

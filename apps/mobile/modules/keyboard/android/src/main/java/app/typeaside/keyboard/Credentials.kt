@@ -14,8 +14,7 @@ import javax.crypto.spec.GCMParameterSpec
 
 data class Credentials(val token: String, val apiUrl: String, val dictionary: List<String>)
 
-// The token is sealed with a Keystore AES key so it never sits in plain text on disk; the IME
-// shares the app process, so it reads the same store without IPC.
+// The accessibility service shares the app process and its Keystore-backed credential store.
 class CredentialStore(context: Context) {
   private val prefs = context.getSharedPreferences("typeaside.keyboard", Context.MODE_PRIVATE)
 
