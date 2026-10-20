@@ -16,10 +16,10 @@ export default function NotesScreen() {
   const empty =
     notes && visible.length === 0
       ? search.trim()
-        ? "No matches"
+        ? "search"
         : archive
-          ? "No archived notes"
-          : "No notes yet"
+          ? "archive"
+          : "notes"
       : undefined;
 
   return (
@@ -31,6 +31,9 @@ export default function NotesScreen() {
       onSearch={setSearch}
       onOpen={(note) => router.push({ pathname: "/notes/[id]", params: { id: note.id } })}
       onCreate={() => router.push({ pathname: "/notes/[id]", params: { id: "new" } })}
+      onDictate={() =>
+        router.push({ pathname: "/notes/[id]", params: { id: "new", dictate: "1" } })
+      }
       actions={actions}
     />
   );

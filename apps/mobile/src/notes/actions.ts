@@ -1,4 +1,5 @@
 import { api } from "@typeaside/backend/convex/_generated/api";
+import type { NoteColor } from "@typeaside/backend/convex/noteColors";
 import { useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import * as Haptics from "expo-haptics";
@@ -15,31 +16,39 @@ export function useNoteActions() {
   const save = useMutation(api.notes.save);
   const remove = useMutation(api.notes.remove);
 
-  function update(note: Note, changes: Partial<Draft>) {
+  function update(notes: Note[], changes: Partial<Draft>) {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const { id, text, pinned, archived, color } = { ...note, ...changes };
-    save({ id, text, pinned, archived, color }).catch((error: unknown) =>
-      Alert.alert("Could not update note", failureMessage(error)),
-    );
+    Promise.all(
+      notes.map((note) => {
+        const { id, text, pinned, archived, color } = { ...note, ...changes };
+        return save({ id, text, pinned, archived, color });
+      }),
+    ).catch((error: unknown) => Alert.alert("Could not update note", failureMessage(error)));
   }
 
   return {
-    togglePin: (note: Note) => update(note, { pinned: !note.pinned, archived: false }),
-    toggleArchive: (note: Note) => update(note, { archived: !note.archived, pinned: false }),
-    confirmDelete: (note: Note) =>
-      Alert.alert("Delete this note?", "It will be removed from all your devices.", [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => {
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            remove({ id: note.id }).catch((error: unknown) =>
-              Alert.alert("Could not delete note", failureMessage(error)),
-            );
+    pin: (notes: Note[], pinned: boolean) => update(notes, { pinned, archived: false }),
+    archive: (notes: Note[], archived: boolean) => update(notes, { archived, pinned: false }),
+    color: (notes: Note[], color: NoteColor) => update(notes, { color }),
+    confirmDelete: (ids: string[], onDeleted?: () => void) =>
+      Alert.alert(
+        ids.length > 1 ? `Delete ${ids.length} notes?` : "Delete this note?",
+        "It will be removed from all your devices.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => {
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              onDeleted?.();
+              Promise.all(ids.map((id) => remove({ id }))).catch((error: unknown) =>
+                Alert.alert("Could not delete note", failureMessage(error)),
+              );
+            },
           },
-        },
-      ]),
+        ],
+      ),
   };
 }
 

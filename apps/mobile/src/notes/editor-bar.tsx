@@ -1,23 +1,36 @@
 import { type NoteColor, noteColors as noteColorNames } from "@typeaside/backend/convex/noteColors";
+import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { DictationError } from "@/lib/dictate";
 import { MicrophoneDenied, transcribe, useDictation } from "@/lib/recorder";
 import { useColors, useNoteColors } from "@/ui/theme";
+import { relativeTime } from "./model";
 
 export function EditorBar({
   color,
+  editedAt,
+  archived,
+  autoDictate,
   onColor,
+  onArchive,
+  onDelete,
   onDictated,
   onNotice,
 }: {
   color: NoteColor;
+  editedAt: number | undefined;
+  archived: boolean;
+  autoDictate: boolean;
   onColor: (color: NoteColor) => void;
+  onArchive: () => void;
+  onDelete: () => void;
   onDictated: (text: string) => void;
   onNotice: (message: string) => void;
 }) {
-  const [dictating, setDictating] = useState(false);
+  const [dictating, setDictating] = useState(autoDictate);
+  const [palette, setPalette] = useState(false);
   const colors = useColors();
   const noteColors = useNoteColors();
 
@@ -28,41 +41,107 @@ export function EditorBar({
     );
 
   return (
-    <View style={[styles.bar, { borderTopColor: colors.separator }]}>
-      {noteColorNames.map((name) => (
-        <Pressable
-          key={name}
-          accessibilityRole="radio"
-          accessibilityLabel={name === "none" ? "No color" : name}
-          accessibilityState={{ selected: color === name }}
-          hitSlop={6}
-          onPress={() => onColor(name)}
-          style={[styles.ring, color === name && { borderColor: colors.text }]}
+    <View>
+      {palette && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.palette}
         >
-          <View
-            style={[
-              styles.swatch,
-              {
-                borderColor: colors.separator,
-                backgroundColor: name === "none" ? colors.background : noteColors[name].accent,
-              },
-            ]}
-          >
-            {name === "none" && (
-              <View style={[styles.slash, { backgroundColor: colors.tertiary }]} />
-            )}
-          </View>
-        </Pressable>
-      ))}
-      <Pressable
-        accessibilityLabel="Dictate"
-        hitSlop={10}
-        style={styles.trailing}
-        onPress={() => setDictating(true)}
-      >
-        <SymbolView name={{ ios: "mic", android: "mic" }} tintColor={colors.text} size={22} />
-      </Pressable>
+          {noteColorNames.map((name) => (
+            <Pressable
+              key={name}
+              accessibilityRole="radio"
+              accessibilityLabel={name === "none" ? "Default" : name}
+              accessibilityState={{ selected: color === name }}
+              onPress={() => onColor(name)}
+              style={[
+                styles.swatch,
+                {
+                  borderColor: color === name ? colors.accent : colors.separator,
+                  borderWidth: color === name ? 2 : 1,
+                  backgroundColor:
+                    name === "none" ? colors.background : noteColors[name].background,
+                },
+              ]}
+            >
+              {color === name ? (
+                <SymbolView
+                  name={{ ios: "checkmark", android: "check" }}
+                  tintColor={colors.accent}
+                  size={20}
+                />
+              ) : (
+                name === "none" && (
+                  <SymbolView
+                    name={{ ios: "drop.degreesign.slash", android: "format_color_reset" }}
+                    tintColor={colors.secondary}
+                    size={20}
+                  />
+                )
+              )}
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+      <View style={styles.bar}>
+        <IconButton
+          label="Color"
+          ios="paintpalette"
+          android="palette"
+          active={palette}
+          onPress={() => setPalette(!palette)}
+        />
+        <IconButton label="Dictate" ios="mic" android="mic" onPress={() => setDictating(true)} />
+        <Text style={[styles.edited, { color: colors.secondary }]} numberOfLines={1}>
+          {editedAt ? `Edited ${relativeTime(editedAt)}` : ""}
+        </Text>
+        <IconButton
+          label={archived ? "Unarchive" : "Archive"}
+          ios={archived ? "tray.and.arrow.up" : "archivebox"}
+          android={archived ? "unarchive" : "archive"}
+          onPress={onArchive}
+        />
+        <IconButton label="Delete" ios="trash" android="delete" onPress={onDelete} />
+      </View>
     </View>
+  );
+}
+
+export function IconButton({
+  label,
+  ios,
+  android,
+  active = false,
+  disabled = false,
+  onPress,
+}: {
+  label: string;
+  ios: SFSymbol;
+  android: AndroidSymbol;
+  active?: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      android_ripple={{ borderless: true, radius: 20, color: colors.separator }}
+      style={({ pressed }) => [
+        styles.icon,
+        ((process.env.EXPO_OS === "ios" && pressed) || disabled) && styles.dim,
+      ]}
+    >
+      <SymbolView
+        name={{ ios, android }}
+        tintColor={active ? colors.accent : colors.text}
+        size={24}
+      />
+    </Pressable>
   );
 }
 
@@ -129,13 +208,13 @@ function Dictation({
 
   if (transcribing)
     return (
-      <View style={[styles.bar, { borderTopColor: colors.separator }]}>
+      <View style={styles.recording}>
         <Text style={[styles.status, { color: colors.secondary }]}>Transcribing</Text>
       </View>
     );
 
   return (
-    <View style={[styles.bar, { borderTopColor: colors.separator }]}>
+    <View style={styles.recording}>
       <Pressable
         accessibilityLabel="Cancel dictation"
         disabled={!dictation.recording}
@@ -183,26 +262,25 @@ function formatElapsed(ms: number) {
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    minHeight: 52,
+  bar: { minHeight: 56, flexDirection: "row", alignItems: "center", paddingHorizontal: 4 },
+  recording: {
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 16,
     paddingHorizontal: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  ring: { padding: 2, borderRadius: 17, borderWidth: 2, borderColor: "transparent" },
+  palette: { gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
   swatch: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: "hidden",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-  slash: { width: 30, height: 1.5, transform: [{ rotate: "-45deg" }] },
-  trailing: { marginLeft: "auto" },
+  edited: { flex: 1, fontSize: 12, textAlign: "center" },
+  icon: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
+  dim: { opacity: 0.4 },
   status: { fontSize: 15 },
   meter: {
     flex: 1,

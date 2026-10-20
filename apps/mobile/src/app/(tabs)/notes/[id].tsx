@@ -3,22 +3,31 @@ import { useQuery } from "convex/react";
 import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import type { AndroidSymbol, SFSymbol } from "expo-symbols";
-import { SymbolView } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Share, StyleSheet, Text, View } from "react-native";
+import {
+  Dimensions,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type ViewInstance,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { EditorBar } from "@/notes/editor-bar";
-import { type Draft, toggleChecklist } from "@/notes/model";
+import { useNoteActions } from "@/notes/actions";
+import { EditorBar, IconButton } from "@/notes/editor-bar";
+import { type Draft, joinTitle, splitTitle, toggleChecklist } from "@/notes/model";
 import { NoteBody } from "@/notes/note-body";
 import { useKeyboardHeight } from "@/notes/use-keyboard-height";
 import { useNoteDraft } from "@/notes/use-note-draft";
 import { useColors, useNoteColors } from "@/ui/theme";
 
 const ios = process.env.EXPO_OS === "ios";
+const MAX_LENGTH = 20_000;
 
 export default function NoteScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, dictate } = useLocalSearchParams<{ id: string; dictate?: string }>();
   const notes = useQuery(api.notes.list);
   const [newId] = useState(() => Crypto.randomUUID().replaceAll("-", ""));
   const colors = useColors();
@@ -27,7 +36,9 @@ export default function NoteScreen() {
     return (
       <NoteEditor
         initial={{ id: newId, text: "", pinned: false, archived: false, color: "none" }}
+        updatedAt={notes?.find((note) => note.id === newId)?.updatedAt}
         stored={false}
+        autoDictate={dictate === "1"}
       />
     );
   const note = notes?.find((candidate) => candidate.id === id);
@@ -40,66 +51,97 @@ export default function NoteScreen() {
       </View>
     );
   const { text, pinned, archived, color } = note;
-  return <NoteEditor key={id} initial={{ id, text, pinned, archived, color }} stored />;
+  return (
+    <NoteEditor
+      key={id}
+      initial={{ id, text, pinned, archived, color }}
+      updatedAt={note.updatedAt}
+      stored
+      autoDictate={false}
+    />
+  );
 }
 
-function NoteEditor({ initial, stored }: { initial: Draft; stored: boolean }) {
+function NoteEditor({
+  initial,
+  updatedAt,
+  stored,
+  autoDictate,
+}: {
+  initial: Draft;
+  updatedAt: number | undefined;
+  stored: boolean;
+  autoDictate: boolean;
+}) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const keyboard = useKeyboardHeight();
   const colors = useColors();
   const noteColors = useNoteColors();
-  const { draft, error, update } = useNoteDraft(initial, stored);
+  const actions = useNoteActions();
+  const { draft, error, update, discard } = useNoteDraft(initial, stored);
+  const body = useRef<{ edit: () => void }>(null);
+  const screen = useRef<ViewInstance>(null);
+  // Space between this screen and the bottom of the display, such as the tab bar.
+  const [below, setBelow] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
   const message = notice ?? error;
+  // Title and body live apart while editing: the server trims text, so a note typed without a
+  // title would otherwise have its first body line jump into the title field.
+  const [parts, setParts] = useState(() => splitTitle(initial.text));
+  const latestParts = useRef(parts);
 
-  function showNotice(text: string) {
-    setNotice(text);
+  function showNotice(message: string) {
+    setNotice(message);
     clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(null), 4000);
+  }
+
+  function edit(change: (current: typeof parts) => Partial<typeof parts>) {
+    latestParts.current = { ...latestParts.current, ...change(latestParts.current) };
+    setParts(latestParts.current);
+    const { title, body } = latestParts.current;
+    update({ text: joinTitle(title, body).slice(0, MAX_LENGTH) });
   }
 
   const togglePin = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     update({ pinned: !draft.pinned, archived: false }, { now: true });
   };
-  const toggleArchive = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    update({ archived: !draft.archived, pinned: false }, { now: true });
-    router.back();
-  };
 
-  const actions = (
-    <>
-      <IconButton
-        label={draft.pinned ? "Unpin" : "Pin"}
-        ios={draft.pinned ? "pin.fill" : "pin"}
-        android="push_pin"
-        active={draft.pinned}
-        onPress={togglePin}
-      />
-      <IconButton
-        label={draft.archived ? "Unarchive" : "Archive"}
-        ios={draft.archived ? "tray.and.arrow.up" : "archivebox"}
-        android={draft.archived ? "unarchive" : "archive"}
-        onPress={toggleArchive}
-      />
-      <IconButton
-        label="Share"
-        ios="square.and.arrow.up"
-        android="share"
-        disabled={!draft.text.trim()}
-        onPress={() =>
-          void Share.share({ message: draft.text }).catch(() => showNotice("Could not share note."))
-        }
-      />
-    </>
+  const pin = (
+    <IconButton
+      label={draft.pinned ? "Unpin" : "Pin"}
+      ios={draft.pinned ? "pin.fill" : "pin"}
+      android="push_pin"
+      active={draft.pinned}
+      onPress={togglePin}
+    />
+  );
+  const share = (
+    <IconButton
+      label="Share"
+      ios="square.and.arrow.up"
+      android="share"
+      disabled={!draft.text.trim()}
+      onPress={() =>
+        void Share.share({ message: draft.text.trim() }).catch(() =>
+          showNotice("Could not share note."),
+        )
+      }
+    />
   );
 
   return (
     <View
+      ref={screen}
+      onLayout={() =>
+        screen.current?.measureInWindow((_x, y, _width, height) =>
+          setBelow(Math.max(0, Dimensions.get("screen").height - y - height)),
+        )
+      }
       style={[
         styles.screen,
         {
@@ -112,7 +154,8 @@ function NoteEditor({ initial, stored }: { initial: Draft; stored: boolean }) {
       <View style={styles.top}>
         {ios ? (
           <>
-            {actions}
+            {pin}
+            {share}
             <Pressable hitSlop={10} style={styles.trailing} onPress={() => router.back()}>
               <Text style={[styles.done, { color: colors.accent }]}>Done</Text>
             </Pressable>
@@ -126,38 +169,58 @@ function NoteEditor({ initial, stored }: { initial: Draft; stored: boolean }) {
               onPress={() => router.back()}
             />
             <View style={styles.trailing} />
-            {actions}
+            {pin}
+            {share}
           </>
         )}
       </View>
+      <TextInput
+        value={parts.title}
+        multiline
+        submitBehavior="submit"
+        style={[styles.title, { color: colors.text }]}
+        placeholder="Title"
+        placeholderTextColor={colors.tertiary}
+        selectionColor={colors.accent}
+        onChangeText={(title) => edit(() => ({ title: title.replaceAll("\n", " ") }))}
+        onSubmitEditing={() => body.current?.edit()}
+      />
       <NoteBody
-        text={draft.text}
-        startEditing={!initial.text.trim()}
-        onChange={(text) => update({ text })}
+        ref={body}
+        text={parts.body}
+        startEditing={!initial.text.trim() && !autoDictate}
+        onChange={(body) => edit(() => ({ body }))}
         onToggle={(line) => {
           void Haptics.selectionAsync();
-          update((current) => ({ text: toggleChecklist(current.text, line) }));
+          edit(({ body }) => ({ body: toggleChecklist(body, line) }));
         }}
       />
       {message && <Text style={[styles.notice, { color: colors.secondary }]}>{message}</Text>}
-      <View style={{ paddingBottom: Math.max(keyboard, insets.bottom) }}>
+      <View style={{ paddingBottom: Math.max(keyboard, insets.bottom) - below }}>
         <EditorBar
           color={draft.color}
+          editedAt={updatedAt}
+          archived={draft.archived}
+          autoDictate={autoDictate}
           onColor={(color) => {
             void Haptics.selectionAsync();
             update({ color }, { now: true });
           }}
-          onDictated={(text) =>
-            update(
-              (current) => ({
-                text: current.text.trim()
-                  ? `${current.text.trimEnd()}\n${text}`.slice(0, 20_000)
-                  : text.slice(0, 20_000),
-              }),
-              {
-                now: true,
-              },
-            )
+          onArchive={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            update({ archived: !draft.archived, pinned: false }, { now: true });
+            router.back();
+          }}
+          onDelete={() =>
+            actions.confirmDelete([draft.id], () => {
+              discard();
+              router.back();
+            })
+          }
+          onDictated={(dictated) =>
+            edit(({ body }) => ({
+              body: body.trim() ? `${body.trimEnd()}\n${dictated}` : dictated,
+            }))
           }
           onNotice={showNotice}
         />
@@ -166,53 +229,24 @@ function NoteEditor({ initial, stored }: { initial: Draft; stored: boolean }) {
   );
 }
 
-function IconButton({
-  label,
-  ios: iosSymbol,
-  android,
-  active = false,
-  disabled = false,
-  onPress,
-}: {
-  label: string;
-  ios: SFSymbol;
-  android: AndroidSymbol;
-  active?: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  const colors = useColors();
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityState={{ selected: active, disabled }}
-      hitSlop={8}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.icon, (pressed || disabled) && styles.dim]}
-    >
-      <SymbolView
-        name={{ ios: iosSymbol, android }}
-        tintColor={active ? colors.accent : colors.text}
-        size={22}
-      />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   top: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
     paddingHorizontal: ios ? 10 : 4,
-    minHeight: 48,
+    minHeight: 64,
   },
-  icon: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  dim: { opacity: 0.4 },
   trailing: { marginLeft: "auto" },
   done: { fontSize: 17, fontWeight: "600", paddingHorizontal: 8 },
+  title: {
+    fontSize: 24,
+    lineHeight: 32,
+    fontWeight: ios ? "700" : "400",
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
   missing: { fontSize: 15, padding: 20 },
-  notice: { fontSize: 13, paddingHorizontal: 20, paddingVertical: 6 },
+  notice: { fontSize: 13, paddingHorizontal: 16, paddingVertical: 6 },
 });

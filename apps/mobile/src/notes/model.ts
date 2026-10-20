@@ -20,26 +20,37 @@ export function toggleChecklist(text: string, index: number) {
     .join("\n");
 }
 
-// The first non-blank line is the title unless it is a checklist item.
-export function titleLine(lines: string[]) {
-  const index = lines.findIndex((line) => line.trim());
-  return index >= 0 && !checklistItem(lines[index] ?? "") ? index : -1;
+// Notes store one text; a first line that is not a checklist item is the title.
+export function splitTitle(text: string) {
+  const [first = "", ...rest] = text.split("\n");
+  if (checklistItem(first)) return { title: "", body: text };
+  return { title: first.trim() ? first : "", body: rest.join("\n") };
+}
+
+export function joinTitle(title: string, body: string) {
+  return title.trim() && body ? `${title}\n${body}` : title.trim() ? title : body;
 }
 
 export function summarize(text: string) {
-  const lines = text.split("\n");
-  const title = titleLine(lines);
-  const body = lines.filter((_, index) => index !== title);
-  const items = body.flatMap((line) => checklistItem(line) ?? []);
+  const { title, body } = splitTitle(text);
+  const lines = body.split("\n");
   return {
-    title: title >= 0 ? (lines[title] ?? "").trim() : "",
-    items,
-    preview: body
-      .filter((line) => line.trim() && !checklistItem(line))
-      .map((line) => line.trim())
-      .join(" "),
+    title: title.trim(),
+    items: lines.flatMap((line) => checklistItem(line) ?? []),
+    preview: lines
+      .filter((line) => !checklistItem(line))
+      .join("\n")
+      .trim(),
   };
 }
+
+export const emptyMessages = {
+  notes: "Notes you add appear here",
+  archive: "Archived notes appear here",
+  search: "No matching notes",
+};
+
+export type EmptyState = keyof typeof emptyMessages;
 
 export function arrange(notes: Note[], archived: boolean, search: string) {
   const query = search.trim().toLowerCase();

@@ -3,6 +3,7 @@ import { pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
 import { Stack } from "expo-router";
 import { FlatList, PlatformColor, StyleSheet, Text } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { emptyMessages } from "./model";
 import type { NotesViewProps } from "./notes-view";
 import { SwipeRow } from "./swipe-row";
 
@@ -49,7 +50,9 @@ export function NotesView({
             </Host>
           }
           renderItem={({ item }) => <SwipeRow note={item} actions={actions} />}
-          ListEmptyComponent={empty ? <Text style={styles.empty}>{empty}</Text> : undefined}
+          ListEmptyComponent={
+            empty ? <Text style={styles.empty}>{emptyMessages[empty]}</Text> : undefined
+          }
         />
       </GestureHandlerRootView>
     </>

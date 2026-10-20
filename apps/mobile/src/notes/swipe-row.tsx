@@ -45,7 +45,7 @@ export function SwipeRow({ note, actions }: { note: Note; actions: NoteActions }
                 color={PlatformColor("systemOrange")}
                 onPress={() => {
                   swipe.close();
-                  actions.togglePin(note);
+                  actions.pin([note], !note.pinned);
                 }}
               />
             )
@@ -59,7 +59,7 @@ export function SwipeRow({ note, actions }: { note: Note; actions: NoteActions }
             color={PlatformColor("systemIndigo")}
             onPress={() => {
               swipe.close();
-              actions.toggleArchive(note);
+              actions.archive([note], !note.archived);
             }}
           />
           <SwipeAction
@@ -69,7 +69,7 @@ export function SwipeRow({ note, actions }: { note: Note; actions: NoteActions }
             color={PlatformColor("systemRed")}
             onPress={() => {
               swipe.close();
-              actions.confirmDelete(note);
+              actions.confirmDelete([note.id]);
             }}
           />
         </View>
@@ -172,18 +172,18 @@ function NoteLink({
           hidden={note.archived}
           title={note.pinned ? "Unpin" : "Pin"}
           icon={note.pinned ? "pin.slash" : "pin"}
-          onPress={() => actions.togglePin(note)}
+          onPress={() => actions.pin([note], !note.pinned)}
         />
         <Link.MenuAction
           title={note.archived ? "Unarchive" : "Archive"}
           icon={note.archived ? "tray.and.arrow.up" : "archivebox"}
-          onPress={() => actions.toggleArchive(note)}
+          onPress={() => actions.archive([note], !note.archived)}
         />
         <Link.MenuAction
           title="Delete"
           icon="trash"
           destructive
-          onPress={() => actions.confirmDelete(note)}
+          onPress={() => actions.confirmDelete([note.id])}
         />
       </Link.Menu>
     </Link>

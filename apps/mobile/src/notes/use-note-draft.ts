@@ -15,10 +15,12 @@ export function useNoteDraft(initial: Draft, stored: boolean) {
   const latest = useRef(initial);
   const saved = useRef(stored ? JSON.stringify(initial) : null);
   const mounted = useRef(true);
+  const discarded = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   function flush() {
     clearTimeout(timer.current);
+    if (discarded.current) return;
     const note = latest.current;
     const snapshot = JSON.stringify(note);
     // The server rejects blank text; an emptied note keeps its last saved text.
@@ -66,5 +68,9 @@ export function useNoteDraft(initial: Draft, stored: boolean) {
     draft,
     error: stored && !draft.text.trim() ? "Empty notes are not saved." : error,
     update,
+    discard: () => {
+      discarded.current = true;
+      clearTimeout(timer.current);
+    },
   };
 }

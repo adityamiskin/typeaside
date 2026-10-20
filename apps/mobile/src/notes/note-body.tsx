@@ -1,5 +1,5 @@
 import { SymbolView } from "expo-symbols";
-import { useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
   Keyboard,
   Pressable,
@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { useColors } from "@/ui/theme";
-import { checklistItem, titleLine } from "./model";
+import { checklistItem } from "./model";
 
 // A plain TextInput cannot host tappable checkboxes, so the note reads as rendered lines and
 // switches to the raw text on tap, with the caret at the end of the tapped line.
@@ -20,11 +20,13 @@ export function NoteBody({
   startEditing,
   onChange,
   onToggle,
+  ref,
 }: {
   text: string;
   startEditing: boolean;
   onChange: (text: string) => void;
   onToggle: (line: number) => void;
+  ref?: Ref<{ edit: () => void }>;
 }) {
   const colors = useColors();
   const ink = { color: colors.text };
@@ -32,7 +34,7 @@ export function NoteBody({
   const [editAt, setEditAt] = useState<number | null>(startEditing ? text.length : null);
   const input = useRef<TextInputInstance>(null);
   const lines = text.split("\n");
-  const title = titleLine(lines);
+  useImperativeHandle(ref, () => ({ edit: () => setEditAt(0) }));
 
   useEffect(() => {
     if (editAt === null) return;
@@ -47,7 +49,6 @@ export function NoteBody({
   }, []);
 
   function lineStyle(index: number) {
-    if (index === title) return [styles.title, ink];
     return checklistItem(lines[index] ?? "")?.checked
       ? [styles.body, styles.checked, faint]
       : [styles.body, ink];
@@ -129,10 +130,9 @@ export function NoteBody({
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flexGrow: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
-  input: { flex: 1, fontSize: 17 },
-  title: { fontSize: 24, fontWeight: "700", lineHeight: 30 },
-  body: { fontSize: 17, lineHeight: 24 },
+  content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
+  input: { flex: 1, fontSize: 16 },
+  body: { fontSize: 16, lineHeight: 24 },
   checked: { textDecorationLine: "line-through" },
   item: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 32 },
   itemText: { flex: 1 },
