@@ -163,7 +163,14 @@ impl AppCategory {
             Self::Personal
         } else if has(&["slack", "teams", "linear", "mattermost", "zulip"]) {
             Self::Work
-        } else if has(&["thunderbird", "geary", "evolution", "mail", "betterbird"]) {
+        } else if has(&[
+            "thunderbird",
+            "geary",
+            "evolution",
+            "mail",
+            "betterbird",
+            "outlook",
+        ]) {
             Self::Email
         } else {
             Self::Other

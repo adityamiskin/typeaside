@@ -5,7 +5,7 @@ description: Remove fillers and adjust the tone of your dictation.
 
 ## How it works
 
-With **Settings → Editing → AI editing** enabled, TypeAside asks the editing model to remove fillers, repetitions, and stutters, apply spoken corrections, and fix punctuation. For example, “at 2, actually 3” is treated as a correction to “at 3”. AI output can vary. Review important text before sending it.
+With **Settings → Editing → AI editing** enabled, TypeAside asks the editing model to make minimal changes: remove fillers and accidental repetitions, apply explicit self-corrections, fix spelling and punctuation, and convert spoken emoji names while preserving your wording and tone. For example, “at 2, actually 3” is treated as a correction to “at 3”. AI output can vary. Review important text before sending it.
 
 If the editing request fails, TypeAside falls back to the transcript. You can turn AI editing off to keep the transcription without this cleanup step. Translation can still use the editing model when enabled.
 
@@ -18,10 +18,11 @@ Open **Style** in the desktop app and choose a tone for each category.
 | Personal | Casual       |
 | Work     | Casual       |
 | Email    | Formal       |
+| Code     | Casual       |
 | Other    | Casual       |
 
 - **Formal** requests professional wording and complete sentences.
-- **Casual** requests conversational wording with standard capitalization and punctuation.
+- **Casual** preserves your wording and conversational tone with standard capitalization and punctuation.
 - **Very casual** requests lowercase, minimal punctuation, and no trailing period.
 
 ## How apps are categorized
@@ -30,8 +31,11 @@ TypeAside checks the foreground app identifier captured when recording starts. M
 
 - **Personal:** Telegram, WhatsApp, Signal, Discord, Element, Beeper.
 - **Work:** Slack, Teams, Linear, Mattermost, Zulip.
-- **Email:** Thunderbird, Geary, Evolution, Mail, Betterbird.
+- **Email:** Thunderbird, Geary, Evolution, Mail, Betterbird, Outlook.
+- **Code:** recognized code editors and terminals.
 - **Other:** everything else, including an unavailable app identifier.
+
+Email layout rules are sent only for Email apps and preserve greetings and sign-offs you actually spoke. Code formatting rules are sent only for Code apps. Other fields get minimal cleanup, without automatic lists or email layout. You can request special formatting through per-app preferences in Style or [voice commands](/docs/features/edit-by-voice).
 
 A website opened in a browser is generally categorized by the browser's app identifier, rather than the website.
 
