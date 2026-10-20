@@ -1,0 +1,31 @@
+buildscript {
+  repositories { mavenCentral() }
+  dependencies {
+    classpath("org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:${kotlinVersion}")
+  }
+}
+
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
+
+group = 'app.typeaside'
+version = '0.1.0'
+
+expoModule { v2 true }
+
+android {
+  namespace "app.typeaside.widgets"
+  buildFeatures { compose true }
+}
+
+dependencies {
+  implementation platform('androidx.compose:compose-bom:2026.06.01')
+  implementation 'androidx.glance:glance-appwidget:1.1.1'
+  implementation 'androidx.glance:glance-material3:1.1.1'
+  implementation 'androidx.compose.material3:material3'
+  implementation 'com.google.android.material:material:1.13.0'
+}

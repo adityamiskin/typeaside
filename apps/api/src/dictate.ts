@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { expandSnippets } from "./snippets";
 
 const contextInput = z.strictObject({
   mode: z.enum(["dictate", "translate", "command", "transcribe"]),
@@ -9,7 +10,11 @@ const contextInput = z.strictObject({
   selection: z.string().max(16_000).optional(),
   before_cursor: z.string().max(2_000).optional(),
   after_cursor: z.string().max(2_000).optional(),
-  dictionary: z.array(z.string().max(100)).max(500),
+  dictionary: z.array(z.string().max(100)).max(2000),
+  snippets: z
+    .array(z.strictObject({ trigger: z.string().max(100), text: z.string().max(4000) }))
+    .max(500)
+    .optional(),
   names: z.array(z.string().max(100)).max(500),
   language: z.string().min(1).max(100).optional(),
   tone: z.enum(["formal", "casual", "very_casual"]),
@@ -30,7 +35,8 @@ export function readContext(field: string): Context | null {
 
 // Matches the desktop's 20 MB file limit; the body allowance covers the multipart framing and context JSON.
 const MAX_AUDIO_BYTES = 20_000_000;
-const MAX_BODY_BYTES = MAX_AUDIO_BYTES + 256_000;
+// JSON-escaped dictionary and snippet strings can occupy six bytes per character.
+const MAX_BODY_BYTES = MAX_AUDIO_BYTES + 13_000_000;
 const AUDIO_TYPE = /^(audio\/|video\/(mp4|mpeg|webm)(;|$))/u;
 
 export function withinBodyLimit(request: Request) {
@@ -265,5 +271,7 @@ export async function dictate(env: Env, { context, audio }: Input, pro: boolean)
       `<text>\n${raw}\n</text>`,
     );
   } else if (context.mode !== "transcribe") answer.text = await cleanup(key, raw, context);
+  if (context.mode === "dictate" && context.snippets)
+    answer.text = expandSnippets(answer.text, context.snippets);
   return { raw, ...answer };
 }

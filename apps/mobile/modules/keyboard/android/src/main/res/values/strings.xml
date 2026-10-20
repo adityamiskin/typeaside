@@ -1,0 +1,5 @@
+<resources>
+  <string name="typeaside_bubble_label">TypeAside floating mic</string>
+  <string name="typeaside_bubble_summary">Dictate into any app</string>
+  <string name="typeaside_bubble_description">Shows a TypeAside mic next to text fields so you can dictate into any app. TypeAside reads only the focused text field to insert your words.</string>
+</resources>

@@ -1,0 +1,6 @@
+<resources>
+  <string name="typeaside_dictate_widget">Dictate</string>
+  <string name="typeaside_notes_widget">Notes</string>
+  <string name="typeaside_dictate_description">Start dictating in TypeAside</string>
+  <string name="typeaside_notes_description">Your recent TypeAside notes</string>
+</resources>

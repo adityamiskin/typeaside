@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["KeyboardModule"] },
+  "android": { "modules": ["app.typeaside.keyboard.KeyboardModule"] }
+}
