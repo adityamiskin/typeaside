@@ -2,9 +2,9 @@ import { api } from "@typeaside/backend/convex/_generated/api";
 import { useQuery } from "convex/react";
 import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BackHandler, Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNoteActions } from "@/notes/actions";
 import { EditorBar, IconButton } from "@/notes/editor-bar";
@@ -66,6 +66,16 @@ function NoteEditor({
 }) {
   const router = useRouter();
   const close = () => router.dismissTo("/notes");
+  useFocusEffect(
+    useCallback(() => {
+      if (ios) return;
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        router.dismissTo("/notes");
+        return true;
+      });
+      return () => subscription.remove();
+    }, [router]),
+  );
   const insets = useSafeAreaInsets();
   const keyboard = useKeyboardHeight();
   const colors = useColors();

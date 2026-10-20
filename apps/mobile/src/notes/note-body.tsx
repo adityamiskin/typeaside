@@ -1,12 +1,14 @@
 import { SymbolView } from "expo-symbols";
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
+  type ColorValue,
   Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  type TextLayoutEvent,
   type TextInputInstance,
   View,
 } from "react-native";
@@ -108,12 +110,12 @@ export function NoteBody({
                   size={20}
                 />
               </Pressable>
-              <Text
-                style={[styles.body, styles.itemText, ink, item.checked && done]}
+              <ChecklistText
+                text={item.text || " "}
+                checked={item.checked}
+                color={item.checked ? colors.secondary : colors.text}
                 onPress={() => editLine(index)}
-              >
-                {item.text || " "}
-              </Text>
+              />
             </View>
           );
         })
@@ -124,6 +126,48 @@ export function NoteBody({
       )}
       <Pressable style={styles.grow} onPress={() => setEditAt(text.length)} />
     </ScrollView>
+  );
+}
+
+function ChecklistText({
+  text,
+  checked,
+  color,
+  onPress,
+}: {
+  text: string;
+  checked: boolean;
+  color: ColorValue;
+  onPress: () => void;
+}) {
+  const [lines, setLines] = useState<TextLayoutEvent["nativeEvent"]["lines"]>([]);
+  return (
+    <View style={styles.itemText}>
+      <Text
+        style={[styles.body, { color }, checked && styles.checked]}
+        onPress={onPress}
+        onTextLayout={checked ? (event) => setLines(event.nativeEvent.lines) : undefined}
+      >
+        {text}
+      </Text>
+      {checked &&
+        process.env.EXPO_OS !== "ios" &&
+        lines.map((line, index) => (
+          // RN 0.88's Android decoration span does not draw reliably on this renderer.
+          <View
+            key={index}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: line.x,
+              top: line.y + line.height * 0.54,
+              width: line.width,
+              height: 1,
+              backgroundColor: color,
+            }}
+          />
+        ))}
+    </View>
   );
 }
 
