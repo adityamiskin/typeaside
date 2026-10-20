@@ -11,7 +11,7 @@ import {
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
 import { auth } from "../integrations/auth";
-import { useOS } from "../lib/downloads";
+import { comingSoon, useOS } from "../lib/downloads";
 
 const links = [
   { label: "Docs", href: "/docs" },
@@ -106,7 +106,7 @@ export function DownloadButton() {
   const os = useOS();
   return (
     <a href="/download" className="btn">
-      {os ? `Download for ${os}` : "Download"}
+      {!os ? "Download" : os in comingSoon ? `${os} coming soon` : `Download for ${os}`}
     </a>
   );
 }
@@ -116,7 +116,10 @@ export function Footer() {
       <nav className="footer-columns" aria-label="Footer navigation">
         <div className="footer-brand">
           <b>TypeAside</b>
-          <p>Voice dictation and quick notes for Linux, macOS and Windows.</p>
+          <p>
+            Voice dictation and quick notes for Linux, macOS and Windows. Android and iOS coming
+            soon.
+          </p>
         </div>
         <div>
           <h4>Product</h4>

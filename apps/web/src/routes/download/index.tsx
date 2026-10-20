@@ -1,27 +1,39 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { seo } from "../../lib/seo";
 import { buttonVariants } from "@typeaside/ui/components/button";
-import { downloads, useOS } from "../../lib/downloads";
+import { comingSoon, downloads, useOS } from "../../lib/downloads";
 export const Route = createFileRoute("/download/")({
   head: () =>
     seo({
       path: "/download",
       title: "Download TypeAside",
       description:
-        "Download TypeAside voice dictation for macOS, Windows and Linux. Free to start, or bring your own API key.",
+        "Download TypeAside voice dictation for macOS, Windows and Linux. Android and iOS coming soon. Free to start, or bring your own API key.",
     }),
   component: Download,
 });
 function Download() {
   const os = useOS();
-  const systems = (Object.keys(downloads) as (keyof typeof downloads)[]).sort(
-    (a, b) => Number(b === os) - Number(a === os),
-  );
+  const first = <T extends string>(keys: T[]) =>
+    keys.sort((a, b) => Number(b === os) - Number(a === os));
+  const systems = first(Object.keys(downloads) as (keyof typeof downloads)[]);
+  const phones = first(Object.keys(comingSoon) as (keyof typeof comingSoon)[]);
+  const onPhone = phones[0] === os;
+  const phoneRows = phones.map((phone) => (
+    <section className="download-row" key={phone}>
+      <div>
+        <h2>{phone}</h2>
+        <p>{comingSoon[phone]}</p>
+      </div>
+      <span className="download-soon">Coming soon</span>
+    </section>
+  ));
   return (
     <main className="container page">
       <h1>Make room for your voice.</h1>
-      <p className="lead">TypeAside for your computer. Free to start.</p>
+      <p className="lead">TypeAside for your computer and phone. Free to start.</p>
       <div className="download-list">
+        {onPhone && phoneRows}
         {systems.map((system) => (
           <section className="download-row" key={system}>
             <div>
@@ -41,6 +53,7 @@ function Download() {
             </div>
           </section>
         ))}
+        {!onPhone && phoneRows}
       </div>
     </main>
   );

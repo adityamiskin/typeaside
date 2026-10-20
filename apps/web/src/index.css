@@ -710,6 +710,10 @@ footer {
   display: flex;
   gap: 12px;
 }
+.download-soon {
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
 .steps {
   text-align: center;
 }

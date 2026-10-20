@@ -10,7 +10,7 @@ import { LandingFeatures } from "../components/landing-features";
 import { seo, siteUrl } from "../lib/seo";
 
 const description =
-  "Voice dictation and quick notes for Linux, macOS and Windows. Talk in any app or double-tap Left Shift to capture a thought. Free to start.";
+  "Voice dictation and quick notes for Linux, macOS and Windows, with Android and iOS coming soon. Talk in any app or double-tap Left Shift to capture a thought. Free to start.";
 export const Route = createFileRoute("/")({
   head: () => ({
     ...seo({
@@ -60,6 +60,10 @@ const faqs = [
     "Any app with a text field. TypeAside types where your cursor is, the same way you would.",
   ],
   [
+    "Is there a phone app?",
+    "Android and iOS apps are coming soon. Until then, your notes open at typeaside.app/notes on your phone.",
+  ],
+  [
     "What counts toward the free limit?",
     "Words in your transcripts. The 2,000 word allowance resets every Monday.",
   ],
@@ -81,7 +85,9 @@ function Landing() {
             whatever app you're typing in.
           </p>
           <DownloadButton />
-          <p className="avail">Free to start. Linux, macOS and Windows.</p>
+          <p className="avail">
+            Free to start. Linux, macOS and Windows. Android and iOS coming soon.
+          </p>
         </header>
       </div>
       <HeroScene />

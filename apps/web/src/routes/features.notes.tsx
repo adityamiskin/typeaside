@@ -55,7 +55,7 @@ function NotesFeature() {
           doing.
         </p>
         <DownloadButton />
-        <div className="avail">Free. Linux, macOS and Windows.</div>
+        <div className="avail">Free. Linux, macOS and Windows. Android and iOS coming soon.</div>
       </header>
       <div className="wrap">
         <NotesStage
@@ -121,7 +121,7 @@ function NotesFeature() {
             <h3>On every device.</h3>
             <p>
               Notes sync to your account. Open typeaside.app/notes on your phone and they're already
-              there.
+              there. Android and iOS apps are coming soon.
             </p>
           </div>
           <div
