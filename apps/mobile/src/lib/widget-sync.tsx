@@ -2,7 +2,7 @@ import { api } from "@typeaside/backend/convex/_generated/api";
 import { useConvexAuth, useQuery } from "convex/react";
 import { useEffect } from "react";
 import { widgets, type WidgetSnapshot } from "../../modules/widgets";
-import { splitTitle } from "@/notes/model";
+import { checklistItem, splitTitle } from "@/notes/model";
 import { useSession } from "@/lib/session";
 
 let pendingWrite = Promise.resolve();
@@ -33,7 +33,12 @@ export function WidgetSync() {
           return {
             id: note.id,
             title: title.trim(),
-            preview: body.trim().slice(0, 500),
+            preview: body
+              .split("\n")
+              .map((line) => checklistItem(line)?.text ?? line)
+              .join("\n")
+              .trim()
+              .slice(0, 500),
             color: note.color,
             updatedAt: note.updatedAt,
           };

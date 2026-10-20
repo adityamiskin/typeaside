@@ -25,5 +25,7 @@ android {
 dependencies {
   implementation platform('androidx.compose:compose-bom:2026.06.01')
   implementation 'androidx.glance:glance-appwidget:1.1.1'
+  implementation 'androidx.glance:glance-material3:1.1.1'
+  implementation 'androidx.compose.material3:material3'
   implementation 'com.google.android.material:material:1.13.0'
 }

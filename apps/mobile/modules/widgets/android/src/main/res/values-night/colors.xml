@@ -1,0 +1,9 @@
+<resources>
+  <color name="typeaside_widget_primary">@android:color/holo_blue_dark</color>
+  <color name="typeaside_widget_on_primary">@android:color/white</color>
+  <color name="typeaside_widget_secondary">@android:color/darker_gray</color>
+  <color name="typeaside_widget_on_secondary">@android:color/white</color>
+  <color name="typeaside_widget_surface">@android:color/background_dark</color>
+  <color name="typeaside_widget_on_surface">@android:color/primary_text_dark</color>
+  <color name="typeaside_widget_on_variant">@android:color/secondary_text_dark</color>
+</resources>
