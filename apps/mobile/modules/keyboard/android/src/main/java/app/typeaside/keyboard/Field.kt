@@ -19,28 +19,30 @@ fun AccessibilityNodeInfo.field(): Field {
   return Field(packageName?.toString(), text, start, end)
 }
 
-/** Replaces the selection with [transcript]; false when the app accepts neither SET_TEXT nor a paste. */
+/** Replaces the selection through the editor's paste path so apps can persist their edits. */
 fun AccessibilityNodeInfo.insert(transcript: String, clipboard: ClipboardManager): Boolean {
-  refresh()
+  if (!refresh()) return false
   val field = field()
   val before = field.text.take(field.start)
   val spaced = if (before.isNotEmpty() && !before.last().isWhitespace()) " $transcript" else transcript
-  val text = before + spaced + field.text.drop(field.end)
-  if (performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
-      putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
-    })) {
-    val cursor = field.start + spaced.length
+  val previous = clipboard.primaryClip
+  val pasted = try {
+    clipboard.setPrimaryClip(ClipData.newPlainText("TypeAside", spaced))
+    performAction(AccessibilityNodeInfo.ACTION_PASTE)
+  } finally {
+    if (previous != null) clipboard.setPrimaryClip(previous)
+    else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) clipboard.clearPrimaryClip()
+  }
+  if (!pasted && !performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+      putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, before + spaced + field.text.drop(field.end))
+    })) return false
+  val cursor = field.start + spaced.length
+  refresh()
+  if (textSelectionStart != cursor || textSelectionEnd != cursor) {
     performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
       putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor)
       putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
     })
-    return true
   }
-  // The target reads the clipboard while handling ACTION_PASTE, so the user's clip can go back right after.
-  val previous = clipboard.primaryClip
-  clipboard.setPrimaryClip(ClipData.newPlainText("TypeAside", spaced))
-  val pasted = performAction(AccessibilityNodeInfo.ACTION_PASTE)
-  if (previous != null) clipboard.setPrimaryClip(previous)
-  else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) clipboard.clearPrimaryClip()
-  return pasted
+  return true
 }

@@ -34,6 +34,12 @@ class KeyboardModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("Keyboard")
+    View(BubblePreview::class) {
+      Prop("phase") { view: BubblePreview, value: String -> view.phase = value }
+      Prop("appearance") { view: BubblePreview, value: AppearanceRecord ->
+        view.appearance = Appearance(value.shape, value.size, value.opacity, value.shrinkWhenIdle, value.position)
+      }
+    }
     Events("onHistoryChanged")
     OnStartObserving { HistoryQueue.onChanged = { sendEvent("onHistoryChanged", emptyMap<String, String>()) } }
     OnStopObserving { HistoryQueue.onChanged = null }

@@ -8,6 +8,7 @@ import {
   LazyColumn,
   LinearProgressIndicator,
   ListItem,
+  Row,
   Text,
   TextButton,
   TextField,
@@ -19,20 +20,21 @@ import {
   clip,
   fillMaxSize,
   fillMaxWidth,
+  height,
   padding,
   Shapes,
   size,
+  weight,
 } from "@expo/ui/jetpack-compose/modifiers";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { type ImageSourcePropType, View } from "react-native";
+import { type ImageSourcePropType, useColorScheme, View } from "react-native";
 import {
   billingAction,
   DELETE_MESSAGE,
   initial,
   isThisPhone,
   lastUsed,
-  planLabel,
   resetsLabel,
   SIGN_OUT_MESSAGE,
   useAccount,
@@ -64,6 +66,7 @@ export default function AccountScreen() {
   const keyboardEnabled = useKeyboardEnabled();
   const router = useRouter();
   const material = useMaterialColors({ seedColor });
+  const dark = useColorScheme() === "dark";
   const [dialog, setDialog] = useState<Dialog>();
   const [typed, setTyped] = useState("");
   const progress = account && usageProgress(account.usage);
@@ -90,45 +93,37 @@ export default function AccountScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: material.surface }}>
+    <View style={{ flex: 1, backgroundColor: dark ? "#000" : material.surface }}>
       <Host style={{ flex: 1 }} seedColor={seedColor}>
         <LazyColumn modifiers={[fillMaxSize()]}>
           {account && (
-            <Column
-              horizontalAlignment="center"
-              modifiers={[fillMaxWidth(), padding(24, 16, 24, 8)]}
+            <Row
+              verticalAlignment="center"
+              horizontalArrangement={{ spacedBy: 16 }}
+              modifiers={[fillMaxWidth(), padding(24, 24, 24, 8)]}
             >
               <Box
                 contentAlignment="center"
                 modifiers={[
-                  size(80, 80),
+                  size(48, 48),
                   clip(Shapes.Circle),
                   background(material.primaryContainer),
                 ]}
               >
-                <Text color={material.onPrimaryContainer} style={{ typography: "headlineLarge" }}>
+                <Text color={material.onPrimaryContainer} style={{ typography: "titleLarge" }}>
                   {initial(account)}
                 </Text>
               </Box>
-              <Text style={{ typography: "headlineSmall" }} modifiers={[padding(0, 16, 0, 0)]}>
-                {account.name || email || ""}
-              </Text>
-              {account.name && email ? (
+              <Column verticalArrangement={{ spacedBy: 4 }} modifiers={[weight(1)]}>
+                <Text style={{ typography: "titleLarge" }}>{account.name || "Your account"}</Text>
                 <Text color={material.onSurfaceVariant} style={{ typography: "bodyMedium" }}>
                   {email}
                 </Text>
-              ) : null}
-              <Text
-                color={material.primary}
-                style={{ typography: "labelLarge" }}
-                modifiers={[padding(0, 8, 0, 0)]}
-              >
-                {`${planLabel(account)} plan`}
-              </Text>
-            </Column>
+              </Column>
+            </Row>
           )}
 
-          {account && header("Usage")}
+          {account && header(account.plan === "pro" ? "Pro membership" : "Free plan")}
           {account && (
             <ListItem colors={item} modifiers={segment(0, 2)}>
               {leading(icons.barChart)}
@@ -138,7 +133,10 @@ export default function AccountScreen() {
               <ListItem.SupportingContent>
                 <Column verticalArrangement={{ spacedBy: 8 }} modifiers={[padding(0, 8, 0, 0)]}>
                   {progress != null && (
-                    <LinearProgressIndicator progress={progress} modifiers={[fillMaxWidth()]} />
+                    <LinearProgressIndicator
+                      progress={progress}
+                      modifiers={[fillMaxWidth(), height(8)]}
+                    />
                   )}
                   <Text>{resetsLabel(account.usage)}</Text>
                 </Column>
@@ -166,7 +164,7 @@ export default function AccountScreen() {
             </ListItem>
           )}
 
-          {header("Floating mic")}
+          {header("Preferences")}
           <ListItem
             colors={item}
             modifiers={[...segment(0, 1), clickable(() => router.push("/floating-mic"))]}

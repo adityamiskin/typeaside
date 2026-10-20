@@ -1,5 +1,6 @@
 package app.typeaside.keyboard
 
+import android.animation.ValueAnimator
 import android.Manifest
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
@@ -67,17 +68,25 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   private var state: Bubble
     get() = bubbleState
     set(value) {
-      val wasBusy = bubbleState is Bubble.Recording || bubbleState == Bubble.Sending
-      val wasRecording = bubbleState is Bubble.Recording
+      val wasBusy = bubbleState.isBusy
+      val oldWidth = bubbleWidth(bubbleState, appearance, shrunk)
+      val oldHeight = bubbleHeight(bubbleState, appearance, shrunk)
       bubbleState = value
       if (value != Bubble.Idle) shrunk = false
-      if (wasRecording != (value is Bubble.Recording)) position()
+      if (oldWidth != bubbleWidth(value, appearance, shrunk) || oldHeight != bubbleHeight(value, appearance, shrunk)) position()
       scheduleShrink()
-      if (wasBusy && value !is Bubble.Recording && value != Bubble.Sending) refreshOverlay()
+      handler.removeCallbacks(settle)
+      val hold = when (value) {
+        is Bubble.Success -> if (value.copied) 2_400L else 350L
+        is Bubble.Error -> 1_800L
+        else -> null
+      }
+      if (hold != null) handler.postDelayed(settle, hold)
+      if (wasBusy && !value.isBusy && value !is Bubble.Success) refreshOverlay()
     }
   private val params by lazy {
     WindowManager.LayoutParams(
-      dp(maxOf(48, appearance.width)), dp(appearance.height + 16),
+      dp(maxOf(48, appearance.width) + SHADOW_SPACE_DP * 2), dp(maxOf(48, appearance.height) + SHADOW_SPACE_DP * 2),
       WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
       WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
       PixelFormat.TRANSLUCENT,
@@ -86,11 +95,13 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setFitInsetsTypes(0)
     }
   }
+  private var resize: ValueAnimator? = null
   private var downX = 0f
   private var originX = 0
   private var dragging = false
   private var held = false
   private var beganRecording = false
+  private val settle = Runnable { state = Bubble.Idle; refreshOverlay() }
   private val shrink = Runnable {
     if (view != null && state == Bubble.Idle && appearance.shrinkWhenIdle) {
       shrunk = true
@@ -98,7 +109,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
     }
   }
   private val hold = Runnable {
-    if (!dragging && state !is Bubble.Recording && state != Bubble.Sending) {
+    if (!dragging && (state == Bubble.Idle || state is Bubble.Error)) {
       held = true
       start()
     }
@@ -123,7 +134,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   }
 
   private fun refreshOverlay(fieldFocused: Boolean = false) {
-    if (state is Bubble.Recording || state == Bubble.Sending) return
+    if (state.isBusy || state is Bubble.Success) return
     val keyboard = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
     val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
     if (keyboard == null || node == null || !node.isEditable || node.isPassword) {
@@ -148,7 +159,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
         setViewTreeLifecycleOwner(this@DictationBubbleService)
         setViewTreeSavedStateRegistryOwner(this@DictationBubbleService)
         setParentCompositionContext(recomposer)
-        setContent { BubbleTheme { MicBubble(state, appearance, shrunk, ::touch, ::toggle, ::cancel) } }
+        setContent { MicBubble(state, appearance, shrunk, ::touch, ::toggle, ::cancel, ::pause) }
       }.also {
         it.alpha = appearance.opacity
         manager.addView(it, params)
@@ -168,7 +179,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
         originX = params.x
         dragging = false
         held = false
-        beganRecording = state is Bubble.Recording
+        beganRecording = state.isRecording
         handler.postDelayed(hold, ViewConfiguration.getLongPressTimeout().toLong())
       }
       MotionEvent.ACTION_MOVE -> {
@@ -188,7 +199,8 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
           preferences.edit().putFloat("position", (params.x + params.width / 2f) / resources.displayMetrics.widthPixels).apply()
         }
         if (held) recorder?.stop()
-        else if (beganRecording && !dragging && event.x < dp(48)) cancel()
+        else if (beganRecording && !dragging && event.x - dp(SHADOW_SPACE_DP) < dp(48)) cancel()
+        else if (beganRecording && !dragging && event.x - dp(SHADOW_SPACE_DP) in dp(136).toFloat()..dp(184).toFloat()) pause()
         else if (!dragging && !restoredOnTouch) toggle()
         held = false
         scheduleShrink()
@@ -210,9 +222,18 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
       return
     }
     when (state) {
-      is Bubble.Recording -> recorder?.stop()
-      Bubble.Sending -> Unit
+      is Bubble.Recording, is Bubble.Paused -> recorder?.stop()
+      Bubble.Sending, is Bubble.Success -> Unit
+      is Bubble.Limit -> cancel()
       else -> start()
+    }
+  }
+
+  private fun pause() {
+    when (val current = state) {
+      is Bubble.Recording -> { recorder?.pause(true); state = Bubble.Paused(current.levels) }
+      is Bubble.Paused -> { recorder?.pause(false); state = Bubble.Recording(current.levels) }
+      else -> Unit
     }
   }
 
@@ -231,8 +252,8 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
     job = lifecycleScope.launch {
       try {
         val pcm = recording.record { _, level ->
-          val levels = (state as? Bubble.Recording)?.levels.orEmpty()
-          state = Bubble.Recording((levels + level).takeLast(20))
+          val current = state
+          if (current is Bubble.Recording) state = Bubble.Recording((current.levels + level).takeLast(13))
         }
         recorder = null
         if (!pcm.isLongEnough()) {
@@ -245,33 +266,35 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
             HistoryQueue.append(this@DictationBubbleService, outcome.text)
             val clipboard = getSystemService(ClipboardManager::class.java)
             val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            if (node.refresh() && node.isEditable && !node.isPassword && node == focused) {
+            val inserted = node.refresh() && node.isEditable && !node.isPassword && node == focused
+            if (inserted) {
               if (!node.insert(outcome.text, clipboard)) error("Could not insert text")
             } else {
               clipboard.setPrimaryClip(ClipData.newPlainText("TypeAside", outcome.text))
               Toast.makeText(this@DictationBubbleService, "Dictation copied to clipboard", Toast.LENGTH_SHORT).show()
             }
-            state = Bubble.Idle
+            state = Bubble.Success(copied = !inserted)
           }
           Outcome.Unauthorized -> {
             store.clear()
-            state = Bubble.Error
-            Toast.makeText(this@DictationBubbleService, "Open TypeAside to sign in", Toast.LENGTH_SHORT).show()
+            state = Bubble.Error("Open TypeAside to sign in")
           }
-          is Outcome.Limit -> error("Weekly limit reached")
+          is Outcome.Limit -> state = Bubble.Limit(outcome.resetsAt?.let {
+            "Resets " + java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault()).format(java.util.Date(it))
+          } ?: "Your free words reset next week")
           is Outcome.Failed -> error(outcome.message)
         }
       } catch (cancelled: CancellationException) {
         throw cancelled
       } catch (error: Exception) {
-        state = Bubble.Error
-        Toast.makeText(this@DictationBubbleService, error.message ?: "Dictation failed", Toast.LENGTH_SHORT).show()
+        state = Bubble.Error(error.message ?: "Dictation failed")
       }
     }
   }
 
   private fun cancel() {
     handler.removeCallbacks(hold)
+    handler.removeCallbacks(settle)
     recorder?.stop()
     job?.cancel()
     recorder = null
@@ -284,6 +307,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
     target = null
     val current = view ?: return
     if (animated && fading) return
+    resize?.cancel()
     current.animate().cancel()
     if (animated) {
       fading = true
@@ -318,8 +342,25 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   }
 
   private fun position() {
-    params.width = dp(if (state is Bubble.Recording) RECORDING_WIDTH_DP else if (shrunk) 48 else maxOf(48, appearance.width))
-    params.height = dp(appearance.height + 16)
+    resize?.cancel()
+    val targetWidth = dp(maxOf(48, bubbleWidth(state, appearance, shrunk)) + SHADOW_SPACE_DP * 2)
+    if (view != null && params.width != targetWidth) {
+      resize = ValueAnimator.ofInt(params.width, targetWidth).apply {
+        duration = 320
+        addUpdateListener { animation ->
+          params.width = animation.animatedValue as Int
+          place()
+        }
+        start()
+      }
+    } else {
+      params.width = targetWidth
+    }
+    place()
+  }
+
+  private fun place() {
+    params.height = dp(maxOf(48, bubbleHeight(state, appearance, shrunk)) + SHADOW_SPACE_DP * 2)
     params.x = (appearance.position * resources.displayMetrics.widthPixels - params.width / 2).toInt()
       .coerceIn(0, resources.displayMetrics.widthPixels - params.width)
     windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }?.let { keyboard ->
