@@ -2,7 +2,12 @@ import { requireNativeModule } from "expo";
 
 // Shared with the iOS keyboard extension and Android accessibility service,
 // which dictates through the hosted API without the JS runtime.
-type Credentials = { token: string; apiUrl: string; dictionary: string[] };
+type Credentials = {
+  token: string;
+  apiUrl: string;
+  dictionary: string[];
+  snippets: { trigger: string; text: string }[];
+};
 
 export type BubbleAppearance = {
   shape: "pill" | "circle";

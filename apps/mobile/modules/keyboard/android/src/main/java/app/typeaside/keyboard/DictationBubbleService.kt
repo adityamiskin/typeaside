@@ -181,7 +181,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
     }
     val node = target ?: return
     if (!node.refresh() || !node.isFocused || node.isPassword) return
-    val context = dictationContext(node.field(), credentials.dictionary)
+    val context = dictationContext(node.field(), credentials.dictionary, credentials.snippets)
     val recording = Recorder().also { recorder = it }
     state = Bubble.Recording(emptyList())
     job = lifecycleScope.launch {

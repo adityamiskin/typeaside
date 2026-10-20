@@ -3,6 +3,7 @@ import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
+import { useKeyboardSync } from "@/lib/dictate";
 import { WidgetSync } from "@/lib/widget-sync";
 import { convex } from "@/lib/convex";
 import { fetchAccessToken, restoreSession, useSession } from "@/lib/session";
@@ -22,6 +23,11 @@ function useAuth() {
   };
 }
 
+function KeyboardSync() {
+  useKeyboardSync();
+  return null;
+}
+
 export default function RootLayout() {
   const status = useSession((session) => session.status);
   const theme = useNavigationTheme();
@@ -32,6 +38,7 @@ export default function RootLayout() {
   return (
     <ConvexProviderWithAuth client={convex} useAuth={useAuth}>
       <WidgetSync />
+      <KeyboardSync />
       <ThemeProvider value={theme}>
         <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }}>

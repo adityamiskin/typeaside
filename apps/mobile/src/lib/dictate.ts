@@ -1,3 +1,6 @@
+import { api } from "@typeaside/backend/convex/_generated/api";
+import { useConvexAuth, useQuery } from "convex/react";
+import { useEffect } from "react";
 import { fetch } from "expo/fetch";
 import { File } from "expo-file-system";
 import { z } from "zod";
@@ -9,9 +12,9 @@ const result = z.object({ raw: z.string(), text: z.string() });
 const failure = z.object({
   error: z.object({ type: z.string(), message: z.string(), resets_at: z.number().optional() }),
 });
-const settingsResponse = z.object({
-  settings: z.object({ dictionary: z.array(z.string()) }).nullable(),
-});
+type Settings = { dictionary: string[]; snippets: { trigger: string; text: string }[] };
+let settings: Settings = { dictionary: [], snippets: [] };
+let credentialWrite = Promise.resolve();
 
 export class DictationError extends Error {
   constructor(
@@ -34,16 +37,19 @@ async function request(path: string, init: { method?: string; body?: FormData } 
   return response;
 }
 
-let dictionary: Promise<string[]> | null = null;
-function loadDictionary() {
-  dictionary ??= request("/v1/settings")
-    .then(async (response) => settingsResponse.parse(await response.json()).settings?.dictionary)
-    .then((words) => words ?? [])
-    .catch(() => {
-      dictionary = null;
-      return [];
-    });
-  return dictionary;
+export function useKeyboardSync() {
+  const { isAuthenticated } = useConvexAuth();
+  const current = useQuery(api.settings.mine, isAuthenticated ? {} : "skip");
+  useEffect(() => {
+    if (!isAuthenticated) {
+      settings = { dictionary: [], snippets: [] };
+      return;
+    }
+    if (current === undefined) return;
+    settings = { dictionary: current?.dictionary ?? [], snippets: current?.snippets ?? [] };
+    credentialWrite = credentialWrite.catch(() => undefined).then(connectKeyboard);
+    void credentialWrite.catch((error: unknown) => console.warn("Keyboard settings:", error));
+  }, [isAuthenticated, current]);
 }
 
 export async function dictate(audioUri: string) {
@@ -55,7 +61,8 @@ export async function dictate(audioUri: string) {
       mode: "dictate",
       category: "personal",
       app_id: "app.typeaside.mobile",
-      dictionary: await loadDictionary(),
+      dictionary: settings.dictionary,
+      snippets: settings.snippets,
       names: [],
       tone: "casual",
       translate_to: "English",
@@ -79,6 +86,7 @@ export async function connectKeyboard() {
   await keyboard.setCredentials({
     token: await deviceToken(),
     apiUrl: env.apiUrl,
-    dictionary: await loadDictionary(),
+    dictionary: settings.dictionary,
+    snippets: settings.snippets,
   });
 }

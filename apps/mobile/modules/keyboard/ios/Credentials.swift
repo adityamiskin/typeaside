@@ -1,9 +1,15 @@
 import Foundation
 
+struct Snippet: Codable {
+  let trigger: String
+  let text: String
+}
+
 struct Credentials: Codable {
   let token: String
   let apiUrl: String
   let dictionary: [String]
+  let snippets: [Snippet]?
 
   private static var url: URL? {
     FileManager.default.containerURL(

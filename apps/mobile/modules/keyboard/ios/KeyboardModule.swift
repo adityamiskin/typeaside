@@ -1,10 +1,16 @@
 import ExpoModulesCore
 import UIKit
 
+struct SnippetRecord: Record {
+  @Field var trigger = ""
+  @Field var text = ""
+}
+
 struct CredentialsRecord: Record {
   @Field var token = ""
   @Field var apiUrl = ""
   @Field var dictionary: [String] = []
+  @Field var snippets: [SnippetRecord] = []
 }
 
 public final class KeyboardModule: Module {
@@ -17,7 +23,8 @@ public final class KeyboardModule: Module {
 
     AsyncFunction("setCredentials") { (credentials: CredentialsRecord) in
       try Credentials(
-        token: credentials.token, apiUrl: credentials.apiUrl, dictionary: credentials.dictionary
+        token: credentials.token, apiUrl: credentials.apiUrl, dictionary: credentials.dictionary,
+        snippets: credentials.snippets.map { Snippet(trigger: $0.trigger, text: $0.text) }
       ).save()
     }
 

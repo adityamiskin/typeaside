@@ -13,6 +13,7 @@ private struct DictationContext: Encodable {
   let translateTo = "English"
   let names: [String] = []
   let dictionary: [String]
+  let snippets: [Snippet]
   let beforeCursor: String?
   let afterCursor: String?
 }
@@ -35,6 +36,7 @@ enum Dictation {
     let json = try encoder.encode(
       DictationContext(
         dictionary: credentials.dictionary,
+        snippets: credentials.snippets ?? [],
         beforeCursor: context?.beforeCursor,
         afterCursor: context?.afterCursor))
 

@@ -9,10 +9,16 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
 
+class SnippetRecord : Record {
+  @Field val trigger: String = ""
+  @Field val text: String = ""
+}
+
 class CredentialsRecord : Record {
   @Field val token: String = ""
   @Field val apiUrl: String = ""
   @Field val dictionary: List<String> = emptyList()
+  @Field val snippets: List<SnippetRecord> = emptyList()
 }
 
 class AppearanceRecord : Record {
@@ -28,7 +34,7 @@ class KeyboardModule : Module() {
     Name("Keyboard")
 
     AsyncFunction("setCredentials") { credentials: CredentialsRecord ->
-      CredentialStore(context).write(Credentials(credentials.token, credentials.apiUrl, credentials.dictionary))
+      CredentialStore(context).write(Credentials(credentials.token, credentials.apiUrl, credentials.dictionary, credentials.snippets.map { Snippet(it.trigger, it.text) }))
     }
 
     AsyncFunction("clearCredentials") {

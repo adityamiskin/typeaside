@@ -12,7 +12,11 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-data class Credentials(val token: String, val apiUrl: String, val dictionary: List<String>)
+data class Snippet(val trigger: String, val text: String) {
+  fun json(): JSONObject = JSONObject().put("trigger", trigger).put("text", text)
+}
+
+data class Credentials(val token: String, val apiUrl: String, val dictionary: List<String>, val snippets: List<Snippet> = emptyList())
 
 // The accessibility service shares the app process and its Keystore-backed credential store.
 class CredentialStore(context: Context) {
@@ -26,10 +30,12 @@ class CredentialStore(context: Context) {
       cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes, 0, IV_SIZE))
       val json = JSONObject(String(cipher.doFinal(bytes, IV_SIZE, bytes.size - IV_SIZE)))
       val words = json.getJSONArray("dictionary")
+      val snippets = json.optJSONArray("snippets") ?: JSONArray()
       Credentials(
         token = json.getString("token"),
         apiUrl = json.getString("apiUrl"),
         dictionary = List(words.length(), words::getString),
+        snippets = List(snippets.length()) { index -> snippets.getJSONObject(index).let { Snippet(it.getString("trigger"), it.getString("text")) } },
       ).takeIf { it.token.isNotBlank() && it.apiUrl.isNotBlank() }
     }.getOrNull()
   }
@@ -39,6 +45,7 @@ class CredentialStore(context: Context) {
       .put("token", credentials.token)
       .put("apiUrl", credentials.apiUrl.trimEnd('/'))
       .put("dictionary", JSONArray(credentials.dictionary))
+      .put("snippets", JSONArray(credentials.snippets.map { it.json() }))
     val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key()) }
     val sealed = cipher.iv + cipher.doFinal(json.toString().toByteArray())
     prefs.edit().putString(KEY, Base64.encodeToString(sealed, Base64.NO_WRAP)).apply()

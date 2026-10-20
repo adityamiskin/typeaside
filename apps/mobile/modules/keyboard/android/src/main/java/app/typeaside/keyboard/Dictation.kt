@@ -20,13 +20,14 @@ sealed interface Outcome {
 private const val CURSOR_CONTEXT = 2_000
 
 /** Mirrors contextInput in apps/api/src/dictate.ts, which rejects unknown keys. */
-fun dictationContext(field: Field, dictionary: List<String>): JSONObject = JSONObject()
+fun dictationContext(field: Field, dictionary: List<String>, snippets: List<Snippet>): JSONObject = JSONObject()
   .put("mode", "dictate")
   .put("category", "personal")
   .putOpt("app_id", field.packageName)
   .put("before_cursor", field.text.take(field.start).takeLast(CURSOR_CONTEXT))
   .put("after_cursor", field.text.drop(field.end).take(CURSOR_CONTEXT))
   .put("dictionary", JSONArray(dictionary))
+  .put("snippets", JSONArray(snippets.map { it.json() }))
   .put("names", JSONArray())
   .put("tone", "casual")
   .put("translate_to", "English")

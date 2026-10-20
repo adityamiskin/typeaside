@@ -17,7 +17,7 @@ export default function TabsLayout() {
   }, [isAuthenticated, sync]);
 
   return (
-    <NativeTabs {...appearance}>
+    <NativeTabs {...appearance} labelVisibilityMode="labeled">
       <NativeTabs.Trigger name="dictate">
         <NativeTabs.Trigger.Label>Dictate</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="mic" md="mic" />
@@ -25,6 +25,14 @@ export default function TabsLayout() {
       <NativeTabs.Trigger name="notes">
         <NativeTabs.Trigger.Label>Notes</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="note.text" md="sticky_note_2" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="dictionary">
+        <NativeTabs.Trigger.Label>Dictionary</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="character.book.closed" md="book_2" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="snippets">
+        <NativeTabs.Trigger.Label>Snippets</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="text.quote" md="short_text" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="account">
         <NativeTabs.Trigger.Label>Account</NativeTabs.Trigger.Label>
