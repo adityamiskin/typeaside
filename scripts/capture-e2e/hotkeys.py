@@ -77,8 +77,7 @@ try:
         time.sleep(.3)
         return keyboard
 
-    def double_tap_opens_capture(keyboard):
-        opened = stages().count('hotkey')
+    def double_tap(keyboard):
         for _ in range(2):
             keyboard.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
             keyboard.syn()
@@ -86,14 +85,17 @@ try:
             keyboard.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
             keyboard.syn()
             time.sleep(.075)
+
+    def double_tap_opens_capture(keyboard):
+        opened = stages().count('hotkey')
+        double_tap(keyboard)
         try:
             wait_for(lambda: stages().count('hotkey') > opened, 'capture opened', timeout=3)
         except TimeoutError:
             return False
-        keyboard.write(ecodes.EV_KEY, ecodes.KEY_ESC, 1)
-        keyboard.syn()
-        keyboard.write(ecodes.EV_KEY, ecodes.KEY_ESC, 0)
-        keyboard.syn()
+        # The same shortcut toggles capture closed; Escape only reaches hotkeys while recording.
+        time.sleep(.5)
+        double_tap(keyboard)
         time.sleep(1)
         return True
 
