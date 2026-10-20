@@ -1,7 +1,10 @@
 use crate::config::AppConfig;
 use anyhow::{Context, Result, bail};
 use evdev::{EventSummary, KeyCode};
-use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
+use nix::{
+    poll::{PollFd, PollFlags, PollTimeout, poll},
+    sys::inotify::{AddWatchFlags, InitFlags, Inotify},
+};
 use std::{
     collections::HashSet,
     io::Write,
@@ -12,7 +15,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 static CANCELABLE: AtomicBool = AtomicBool::new(false);
@@ -120,21 +123,29 @@ impl HotkeyService {
         for device in &mut devices {
             device.set_nonblocking(true)?;
         }
+        // udev creates the node, then grants access (ATTRIB), so rescan on both.
+        let hotplug = Inotify::init(InitFlags::IN_NONBLOCK | InitFlags::IN_CLOEXEC)?;
+        hotplug.add_watch(
+            "/dev/input",
+            AddWatchFlags::IN_CREATE | AddWatchFlags::IN_ATTRIB,
+        )?;
         let (wake, reader) = UnixStream::pair()?;
         let thread = thread::Builder::new()
             .name("typeaside-hotkeys".into())
             .spawn(move || {
                 let mut pressed = vec![HashSet::new(); devices.len()];
-                let mut scanned = Instant::now();
                 let mut missing = false;
                 loop {
-                    let mut fds = vec![PollFd::new(reader.as_fd(), PollFlags::POLLIN)];
+                    let mut fds = vec![
+                        PollFd::new(reader.as_fd(), PollFlags::POLLIN),
+                        PollFd::new(hotplug.as_fd(), PollFlags::POLLIN),
+                    ];
                     fds.extend(
                         devices
                             .iter()
                             .map(|device| PollFd::new(device.as_fd(), PollFlags::POLLIN)),
                     );
-                    match poll(&mut fds, PollTimeout::from(250u16)) {
+                    match poll(&mut fds, PollTimeout::NONE) {
                         Err(nix::errno::Errno::EINTR) => continue,
                         Err(error) => {
                             eprintln!("typeaside: keyboard polling failed: {error}");
@@ -145,9 +156,10 @@ impl HotkeyService {
                     if fds[0].revents().is_some_and(|events| !events.is_empty()) {
                         break;
                     }
+                    let plugged = fds[1].revents().is_some_and(|events| !events.is_empty());
                     let ready: Vec<_> = fds
                         .iter()
-                        .skip(1)
+                        .skip(2)
                         .map(|fd| fd.revents().unwrap_or_else(PollFlags::empty))
                         .collect();
                     drop(fds);
@@ -205,8 +217,8 @@ impl HotkeyService {
                         }
                     }
                     update_combos(&mut combos, &pressed, &emit);
-                    if scanned.elapsed() >= Duration::from_secs(1) {
-                        scanned = Instant::now();
+                    if plugged {
+                        let _ = hotplug.read_events();
                         for (path, device) in keyboards(&combos) {
                             if paths.contains(&path) {
                                 continue;
