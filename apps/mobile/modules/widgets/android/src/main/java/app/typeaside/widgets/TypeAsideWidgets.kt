@@ -46,7 +46,8 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.google.android.material.color.utilities.Hct
-import com.google.android.material.color.utilities.TonalPalette
+import com.google.android.material.color.utilities.MaterialDynamicColors
+import com.google.android.material.color.utilities.SchemeTonalSpot
 import java.text.NumberFormat
 
 private fun open(context: Context, path: String) = actionStartActivity(
@@ -194,8 +195,11 @@ private fun noteTint(key: String): androidx.glance.unit.ColorProvider {
     else -> return GlanceTheme.colors.outline
   }
   val hct = Hct.fromInt(seed)
-  val palette = TonalPalette.fromHueAndChroma(hct.hue, maxOf(48.0, hct.chroma))
-  return ColorProvider(day = Color(palette.tone(40)), night = Color(palette.tone(80)))
+  val primary = MaterialDynamicColors().primary()
+  return ColorProvider(
+    day = Color(primary.getArgb(SchemeTonalSpot(hct, false, 0.0))),
+    night = Color(primary.getArgb(SchemeTonalSpot(hct, true, 0.0))),
+  )
 }
 
 class DictateWidgetReceiver : GlanceAppWidgetReceiver() {
