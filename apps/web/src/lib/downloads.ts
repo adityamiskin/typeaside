@@ -21,15 +21,21 @@ export const downloads = {
     ],
   },
 } as const;
+export const comingSoon = {
+  Android: "A floating mic for any app, plus your notes.",
+  iOS: "The TypeAside keyboard, plus your notes.",
+} as const;
 export const downloadFiles = Object.values(downloads).flatMap(({ files }) => [...files]);
 export const releaseFiles = new Set([
   "latest.json",
   ...downloadFiles.map(({ href }) => href.slice(release.length)),
 ]);
 export function detectOS(agent: string) {
-  if (/Macintosh|Mac OS X/.test(agent) && !/iPhone|iPad/.test(agent)) return "macOS";
+  if (/Android/.test(agent)) return "Android";
+  if (/iPhone|iPad/.test(agent)) return "iOS";
+  if (/Macintosh|Mac OS X/.test(agent)) return "macOS";
   if (/Windows/.test(agent)) return "Windows";
-  if (/Linux/.test(agent) && !/Android/.test(agent)) return "Linux";
+  if (/Linux/.test(agent)) return "Linux";
   return null;
 }
 export function useOS() {
