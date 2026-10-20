@@ -1,0 +1,9 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
+  android:background="@android:color/system_neutral1_100" android:padding="16dp">
+  <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:gravity="center_vertical">
+    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/typeaside_notes_widget" android:textSize="16sp" android:fontFamily="sans-serif-medium" android:textColor="@android:color/system_neutral1_900" />
+    <ImageView android:layout_width="40dp" android:layout_height="40dp" android:padding="9dp" android:src="@drawable/typeaside_widget_add" android:background="@drawable/typeaside_widget_circle" android:backgroundTint="@android:color/system_accent1_100" android:tint="@android:color/system_accent1_900" android:contentDescription="@string/typeaside_notes_widget" />
+  </LinearLayout>
+  <TextView android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:text="No notes yet" android:textSize="14sp" android:textColor="@android:color/system_neutral2_700" />
+</LinearLayout>

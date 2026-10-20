@@ -1,0 +1,8 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent" android:layout_height="match_parent"
+  android:background="@android:color/system_neutral1_100" android:padding="12dp">
+  <ImageView android:layout_width="56dp" android:layout_height="56dp" android:layout_gravity="center"
+    android:src="@drawable/typeaside_widget_mic" android:padding="14dp"
+    android:background="@drawable/typeaside_widget_circle" android:backgroundTint="@android:color/system_accent1_100"
+    android:tint="@android:color/system_accent1_900" android:contentDescription="@string/typeaside_dictate_widget" />
+</FrameLayout>
