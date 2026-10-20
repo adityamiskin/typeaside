@@ -74,7 +74,7 @@ export async function dictate(audioUri: string) {
     : new DictationError(`Dictation failed (${response.status})`, "network");
 }
 
-// The system keyboard dictates natively, so it gets its own copy of what it needs.
+// The keyboard extension and floating mic dictate without the JS runtime.
 export async function connectKeyboard() {
   await keyboard.setCredentials({
     token: await deviceToken(),

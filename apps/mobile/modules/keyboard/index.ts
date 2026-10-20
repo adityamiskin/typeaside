@@ -1,6 +1,6 @@
 import { requireNativeModule } from "expo";
 
-// Shared with the system keyboard (iOS extension via the App Group, Android IME in-process),
+// Shared with the iOS keyboard extension and Android accessibility service,
 // which dictates through the hosted API without the JS runtime.
 type Credentials = { token: string; apiUrl: string; dictionary: string[] };
 

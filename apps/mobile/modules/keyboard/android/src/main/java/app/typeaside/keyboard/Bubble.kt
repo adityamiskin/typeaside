@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -28,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -102,7 +102,7 @@ fun MicBubble(state: Bubble, onTouch: (MotionEvent) -> Boolean, onToggle: () -> 
           }
           Bubble.Sending -> CircularProgressIndicator(Modifier.size(18.dp), color = colors.onSecondaryContainer, strokeWidth = 2.dp)
           Bubble.Error -> Icon(Icons.Rounded.ErrorOutline, contentDescription = null, modifier = Modifier.size(22.dp))
-          Bubble.Idle -> Icon(Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(22.dp))
+          Bubble.Idle -> Icon(painterResource(R.drawable.typeaside_mark), contentDescription = null, modifier = Modifier.size(24.dp))
         }
       }
     }
