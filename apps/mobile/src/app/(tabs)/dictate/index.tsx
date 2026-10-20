@@ -6,7 +6,6 @@ import { File, Paths } from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Alert, Linking, Share } from "react-native";
-import { usageLabel } from "@/account/account";
 import { DictateView } from "@/dictate/dictate-view";
 import type { Action } from "@/dictate/format";
 import { RecordBar } from "@/dictate/record-bar";
@@ -114,8 +113,10 @@ export default function DictateScreen() {
       expandedId={expandedId}
       onToggle={(take) => setExpandedId(take.id === expandedId ? undefined : take.id)}
       actions={actions}
-      usage={account && usageLabel(account.usage)}
-      recordBar={<RecordBar busy={busy} onRecorded={recorded} onError={failed} />}
+      usage={account?.usage}
+      recordBar={
+        <RecordBar busy={busy} hero={takes.length === 0} onRecorded={recorded} onError={failed} />
+      }
     />
   );
 }

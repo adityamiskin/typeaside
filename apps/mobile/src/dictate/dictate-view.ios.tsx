@@ -1,10 +1,11 @@
 import { Stack } from "expo-router";
 import { type SFSymbol, SymbolView } from "expo-symbols";
 import type { ReactNode } from "react";
-import { FlatList, PlatformColor, Pressable, StyleSheet, Text, View } from "react-native";
+import { PlatformColor, Pressable, SectionList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import type { Account } from "@/account/account";
 import { useColors } from "@/ui/theme";
-import { type Action, takeMeta, takeText } from "./format";
+import { type Action, groupByDay, takeMeta, takeText, usageText } from "./format";
 import type { Take } from "./takes";
 
 const actionSymbols = {
@@ -21,7 +22,7 @@ type Props = {
   expandedId: string | undefined;
   onToggle: (take: Take) => void;
   actions: (take: Take) => Action[];
-  usage: string | undefined;
+  usage: Account["usage"] | undefined;
   recordBar: ReactNode;
 };
 
@@ -31,25 +32,27 @@ export function DictateView({ takes, expandedId, onToggle, actions, usage, recor
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <Stack.Screen
         options={{
-          headerRight: () => (usage ? <Text style={styles.usage}>{usage}</Text> : null),
+          headerRight: () => (usage ? <Text style={styles.usage}>{usageText(usage)}</Text> : null),
         }}
       />
-      <FlatList
-        data={takes}
+      <SectionList
+        sections={groupByDay(takes).map(({ label, takes }) => ({ title: label, data: takes }))}
         keyExtractor={(take) => take.id}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={styles.list}
-        renderItem={({ item, index }) => (
+        stickySectionHeadersEnabled={false}
+        renderSectionHeader={({ section }) => <Text style={styles.header}>{section.title}</Text>}
+        renderItem={({ item, index, section }) => (
           <TakeRow
             take={item}
             first={index === 0}
-            last={index === takes.length - 1}
+            last={index === section.data.length - 1}
             expanded={item.id === expandedId}
             onToggle={() => onToggle(item)}
             actions={actions(item)}
           />
         )}
-        ListEmptyComponent={<Text style={styles.empty}>Your dictations appear here.</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>Tap Dictate, or hold it to talk.</Text>}
       />
       <SafeAreaView edges={["bottom"]}>{recordBar}</SafeAreaView>
     </View>
@@ -113,6 +116,14 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   list: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
   usage: { color: PlatformColor("secondaryLabel"), fontSize: 15, fontVariant: ["tabular-nums"] },
+  header: {
+    color: PlatformColor("secondaryLabel"),
+    fontSize: 13,
+    textTransform: "uppercase",
+    paddingHorizontal: 16,
+    paddingTop: 22,
+    paddingBottom: 7,
+  },
   empty: { color: PlatformColor("secondaryLabel"), fontSize: 15, padding: 16 },
   row: { backgroundColor: PlatformColor("secondarySystemGroupedBackground") },
   first: { borderTopLeftRadius: 10, borderTopRightRadius: 10 },

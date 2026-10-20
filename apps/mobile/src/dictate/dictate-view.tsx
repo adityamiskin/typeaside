@@ -1,22 +1,35 @@
 import {
   AssistChip,
   Column,
-  FlowRow,
   Host,
   Icon,
+  IconButton,
   LazyColumn,
+  LinearProgressIndicator,
   ListItem,
+  LoadingIndicator,
+  Row,
+  Spacer,
   Text,
   useMaterialColors,
 } from "@expo/ui/jetpack-compose";
-import { background, clickable, fillMaxSize, padding } from "@expo/ui/jetpack-compose/modifiers";
+import {
+  background,
+  clickable,
+  clip,
+  fillMaxSize,
+  padding,
+  Shapes,
+  weight,
+  width,
+} from "@expo/ui/jetpack-compose/modifiers";
+import { Stack } from "expo-router";
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { type Account, usageProgress } from "@/account/account";
 import { icons } from "@/ui/icons";
-import { LargeTitle } from "@/ui/large-title";
-import { seedColor, useColors } from "@/ui/theme";
-import { type Action, takeMeta, takeText } from "./format";
+import { seedColor } from "@/ui/theme";
+import { type Action, groupByDay, takeMeta, takeText, usageText } from "./format";
 import type { Take } from "./takes";
 
 const actionIcons = {
@@ -33,81 +46,160 @@ type Props = {
   expandedId: string | undefined;
   onToggle: (take: Take) => void;
   actions: (take: Take) => Action[];
-  usage: string | undefined;
+  usage: Account["usage"] | undefined;
   recordBar: ReactNode;
 };
 
-export function DictateView({ recordBar, ...list }: Props) {
-  const insets = useSafeAreaInsets();
-  const colors = useColors();
+export function DictateView({ recordBar, usage, ...list }: Props) {
+  const material = useMaterialColors({ seedColor });
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <Host style={styles.screen} seedColor={seedColor}>
-        <Takes {...list} />
-      </Host>
-      <View style={styles.bottom} pointerEvents="box-none">
+    <View style={[styles.screen, { backgroundColor: material.surface }]}>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          headerStyle: { backgroundColor: material.surface },
+          headerTintColor: material.onSurface,
+          headerTitleStyle: { fontSize: 22, fontWeight: "400" },
+          headerShadowVisible: false,
+          headerRight: () => usage && <Usage usage={usage} />,
+        }}
+      />
+      {list.takes.length > 0 && (
+        <Host style={styles.screen} seedColor={seedColor}>
+          <Takes {...list} />
+        </Host>
+      )}
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         {recordBar}
       </View>
     </View>
   );
 }
 
-function Takes({ takes, expandedId, onToggle, actions, usage }: Omit<Props, "recordBar">) {
+function Usage({ usage }: { usage: Account["usage"] }) {
+  const material = useMaterialColors({ seedColor });
+  const progress = usageProgress(usage);
+  return (
+    <Host matchContents seedColor={seedColor}>
+      <Column horizontalAlignment="end" verticalArrangement={{ spacedBy: 6 }}>
+        <Text
+          color={progress === 1 ? material.error : material.onSurfaceVariant}
+          style={{ typography: "labelLarge" }}
+        >
+          {usageText(usage)}
+        </Text>
+        {progress !== null && (
+          <LinearProgressIndicator
+            progress={progress}
+            color={progress === 1 ? material.error : material.primary}
+            modifiers={[width(112)]}
+          />
+        )}
+      </Column>
+    </Host>
+  );
+}
+
+function Takes({ takes, expandedId, onToggle, actions }: Omit<Props, "recordBar" | "usage">) {
   const material = useMaterialColors();
   return (
-    <LazyColumn modifiers={[fillMaxSize()]} contentPadding={{ bottom: 104 }}>
-      <LargeTitle title="Dictate" supporting={usage && `${usage} this week`} />
-      {takes.length === 0 && (
-        <Text color={material.onSurfaceVariant} modifiers={[padding(16, 8, 16, 8)]}>
-          Your dictations appear here.
-        </Text>
-      )}
-      {takes.map((take) => {
-        const expanded = take.id === expandedId;
-        const container = expanded ? material.surfaceContainer : material.surface;
-        return (
-          <Column key={take.id} modifiers={[background(container)]}>
-            <ListItem
-              colors={{
-                containerColor: container,
-                contentColor: take.pending ? material.onSurfaceVariant : material.onSurface,
-                supportingContentColor: take.pending?.error
-                  ? material.error
-                  : material.onSurfaceVariant,
-              }}
-              modifiers={[clickable(() => onToggle(take))]}
-            >
-              <ListItem.HeadlineContent>
-                <Text maxLines={expanded ? undefined : 3} overflow="ellipsis">
-                  {takeText(take)}
-                </Text>
-              </ListItem.HeadlineContent>
-              <ListItem.SupportingContent>
-                <Text>{takeMeta(take)}</Text>
-              </ListItem.SupportingContent>
-            </ListItem>
-            {expanded && (
-              <FlowRow horizontalArrangement={{ spacedBy: 8 }} modifiers={[padding(16, 0, 16, 12)]}>
-                {actions(take).map((action) => (
-                  <AssistChip key={action.label} onClick={action.onPress}>
-                    <AssistChip.LeadingIcon>
-                      <Icon source={actionIcons[action.icon]} size={18} />
-                    </AssistChip.LeadingIcon>
-                    <AssistChip.Label>
-                      <Text>{action.label}</Text>
-                    </AssistChip.Label>
-                  </AssistChip>
-                ))}
-              </FlowRow>
-            )}
-          </Column>
-        );
-      })}
+    <LazyColumn modifiers={[fillMaxSize()]} contentPadding={{ bottom: 112 }}>
+      {groupByDay(takes).flatMap((group) => [
+        <Text
+          key={group.label}
+          color={material.primary}
+          style={{ typography: "titleSmall" }}
+          modifiers={[padding(16, 16, 16, 8)]}
+        >
+          {group.label}
+        </Text>,
+        ...group.takes.map((take) => (
+          <TakeItem
+            key={take.id}
+            take={take}
+            expanded={take.id === expandedId}
+            onToggle={() => onToggle(take)}
+            actions={actions(take)}
+          />
+        )),
+      ])}
     </LazyColumn>
+  );
+}
+
+function TakeItem({
+  take,
+  expanded,
+  onToggle,
+  actions,
+}: {
+  take: Take;
+  expanded: boolean;
+  onToggle: () => void;
+  actions: Action[];
+}) {
+  const material = useMaterialColors();
+  const container = expanded ? material.surfaceContainerHigh : material.surface;
+  const chips = actions.filter((action) => action.icon !== "delete");
+  const discard = actions.find((action) => action.icon === "delete");
+  return (
+    <Column
+      modifiers={[padding(8, 0, 8, 0), clip(Shapes.RoundedCorner(20)), background(container)]}
+    >
+      <ListItem
+        colors={{
+          containerColor: container,
+          contentColor: take.pending ? material.onSurfaceVariant : material.onSurface,
+          supportingContentColor: take.pending?.error ? material.error : material.onSurfaceVariant,
+        }}
+        modifiers={[clickable(onToggle)]}
+      >
+        {take.pending && !take.pending.error && (
+          <ListItem.LeadingContent>
+            <LoadingIndicator modifiers={[width(32)]} />
+          </ListItem.LeadingContent>
+        )}
+        <ListItem.HeadlineContent>
+          <Text
+            style={{ typography: "bodyLarge" }}
+            maxLines={expanded ? undefined : 3}
+            overflow="ellipsis"
+          >
+            {takeText(take)}
+          </Text>
+        </ListItem.HeadlineContent>
+        <ListItem.SupportingContent>
+          <Text style={{ typography: "bodyMedium" }}>{takeMeta(take)}</Text>
+        </ListItem.SupportingContent>
+      </ListItem>
+      {expanded && actions.length > 0 && (
+        <Row
+          verticalAlignment="center"
+          horizontalArrangement={{ spacedBy: 8 }}
+          modifiers={[padding(16, 0, 4, 8)]}
+        >
+          {chips.map((action) => (
+            <AssistChip key={action.label} onClick={action.onPress}>
+              <AssistChip.LeadingIcon>
+                <Icon source={actionIcons[action.icon]} size={18} />
+              </AssistChip.LeadingIcon>
+              <AssistChip.Label>
+                <Text>{action.label}</Text>
+              </AssistChip.Label>
+            </AssistChip>
+          ))}
+          <Spacer modifiers={[weight(1)]} />
+          {discard && (
+            <IconButton onClick={discard.onPress}>
+              <Icon source={icons.delete} size={24} tint={material.onSurfaceVariant} />
+            </IconButton>
+          )}
+        </Row>
+      )}
+    </Column>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  bottom: { position: "absolute", left: 0, right: 0, bottom: 0 },
 });
