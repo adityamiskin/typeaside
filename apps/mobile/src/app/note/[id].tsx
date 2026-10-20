@@ -4,16 +4,7 @@ import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  Dimensions,
-  Pressable,
-  Share,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  type ViewInstance,
-} from "react-native";
+import { Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNoteActions } from "@/notes/actions";
 import { EditorBar, IconButton } from "@/notes/editor-bar";
@@ -81,9 +72,6 @@ function NoteEditor({
   const actions = useNoteActions();
   const { draft, error, update, discard } = useNoteDraft(initial, stored);
   const body = useRef<{ edit: () => void }>(null);
-  const screen = useRef<ViewInstance>(null);
-  // Space between this screen and the bottom of the display, such as the tab bar.
-  const [below, setBelow] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
@@ -136,12 +124,6 @@ function NoteEditor({
 
   return (
     <View
-      ref={screen}
-      onLayout={() =>
-        screen.current?.measureInWindow((_x, y, _width, height) =>
-          setBelow(Math.max(0, Dimensions.get("screen").height - y - height)),
-        )
-      }
       style={[
         styles.screen,
         {
@@ -196,7 +178,7 @@ function NoteEditor({
         }}
       />
       {message && <Text style={[styles.notice, { color: colors.secondary }]}>{message}</Text>}
-      <View style={{ paddingBottom: Math.max(keyboard, insets.bottom) - below }}>
+      <View style={{ paddingBottom: Math.max(keyboard, insets.bottom) }}>
         <EditorBar
           color={draft.color}
           editedAt={updatedAt}

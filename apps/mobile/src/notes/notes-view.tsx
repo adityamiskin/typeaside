@@ -40,11 +40,6 @@ import { seedColor, useColors, useNoteColors } from "@/ui/theme";
 import type { NoteActions } from "./actions";
 import { type EmptyState, emptyMessages, type Note, summarize } from "./model";
 
-const searchIcon = require("./icons/search.xml");
-const paletteIcon = require("./icons/palette.xml");
-const gridIcon = require("./icons/grid_view.xml");
-const listIcon = require("./icons/view_agenda.xml");
-
 const PREVIEW_LINES = 8;
 const PREVIEW_ITEMS = 6;
 
@@ -110,12 +105,7 @@ function NotesList({
     <Box modifiers={[fillMaxSize()]}>
       <Column modifiers={[fillMaxSize()]}>
         {selecting ? (
-          <SelectionBar
-            selection={selection}
-            archive={archive}
-            actions={actions}
-            onClear={clear}
-          />
+          <SelectionBar selection={selection} archive={archive} actions={actions} onClear={clear} />
         ) : (
           <Row
             verticalAlignment="center"
@@ -124,7 +114,7 @@ function NotesList({
           >
             <DockedSearchBar onQueryChange={onSearch} modifiers={[weight(1)]}>
               <DockedSearchBar.LeadingIcon>
-                <Icon source={searchIcon} size={24} />
+                <Icon source={icons.search} size={24} />
               </DockedSearchBar.LeadingIcon>
               <DockedSearchBar.Placeholder>
                 <Text>{archive ? "Search archive" : "Search notes"}</Text>
@@ -132,7 +122,7 @@ function NotesList({
             </DockedSearchBar>
             <IconButton onClick={() => setGrid(!grid)}>
               <Icon
-                source={grid ? listIcon : gridIcon}
+                source={grid ? icons.viewAgenda : icons.gridView}
                 size={24}
                 contentDescription={grid ? "List view" : "Grid view"}
               />
@@ -159,7 +149,9 @@ function NotesList({
               modifiers={[fillMaxWidth(), padding(32, 160, 32, 0)]}
             >
               <Icon
-                source={{ notes: icons.noteAdd, archive: icons.archive, search: searchIcon }[empty]}
+                source={
+                  { notes: icons.noteAdd, archive: icons.archive, search: icons.search }[empty]
+                }
                 size={96}
                 tint={material.outline}
               />
@@ -274,7 +266,7 @@ function SelectionBar({
       <DropdownMenu expanded={palette} onDismissRequest={() => setPalette(false)}>
         <DropdownMenu.Trigger>
           <IconButton onClick={() => setPalette(true)}>
-            <Icon source={paletteIcon} size={24} contentDescription="Color" />
+            <Icon source={icons.palette} size={24} contentDescription="Color" />
           </IconButton>
         </DropdownMenu.Trigger>
         <DropdownMenu.Items>

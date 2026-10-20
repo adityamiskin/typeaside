@@ -26,7 +26,6 @@ import {
 } from "@expo/ui/jetpack-compose/modifiers";
 import { useState } from "react";
 import { type ImageSourcePropType, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   billingAction,
   DELETE_MESSAGE,
@@ -40,7 +39,6 @@ import {
   usageLabel,
   usageProgress,
 } from "@/account/account";
-import { accountIcons } from "@/account/icons";
 import { openKeyboardSettings, useKeyboardEnabled } from "@/account/keyboard";
 import { icons } from "@/ui/icons";
 import { seedColor } from "@/ui/theme";
@@ -65,7 +63,6 @@ export default function AccountScreen() {
     useAccount();
   const keyboardEnabled = useKeyboardEnabled();
   const material = useMaterialColors({ seedColor });
-  const insets = useSafeAreaInsets();
   const [dialog, setDialog] = useState<Dialog>();
   const [typed, setTyped] = useState("");
   const progress = account && usageProgress(account.usage);
@@ -92,17 +89,21 @@ export default function AccountScreen() {
   );
 
   return (
-    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: material.surface }}>
+    <View style={{ flex: 1, backgroundColor: material.surface }}>
       <Host style={{ flex: 1 }} seedColor={seedColor}>
         <LazyColumn modifiers={[fillMaxSize()]}>
           {account && (
             <Column
               horizontalAlignment="center"
-              modifiers={[fillMaxWidth(), padding(24, 40, 24, 8)]}
+              modifiers={[fillMaxWidth(), padding(24, 16, 24, 8)]}
             >
               <Box
                 contentAlignment="center"
-                modifiers={[size(80, 80), clip(Shapes.Circle), background(material.primaryContainer)]}
+                modifiers={[
+                  size(80, 80),
+                  clip(Shapes.Circle),
+                  background(material.primaryContainer),
+                ]}
               >
                 <Text color={material.onPrimaryContainer} style={{ typography: "headlineLarge" }}>
                   {initial(account)}
@@ -129,7 +130,7 @@ export default function AccountScreen() {
           {account && header("Usage")}
           {account && (
             <ListItem colors={item} modifiers={segment(0, 2)}>
-              {leading(accountIcons.dataUsage)}
+              {leading(icons.barChart)}
               <ListItem.HeadlineContent>
                 <Text>{`${usageLabel(account.usage)} this week`}</Text>
               </ListItem.HeadlineContent>
@@ -152,30 +153,30 @@ export default function AccountScreen() {
               modifiers={[...segment(1, 2), clickable(openBilling)]}
             >
               {leading(
-                accountIcons.premium,
+                icons.premium,
                 account.billingIssue ? material.error : material.onSurfaceVariant,
               )}
               <ListItem.HeadlineContent>
                 <Text>{billingAction(account)}</Text>
               </ListItem.HeadlineContent>
               <ListItem.TrailingContent>
-                <Icon source={accountIcons.openInNew} tint={material.onSurfaceVariant} size={20} />
+                <Icon source={icons.openInNew} tint={material.onSurfaceVariant} size={20} />
               </ListItem.TrailingContent>
             </ListItem>
           )}
 
-          {header("Keyboard")}
+          {header("Floating mic")}
           <ListItem colors={item} modifiers={[...segment(0, 1), clickable(openKeyboardSettings)]}>
-            {leading(accountIcons.keyboard)}
+            {leading(icons.mic)}
             <ListItem.HeadlineContent>
-              <Text>TypeAside keyboard</Text>
+              <Text>Floating mic</Text>
             </ListItem.HeadlineContent>
             <ListItem.SupportingContent>
               <Text>Dictate into any app</Text>
             </ListItem.SupportingContent>
             {keyboardEnabled !== undefined && (
               <ListItem.TrailingContent>
-                {/* Only system settings can enable an IME, so the switch hands off there. */}
+                {/* Accessibility access is granted in system settings. */}
                 <Switch value={keyboardEnabled} onCheckedChange={openKeyboardSettings} />
               </ListItem.TrailingContent>
             )}
@@ -184,7 +185,7 @@ export default function AccountScreen() {
           {devices && devices.length > 0 && header("Devices")}
           {devices?.map((device, index) => (
             <ListItem key={device._id} colors={item} modifiers={segment(index, devices.length)}>
-              {leading(isThisPhone(device) ? accountIcons.phone : accountIcons.computer)}
+              {leading(isThisPhone(device) ? icons.phone : icons.computer)}
               <ListItem.HeadlineContent>
                 <Text>{device.name}</Text>
               </ListItem.HeadlineContent>
@@ -213,7 +214,7 @@ export default function AccountScreen() {
               colors={item}
               modifiers={[...segment(0, email ? 2 : 1), clickable(() => setDialog("signOut"))]}
             >
-              {leading(accountIcons.signOut)}
+              {leading(icons.signOut)}
               <ListItem.HeadlineContent>
                 <Text>Sign out</Text>
               </ListItem.HeadlineContent>
@@ -223,7 +224,7 @@ export default function AccountScreen() {
                 colors={{ ...item, contentColor: material.error }}
                 modifiers={[...segment(1, 2), clickable(() => setDialog("delete"))]}
               >
-                {leading(accountIcons.deleteForever, material.error)}
+                {leading(icons.deleteForever, material.error)}
                 <ListItem.HeadlineContent>
                   <Text>Delete account</Text>
                 </ListItem.HeadlineContent>
@@ -235,7 +236,7 @@ export default function AccountScreen() {
         {dialog === "signOut" && (
           <AlertDialog onDismissRequest={closeDialog}>
             <AlertDialog.Icon>
-              <Icon source={accountIcons.signOut} size={24} />
+              <Icon source={icons.signOut} size={24} />
             </AlertDialog.Icon>
             <AlertDialog.Title>
               <Text>Sign out?</Text>
@@ -263,7 +264,7 @@ export default function AccountScreen() {
         {dialog === "delete" && email && (
           <AlertDialog onDismissRequest={closeDialog}>
             <AlertDialog.Icon>
-              <Icon source={accountIcons.deleteForever} tint={material.error} size={24} />
+              <Icon source={icons.deleteForever} tint={material.error} size={24} />
             </AlertDialog.Icon>
             <AlertDialog.Title>
               <Text>Delete account?</Text>

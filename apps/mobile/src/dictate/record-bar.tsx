@@ -7,17 +7,20 @@ import {
   Text,
   useMaterialColors,
 } from "@expo/ui/jetpack-compose";
+import { clip, Shapes } from "@expo/ui/jetpack-compose/modifiers";
 import { Pressable, StyleSheet, Text as NativeText, View } from "react-native";
 import { icons } from "@/ui/icons";
 import { seedColor } from "@/ui/theme";
 import { formatElapsed } from "./format";
 import { type RecordBarProps, useRecordBar } from "./use-record-bar";
 
-// Compose has no press-release callback, so a Pressable owns the gesture and the Material
-// buttons inside it only draw. The Pressable stays the first child in every state so a hold
-// that starts on the idle button is released on the recording sheet.
+// Compose has no press-release callback, so Pressables own the gestures and the Material
+// buttons inside them only draw. The outer Pressable stays the first child in every state so a
+// hold that starts on the idle button is released on the recording sheet. Host ignores
+// pointerEvents, so a plain View keeps touches off the idle Hosts: a release targeted at an
+// unmounted Host never reaches the Pressable.
 export function RecordBar(props: RecordBarProps) {
-  const { dictation, press, bars, cancel } = useRecordBar(props);
+  const { dictation, press, bars, stop, cancel } = useRecordBar(props);
   const material = useMaterialColors({ seedColor });
   const hero = props.hero && !dictation.recording && !props.busy;
 
@@ -28,9 +31,11 @@ export function RecordBar(props: RecordBarProps) {
     >
       <Pressable
         {...press}
-        android_ripple={
-          dictation.recording ? undefined : { color: material.onPrimaryContainer, foreground: true }
-        }
+        // Transparent rather than off while recording, so releasing a hold still clears the ripple.
+        android_ripple={{
+          color: dictation.recording ? "transparent" : material.onPrimaryContainer,
+          foreground: true,
+        }}
         style={[
           dictation.recording
             ? [styles.sheet, { backgroundColor: material.surfaceContainerHigh }]
@@ -73,41 +78,60 @@ export function RecordBar(props: RecordBarProps) {
                 onPress={cancel}
                 style={styles.side}
               >
-                <Host matchContents pointerEvents="none" seedColor={seedColor}>
-                  <FilledTonalIconButton>
-                    <Icon source={icons.close} size={24} />
-                  </FilledTonalIconButton>
-                </Host>
+                <View pointerEvents="none" collapsable={false}>
+                  <Host matchContents seedColor={seedColor}>
+                    <FilledTonalIconButton>
+                      <Icon source={icons.close} size={24} />
+                    </FilledTonalIconButton>
+                  </Host>
+                </View>
               </Pressable>
-              <Host matchContents pointerEvents="none" seedColor={seedColor}>
-                <LargeFloatingActionButton containerColor={material.errorContainer}>
-                  <LargeFloatingActionButton.Icon>
-                    <Icon source={icons.stop} size={36} tint={material.onErrorContainer} />
-                  </LargeFloatingActionButton.Icon>
-                </LargeFloatingActionButton>
-              </Host>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Stop dictating"
+                onPress={stop}
+                android_ripple={{ color: material.onPrimary, foreground: true }}
+                style={styles.stop}
+              >
+                <View pointerEvents="none" collapsable={false}>
+                  <Host matchContents seedColor={seedColor}>
+                    <LargeFloatingActionButton
+                      containerColor={material.primary}
+                      modifiers={[clip(Shapes.Circle)]}
+                    >
+                      <LargeFloatingActionButton.Icon>
+                        <Icon source={icons.stop} size={36} tint={material.onPrimary} />
+                      </LargeFloatingActionButton.Icon>
+                    </LargeFloatingActionButton>
+                  </Host>
+                </View>
+              </Pressable>
               <View style={styles.side} />
             </View>
           </>
         ) : hero ? (
-          <Host matchContents pointerEvents="none" seedColor={seedColor}>
-            <LargeFloatingActionButton>
-              <LargeFloatingActionButton.Icon>
-                <Icon source={icons.mic} size={36} />
-              </LargeFloatingActionButton.Icon>
-            </LargeFloatingActionButton>
-          </Host>
+          <View pointerEvents="none" collapsable={false}>
+            <Host matchContents seedColor={seedColor}>
+              <LargeFloatingActionButton>
+                <LargeFloatingActionButton.Icon>
+                  <Icon source={icons.mic} size={36} />
+                </LargeFloatingActionButton.Icon>
+              </LargeFloatingActionButton>
+            </Host>
+          </View>
         ) : (
-          <Host matchContents pointerEvents="none" seedColor={seedColor}>
-            <ExtendedFloatingActionButton>
-              <ExtendedFloatingActionButton.Icon>
-                <Icon source={icons.mic} size={24} />
-              </ExtendedFloatingActionButton.Icon>
-              <ExtendedFloatingActionButton.Text>
-                <Text>{props.busy ? "Cleaning up" : "Dictate"}</Text>
-              </ExtendedFloatingActionButton.Text>
-            </ExtendedFloatingActionButton>
-          </Host>
+          <View pointerEvents="none" collapsable={false}>
+            <Host matchContents seedColor={seedColor}>
+              <ExtendedFloatingActionButton>
+                <ExtendedFloatingActionButton.Icon>
+                  <Icon source={icons.mic} size={24} />
+                </ExtendedFloatingActionButton.Icon>
+                <ExtendedFloatingActionButton.Text>
+                  <Text>{props.busy ? "Cleaning up" : "Dictate"}</Text>
+                </ExtendedFloatingActionButton.Text>
+              </ExtendedFloatingActionButton>
+            </Host>
+          </View>
         )}
       </Pressable>
       {hero && (
@@ -161,5 +185,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  stop: { borderRadius: 48, overflow: "hidden" },
   side: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
 });

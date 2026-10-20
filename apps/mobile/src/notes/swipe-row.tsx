@@ -161,7 +161,7 @@ function NoteLink({
   children: ReactNode;
 }) {
   return (
-    <Link href={{ pathname: "/notes/[id]", params: { id: note.id } }} asChild>
+    <Link href={{ pathname: "/note/[id]", params: { id: note.id } }} asChild>
       <Link.Trigger>
         <Pressable style={({ pressed }) => [style, pressed && { opacity: 0.7 }]}>
           {children}

@@ -31,6 +31,8 @@ export function NoteBody({
   const colors = useColors();
   const ink = { color: colors.text };
   const faint = { color: colors.tertiary };
+  // Keep dims checked items only to the secondary ink so they stay readable on any note color.
+  const done = [styles.checked, { color: colors.secondary }];
   const [editAt, setEditAt] = useState<number | null>(startEditing ? text.length : null);
   const input = useRef<TextInputInstance>(null);
   const lines = text.split("\n");
@@ -49,9 +51,7 @@ export function NoteBody({
   }, []);
 
   function lineStyle(index: number) {
-    return checklistItem(lines[index] ?? "")?.checked
-      ? [styles.body, styles.checked, faint]
-      : [styles.body, ink];
+    return checklistItem(lines[index] ?? "")?.checked ? [styles.body, done] : [styles.body, ink];
   }
 
   function editLine(index: number) {
@@ -109,7 +109,7 @@ export function NoteBody({
                 />
               </Pressable>
               <Text
-                style={[styles.body, styles.itemText, ink, item.checked && [styles.checked, faint]]}
+                style={[styles.body, styles.itemText, ink, item.checked && done]}
                 onPress={() => editLine(index)}
               >
                 {item.text || " "}
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
   input: { flex: 1, fontSize: 16 },
   body: { fontSize: 16, lineHeight: 24 },
-  checked: { textDecorationLine: "line-through" },
+  checked: { textDecorationLine: "line-through", textDecorationStyle: "solid" },
   item: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 32 },
   itemText: { flex: 1 },
 });

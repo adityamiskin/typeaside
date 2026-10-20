@@ -33,6 +33,18 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Protected guard={status === "signedIn"}>
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen
+              name="note/[id]"
+              options={
+                process.env.EXPO_OS === "ios"
+                  ? {
+                      presentation: "formSheet",
+                      sheetGrabberVisible: true,
+                      sheetAllowedDetents: [1],
+                    }
+                  : { animation: "fade_from_bottom" }
+              }
+            />
             <Stack.Screen name="keyboard-session" />
           </Stack.Protected>
           <Stack.Protected guard={status === "signedOut"}>

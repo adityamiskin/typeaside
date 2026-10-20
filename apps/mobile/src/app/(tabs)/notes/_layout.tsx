@@ -6,19 +6,10 @@ export const unstable_settings = { anchor: "index" };
 export default function NotesLayout() {
   return (
     <Stack screenOptions={useStackOptions()}>
-      <Stack.Screen name="index" options={{ title: "Notes" }} />
       <Stack.Screen
-        name="[id]"
-        options={
-          process.env.EXPO_OS === "ios"
-            ? {
-                presentation: "formSheet",
-                sheetGrabberVisible: true,
-                sheetAllowedDetents: [1],
-                headerShown: false,
-              }
-            : { headerShown: false, animation: "fade_from_bottom" }
-        }
+        name="index"
+        // On Android the search bar is the app bar, as in Keep.
+        options={{ title: "Notes", headerShown: process.env.EXPO_OS === "ios" }}
       />
     </Stack>
   );

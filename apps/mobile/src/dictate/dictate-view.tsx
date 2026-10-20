@@ -54,16 +54,7 @@ export function DictateView({ recordBar, usage, ...list }: Props) {
   const material = useMaterialColors({ seedColor });
   return (
     <View style={[styles.screen, { backgroundColor: material.surface }]}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerStyle: { backgroundColor: material.surface },
-          headerTintColor: material.onSurface,
-          headerTitleStyle: { fontSize: 22, fontWeight: "400" },
-          headerShadowVisible: false,
-          headerRight: () => usage && <Usage usage={usage} />,
-        }}
-      />
+      <Stack.Screen options={{ headerRight: () => usage && <Usage usage={usage} /> }} />
       {list.takes.length > 0 && (
         <Host style={styles.screen} seedColor={seedColor}>
           <Takes {...list} />

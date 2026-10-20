@@ -91,7 +91,12 @@ export default function AccountScreen() {
             <HStack spacing={14}>
               <ZStack modifiers={[frame({ width: 56, height: 56 })]}>
                 <Circle modifiers={[foregroundStyle("gray")]} />
-                <Text modifiers={[font({ size: 24, weight: "semibold", design: "rounded" }), foregroundStyle("white")]}>
+                <Text
+                  modifiers={[
+                    font({ size: 24, weight: "semibold", design: "rounded" }),
+                    foregroundStyle("white"),
+                  ]}
+                >
                   {initial(account)}
                 </Text>
               </ZStack>
@@ -127,10 +132,7 @@ export default function AccountScreen() {
                 <Gauge value={progress} modifiers={[gaugeStyle("linearCapacity")]} />
               )}
             </VStack>
-            <Button
-              onPress={openBilling}
-              modifiers={account.billingIssue ? [danger] : []}
-            >
+            <Button onPress={openBilling} modifiers={account.billingIssue ? [danger] : []}>
               <Label title={billingAction(account)} systemImage="star.circle" />
             </Button>
           </Section>

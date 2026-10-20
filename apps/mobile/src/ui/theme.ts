@@ -82,10 +82,15 @@ export function useNavigationTheme() {
   };
 }
 
-// Tab roots draw their own Material large title inside Compose.
 export function useStackOptions(): NativeStackNavigationOptions {
-  const { background } = useColors();
-  return { headerShown: false, contentStyle: { backgroundColor: background } };
+  const { background, text } = useColors();
+  return {
+    headerStyle: { backgroundColor: background },
+    headerTintColor: text,
+    headerTitleStyle: { fontSize: 22, fontWeight: "400" },
+    headerShadowVisible: false,
+    contentStyle: { backgroundColor: background },
+  };
 }
 
 export function useTabsAppearance() {

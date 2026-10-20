@@ -56,8 +56,8 @@ export function useDictation() {
   return {
     recording,
     elapsedMs: status.durationMillis,
-    // Metering is dBFS; the bottom 60 dB is silence for speech.
-    level: Math.min(1, Math.max(0, ((status.metering ?? -160) + 60) / 60)),
+    // dBFS; -160 is what the recorder reports before it has a reading.
+    metering: status.metering === -160 ? undefined : status.metering,
     start,
     stop,
     cancel,

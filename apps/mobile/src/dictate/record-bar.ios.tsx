@@ -7,7 +7,7 @@ import { type RecordBarProps, useRecordBar } from "./use-record-bar";
 // SwiftUI buttons have no press-release callback, so a Pressable owns the gesture and the
 // button inside it only draws.
 export function RecordBar(props: RecordBarProps) {
-  const { dictation, press, bars, cancel } = useRecordBar(props);
+  const { dictation, press, bars, stop, cancel } = useRecordBar(props);
 
   if (!dictation.recording)
     return (
@@ -46,9 +46,14 @@ export function RecordBar(props: RecordBarProps) {
         ))}
       </View>
       <Text style={styles.time}>{formatElapsed(dictation.elapsedMs)}</Text>
-      <View style={styles.stop}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Stop dictating"
+        onPress={stop}
+        style={styles.stop}
+      >
         <View style={styles.stopSquare} />
-      </View>
+      </Pressable>
     </Pressable>
   );
 }

@@ -3,6 +3,7 @@ import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { loudness } from "@/dictate/use-record-bar";
 import { DictationError } from "@/lib/dictate";
 import { MicrophoneDenied, transcribe, useDictation } from "@/lib/recorder";
 import { useColors, useNoteColors } from "@/ui/theme";
@@ -236,7 +237,10 @@ function Dictation({
         <View
           style={[
             styles.level,
-            { backgroundColor: colors.accent, width: `${Math.round(dictation.level * 100)}%` },
+            {
+              backgroundColor: colors.accent,
+              width: `${Math.round((loudness(dictation.metering) ?? 0) * 100)}%`,
+            },
           ]}
         />
       </View>

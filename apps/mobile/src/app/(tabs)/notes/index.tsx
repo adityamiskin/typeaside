@@ -29,11 +29,9 @@ export default function NotesScreen() {
       archive={archive}
       onArchive={setArchive}
       onSearch={setSearch}
-      onOpen={(note) => router.push({ pathname: "/notes/[id]", params: { id: note.id } })}
-      onCreate={() => router.push({ pathname: "/notes/[id]", params: { id: "new" } })}
-      onDictate={() =>
-        router.push({ pathname: "/notes/[id]", params: { id: "new", dictate: "1" } })
-      }
+      onOpen={(note) => router.push({ pathname: "/note/[id]", params: { id: note.id } })}
+      onCreate={() => router.push({ pathname: "/note/[id]", params: { id: "new" } })}
+      onDictate={() => router.push({ pathname: "/note/[id]", params: { id: "new", dictate: "1" } })}
       actions={actions}
     />
   );
