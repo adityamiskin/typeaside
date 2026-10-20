@@ -6,6 +6,7 @@ import android.view.inputmethod.EditorInfo
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.indication
@@ -44,6 +45,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,7 +55,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -97,16 +99,13 @@ private val KeyShape = RoundedCornerShape(12.dp)
 @Composable
 fun KeyboardTheme(content: @Composable () -> Unit) {
   val context = LocalContext.current
-  val scheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) dynamicDarkColorScheme(context) else darkColorScheme()
-  MaterialTheme(
-    colorScheme = scheme.copy(
-      background = Color.Black,
-      surface = Color.Black,
-      onBackground = Color.White,
-      onSurface = Color.White,
-    ),
-    content = content,
-  )
+  val dark = isSystemInDarkTheme()
+  val scheme = when {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    dark -> darkColorScheme()
+    else -> lightColorScheme()
+  }
+  MaterialTheme(colorScheme = scheme, content = content)
 }
 
 @Composable
@@ -114,7 +113,7 @@ fun KeyboardPanel(panel: Panel, returnAction: Int?, keys: Keys) {
   Column(
     Modifier
       .fillMaxWidth()
-      .background(Color.Black)
+      .background(MaterialTheme.colorScheme.surfaceContainer)
       .windowInsetsPadding(WindowInsets.navigationBars)
       .padding(horizontal = 8.dp, vertical = 8.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
@@ -143,12 +142,13 @@ fun KeyboardPanel(panel: Panel, returnAction: Int?, keys: Keys) {
 
 @Composable
 private fun Status(panel: Panel) {
+  val colors = MaterialTheme.colorScheme
   val (text, color) = when (panel) {
-    Panel.SignedOut -> "Open TypeAside to sign in" to Color.White
-    Panel.NoMicrophone -> "Allow microphone access in TypeAside" to Color.White
-    is Panel.Ready -> (panel.status ?: "Tap or hold to talk") to (if (panel.status == null) Color.White.copy(alpha = 0.6f) else Color.White)
-    is Panel.Recording -> "%d:%02d".format(panel.seconds / 60, panel.seconds % 60) to MaterialTheme.colorScheme.error
-    Panel.Sending -> "Transcribing" to Color.White
+    Panel.SignedOut -> "Open TypeAside to sign in" to colors.onSurface
+    Panel.NoMicrophone -> "Allow microphone access in TypeAside" to colors.onSurface
+    is Panel.Ready -> (panel.status ?: "Tap or hold to talk") to (if (panel.status == null) colors.onSurfaceVariant else colors.onSurface)
+    is Panel.Recording -> "%d:%02d".format(panel.seconds / 60, panel.seconds % 60) to colors.error
+    Panel.Sending -> "Transcribing" to colors.onSurface
   }
   Text(text, color = color, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
 }
@@ -234,7 +234,7 @@ private fun Key(
     modifier
       .fillMaxHeight()
       .clip(KeyShape)
-      .background(if (highlighted) colors.primary else colors.surfaceContainerHighest)
+      .background(if (highlighted) colors.primary else colors.surfaceBright)
       .combinedClickable(
         onLongClick = onLongClick?.let { longClick ->
           {
@@ -249,7 +249,7 @@ private fun Key(
       ),
     contentAlignment = Alignment.Center,
   ) {
-    Icon(icon, description, tint = if (highlighted) colors.onPrimary else Color.White)
+    Icon(icon, description, tint = if (highlighted) colors.onPrimary else colors.onSurface)
   }
 }
 
@@ -262,7 +262,7 @@ private fun BackspaceKey(delete: () -> Unit) {
       .width(64.dp)
       .fillMaxHeight()
       .clip(KeyShape)
-      .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+      .background(MaterialTheme.colorScheme.surfaceBright)
       .indication(interaction, ripple())
       .pointerInput(Unit) {
         detectTapGestures(onPress = { offset ->
@@ -294,7 +294,7 @@ private fun BackspaceKey(delete: () -> Unit) {
       },
     contentAlignment = Alignment.Center,
   ) {
-    Icon(Icons.AutoMirrored.Rounded.Backspace, contentDescription = null, tint = Color.White)
+    Icon(Icons.AutoMirrored.Rounded.Backspace, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
   }
 }
 
