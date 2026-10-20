@@ -1,37 +1,102 @@
+import {
+  getMaterialColors,
+  isDynamicColorAvailable,
+  useMaterialColors,
+} from "@expo/ui/jetpack-compose";
 import type { NoteColor } from "@typeaside/backend/convex/noteColors";
-import type { NativeStackNavigationOptions } from "expo-router";
-import { Platform } from "react-native";
+import { DarkTheme, DefaultTheme, type NativeStackNavigationOptions } from "expo-router";
+import type { NativeTabsProps } from "expo-router/native-tabs";
+import { useColorScheme } from "react-native";
 
-export const colors = {
-  background: "#000",
-  text: "#fff",
-  secondary: "rgba(242,242,241,0.58)",
-  tertiary: "rgba(242,242,241,0.36)",
-  separator: "#242528",
-  fill: "#1c1c1e",
-  elevated: "#121315",
-  accent: "#8ab8e8",
-  danger: "#e27a66",
-  onPrimary: "#16171a",
-} as const;
+// Desktop accent, used as the Material seed only where the wallpaper palette is unavailable.
+export const seedColor = isDynamicColorAvailable ? undefined : "#8ab8e8";
 
-// Same dark tints and accents as the desktop notes (src/ui/theme.rs).
-export const noteColors: Record<NoteColor, { background: string; accent: string }> = {
-  none: { background: colors.elevated, accent: colors.tertiary },
-  sky: { background: "#1c2533", accent: "#5f86b3" },
-  lilac: { background: "#282133", accent: "#8a6aa3" },
-  sage: { background: "#1c2a22", accent: "#5f9472" },
-  sand: { background: "#2d281d", accent: "#a88d55" },
-  rose: { background: "#2e1f22", accent: "#a86369" },
-};
+export function useColors() {
+  const material = useMaterialColors({ seedColor });
+  return {
+    background: material.surface,
+    surface: material.surfaceContainer,
+    text: material.onSurface,
+    secondary: material.onSurfaceVariant,
+    tertiary: material.outline,
+    separator: material.outlineVariant,
+    accent: material.primary,
+    onAccent: material.onPrimary,
+    danger: material.error,
+  };
+}
 
-export const stackOptions: NativeStackNavigationOptions = {
-  headerLargeTitle: true,
-  headerTransparent: Platform.OS === "ios",
-  headerBlurEffect: "systemChromeMaterialDark",
-  headerLargeStyle: { backgroundColor: colors.background },
-  headerStyle: { backgroundColor: Platform.OS === "ios" ? undefined : colors.background },
-  headerTintColor: colors.text,
-  headerShadowVisible: false,
-  contentStyle: { backgroundColor: colors.background },
-};
+export type Colors = ReturnType<typeof useColors>;
+
+// Desktop note hues seed their own tonal palettes so tints sit beside the wallpaper colors.
+const noteSeeds = {
+  sky: "#5f86b3",
+  lilac: "#8a6aa3",
+  sage: "#5f9472",
+  sand: "#a88d55",
+  rose: "#a86369",
+} as const satisfies Record<Exclude<NoteColor, "none">, string>;
+
+export function useNoteColors(): Record<
+  NoteColor,
+  { background: string; text: string; accent: string }
+> {
+  const scheme = useColorScheme() === "dark" ? "dark" : "light";
+  const material = useMaterialColors({ seedColor });
+  const tint = (seed: string) => {
+    const palette = getMaterialColors({ scheme, seedColor: seed });
+    return {
+      background: palette.primaryContainer,
+      text: palette.onPrimaryContainer,
+      accent: palette.primary,
+    };
+  };
+  return {
+    none: {
+      background: material.surfaceContainerHigh,
+      text: material.onSurface,
+      accent: material.outline,
+    },
+    sky: tint(noteSeeds.sky),
+    lilac: tint(noteSeeds.lilac),
+    sage: tint(noteSeeds.sage),
+    sand: tint(noteSeeds.sand),
+    rose: tint(noteSeeds.rose),
+  };
+}
+
+export function useNavigationTheme() {
+  const dark = useColorScheme() === "dark";
+  const material = useMaterialColors({ seedColor });
+  const base = dark ? DarkTheme : DefaultTheme;
+  return {
+    ...base,
+    colors: {
+      ...base.colors,
+      primary: material.primary,
+      background: material.surface,
+      card: material.surface,
+      text: material.onSurface,
+      border: material.outlineVariant,
+    },
+  };
+}
+
+// Tab roots draw their own Material large title inside Compose.
+export function useStackOptions(): NativeStackNavigationOptions {
+  const { background } = useColors();
+  return { headerShown: false, contentStyle: { backgroundColor: background } };
+}
+
+export function useTabsAppearance() {
+  const material = useMaterialColors({ seedColor });
+  return {
+    backgroundColor: material.surfaceContainer,
+    indicatorColor: material.secondaryContainer,
+    iconColor: { default: material.onSurfaceVariant, selected: material.onSecondaryContainer },
+    labelStyle: {
+      default: { color: material.onSurfaceVariant },
+      selected: { color: material.onSurface },
+    },
+  } satisfies Partial<NativeTabsProps>;
+}

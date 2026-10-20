@@ -1,124 +1,98 @@
-import { SymbolView } from "expo-symbols";
-import { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { colors } from "@/ui/theme";
-import { useDictation } from "@/lib/recorder";
+import {
+  ExtendedFloatingActionButton,
+  FloatingActionButton,
+  Host,
+  Icon,
+  Text,
+  useMaterialColors,
+} from "@expo/ui/jetpack-compose";
+import { Pressable, StyleSheet, Text as NativeText, View } from "react-native";
+import { icons } from "@/ui/icons";
+import { seedColor } from "@/ui/theme";
+import { formatElapsed } from "./format";
+import { type RecordBarProps, useRecordBar } from "./use-record-bar";
 
-const BARS = 28;
+// Compose has no press-release callback, so a Pressable owns the gesture and the Material
+// buttons inside it only draw.
+export function RecordBar(props: RecordBarProps) {
+  const { dictation, press, bars, cancel } = useRecordBar(props);
+  const material = useMaterialColors({ seedColor });
 
-export function RecordBar({
-  busy,
-  onRecorded,
-  onError,
-}: {
-  busy: boolean;
-  onRecorded: (uri: string) => void;
-  onError: (error: Error) => void;
-}) {
-  const dictation = useDictation();
-  const [levels, setLevels] = useState<number[]>([]);
-  const heldRef = useRef(false);
+  if (!dictation.recording)
+    return (
+      <Pressable
+        {...press}
+        android_ripple={{ color: material.onPrimaryContainer, foreground: true }}
+        style={[styles.fab, props.busy && styles.busy]}
+      >
+        <Host matchContents pointerEvents="none" seedColor={seedColor}>
+          <ExtendedFloatingActionButton>
+            <ExtendedFloatingActionButton.Icon>
+              <Icon source={icons.mic} size={24} />
+            </ExtendedFloatingActionButton.Icon>
+            <ExtendedFloatingActionButton.Text>
+              <Text>{props.busy ? "Cleaning up" : "Dictate"}</Text>
+            </ExtendedFloatingActionButton.Text>
+          </ExtendedFloatingActionButton>
+        </Host>
+      </Pressable>
+    );
 
-  useEffect(() => {
-    if (dictation.recording) setLevels((current) => [...current, dictation.level].slice(-BARS));
-    else setLevels([]);
-  }, [dictation.recording, dictation.elapsedMs, dictation.level]);
-
-  async function start() {
-    await dictation.start().catch(onError);
-  }
-  async function stop() {
-    const uri = await dictation.stop();
-    if (uri) onRecorded(uri);
-  }
-
-  // One Pressable for both states so releasing a hold still reaches it after the swap.
   return (
-    <Pressable
-      disabled={busy}
-      accessibilityLabel={dictation.recording ? "Stop dictating" : "Dictate"}
-      onPress={() => void (dictation.recording ? stop() : start())}
-      onLongPress={() => {
-        if (dictation.recording) return;
-        heldRef.current = true;
-        void start();
-      }}
-      onPressOut={() => {
-        if (!heldRef.current) return;
-        heldRef.current = false;
-        void stop();
-      }}
-      style={({ pressed }) => [
-        dictation.recording ? styles.recording : styles.idle,
-        !dictation.recording && (pressed || busy) && { opacity: 0.7 },
-      ]}
-    >
-      {dictation.recording ? (
-        <>
-          <Pressable hitSlop={12} onPress={() => void dictation.cancel()}>
-            <Text style={styles.cancel}>Cancel</Text>
-          </Pressable>
-          <View style={styles.levels}>
-            {Array.from({ length: BARS }, (_, index) => {
-              const level = levels[index - (BARS - levels.length)];
-              return (
-                <View
-                  key={index}
-                  style={[
-                    styles.level,
-                    { height: 4 + (level ?? 0) * 28, opacity: level === undefined ? 0.3 : 1 },
-                  ]}
-                />
-              );
-            })}
-          </View>
-          <Text style={styles.time}>{formatElapsed(dictation.elapsedMs)}</Text>
-          <View style={styles.stop}>
-            <View style={styles.stopSquare} />
-          </View>
-        </>
-      ) : (
-        <>
-          <SymbolView
-            name={{ ios: "mic.fill", android: "mic" }}
-            tintColor={colors.onPrimary}
-            size={20}
+    <Pressable {...press} style={[styles.sheet, { backgroundColor: material.surfaceContainer }]}>
+      <Pressable
+        accessibilityRole="button"
+        hitSlop={8}
+        android_ripple={{ color: material.primary, borderless: true }}
+        onPress={cancel}
+        style={styles.cancel}
+      >
+        <NativeText style={[styles.label, { color: material.primary }]}>Cancel</NativeText>
+      </Pressable>
+      <View style={styles.levels}>
+        {bars.map((level, index) => (
+          <View
+            key={index}
+            style={[
+              styles.level,
+              {
+                height: 4 + (level ?? 0) * 28,
+                backgroundColor: level === undefined ? material.outlineVariant : material.primary,
+              },
+            ]}
           />
-          <Text style={styles.idleLabel}>{busy ? "Cleaning up" : "Tap or hold to dictate"}</Text>
-        </>
-      )}
+        ))}
+      </View>
+      <NativeText style={[styles.time, { color: material.onSurface }]}>
+        {formatElapsed(dictation.elapsedMs)}
+      </NativeText>
+      <Host matchContents pointerEvents="none" seedColor={seedColor}>
+        <FloatingActionButton containerColor={material.errorContainer}>
+          <FloatingActionButton.Icon>
+            <Icon source={icons.stop} size={24} tint={material.onErrorContainer} />
+          </FloatingActionButton.Icon>
+        </FloatingActionButton>
+      </Host>
     </Pressable>
   );
 }
 
-function formatElapsed(ms: number) {
-  const seconds = Math.floor(ms / 1000);
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
 const styles = StyleSheet.create({
-  idle: {
-    height: 52,
-    borderRadius: Platform.OS === "ios" ? 26 : 16,
-    backgroundColor: colors.text,
+  fab: { alignSelf: "flex-end", margin: 16, borderRadius: 16 },
+  busy: { opacity: 0.6 },
+  sheet: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+    gap: 12,
+    paddingLeft: 8,
+    paddingRight: 16,
+    paddingVertical: 16,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
   },
-  idleLabel: { color: colors.onPrimary, fontSize: 16, fontWeight: "600" },
-  recording: { height: 52, flexDirection: "row", alignItems: "center", gap: 12 },
-  cancel: { color: colors.secondary, fontSize: 15 },
+  cancel: { paddingHorizontal: 12, height: 40, justifyContent: "center", borderRadius: 20 },
+  label: { fontSize: 14, fontWeight: "500", letterSpacing: 0.1 },
   levels: { flex: 1, height: 32, flexDirection: "row", alignItems: "center", gap: 2 },
-  level: { flex: 1, borderRadius: 1.5, backgroundColor: colors.text },
-  time: { color: colors.text, fontSize: 17, fontVariant: ["tabular-nums"], fontWeight: "500" },
-  stop: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: colors.danger,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stopSquare: { width: 18, height: 18, borderRadius: 4, backgroundColor: colors.background },
+  level: { flex: 1, borderRadius: 2 },
+  time: { fontSize: 16, fontWeight: "500", fontVariant: ["tabular-nums"] },
 });

@@ -13,7 +13,7 @@ import { type Draft, toggleChecklist } from "@/notes/model";
 import { NoteBody } from "@/notes/note-body";
 import { useKeyboardHeight } from "@/notes/use-keyboard-height";
 import { useNoteDraft } from "@/notes/use-note-draft";
-import { colors, noteColors } from "@/ui/theme";
+import { useColors, useNoteColors } from "@/ui/theme";
 
 const ios = process.env.EXPO_OS === "ios";
 
@@ -21,6 +21,7 @@ export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const notes = useQuery(api.notes.list);
   const [newId] = useState(() => Crypto.randomUUID().replaceAll("-", ""));
+  const colors = useColors();
 
   if (id === "new")
     return (
@@ -33,7 +34,9 @@ export default function NoteScreen() {
   if (!note)
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        {notes && <Text style={styles.missing}>This note was deleted.</Text>}
+        {notes && (
+          <Text style={[styles.missing, { color: colors.secondary }]}>This note was deleted.</Text>
+        )}
       </View>
     );
   const { text, pinned, archived, color } = note;
@@ -44,6 +47,8 @@ function NoteEditor({ initial, stored }: { initial: Draft; stored: boolean }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const keyboard = useKeyboardHeight();
+  const colors = useColors();
+  const noteColors = useNoteColors();
   const { draft, error, update } = useNoteDraft(initial, stored);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -109,7 +114,7 @@ function NoteEditor({ initial, stored }: { initial: Draft; stored: boolean }) {
           <>
             {actions}
             <Pressable hitSlop={10} style={styles.trailing} onPress={() => router.back()}>
-              <Text style={styles.done}>Done</Text>
+              <Text style={[styles.done, { color: colors.accent }]}>Done</Text>
             </Pressable>
           </>
         ) : (
@@ -134,7 +139,7 @@ function NoteEditor({ initial, stored }: { initial: Draft; stored: boolean }) {
           update((current) => ({ text: toggleChecklist(current.text, line) }));
         }}
       />
-      {message && <Text style={styles.notice}>{message}</Text>}
+      {message && <Text style={[styles.notice, { color: colors.secondary }]}>{message}</Text>}
       <View style={{ paddingBottom: Math.max(keyboard, insets.bottom) }}>
         <EditorBar
           color={draft.color}
@@ -176,6 +181,7 @@ function IconButton({
   disabled?: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
   return (
     <Pressable
       accessibilityLabel={label}
@@ -206,7 +212,7 @@ const styles = StyleSheet.create({
   icon: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   dim: { opacity: 0.4 },
   trailing: { marginLeft: "auto" },
-  done: { color: colors.accent, fontSize: 17, fontWeight: "600", paddingHorizontal: 8 },
-  missing: { color: colors.secondary, fontSize: 15, padding: 20 },
-  notice: { color: colors.secondary, fontSize: 13, paddingHorizontal: 20, paddingVertical: 6 },
+  done: { fontSize: 17, fontWeight: "600", paddingHorizontal: 8 },
+  missing: { fontSize: 15, padding: 20 },
+  notice: { fontSize: 13, paddingHorizontal: 20, paddingVertical: 6 },
 });

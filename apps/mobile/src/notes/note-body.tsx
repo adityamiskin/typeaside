@@ -10,7 +10,7 @@ import {
   type TextInputInstance,
   View,
 } from "react-native";
-import { colors } from "@/ui/theme";
+import { useColors } from "@/ui/theme";
 import { checklistItem, titleLine } from "./model";
 
 // A plain TextInput cannot host tappable checkboxes, so the note reads as rendered lines and
@@ -26,6 +26,9 @@ export function NoteBody({
   onChange: (text: string) => void;
   onToggle: (line: number) => void;
 }) {
+  const colors = useColors();
+  const ink = { color: colors.text };
+  const faint = { color: colors.tertiary };
   const [editAt, setEditAt] = useState<number | null>(startEditing ? text.length : null);
   const input = useRef<TextInputInstance>(null);
   const lines = text.split("\n");
@@ -44,8 +47,10 @@ export function NoteBody({
   }, []);
 
   function lineStyle(index: number) {
-    if (index === title) return styles.title;
-    return checklistItem(lines[index] ?? "")?.checked ? [styles.body, styles.checked] : styles.body;
+    if (index === title) return [styles.title, ink];
+    return checklistItem(lines[index] ?? "")?.checked
+      ? [styles.body, styles.checked, faint]
+      : [styles.body, ink];
   }
 
   function editLine(index: number) {
@@ -57,11 +62,10 @@ export function NoteBody({
       <TextInput
         ref={input}
         multiline
-        style={[styles.content, styles.input]}
+        style={[styles.content, styles.input, ink]}
         placeholder="Note"
         placeholderTextColor={colors.tertiary}
         selectionColor={colors.accent}
-        keyboardAppearance="dark"
         textAlignVertical="top"
         maxLength={20_000}
         onChangeText={onChange}
@@ -104,7 +108,7 @@ export function NoteBody({
                 />
               </Pressable>
               <Text
-                style={[styles.body, styles.itemText, item.checked && styles.checked]}
+                style={[styles.body, styles.itemText, ink, item.checked && [styles.checked, faint]]}
                 onPress={() => editLine(index)}
               >
                 {item.text || " "}
@@ -113,7 +117,7 @@ export function NoteBody({
           );
         })
       ) : (
-        <Text style={[styles.body, styles.placeholder]} onPress={() => setEditAt(0)}>
+        <Text style={[styles.body, faint]} onPress={() => setEditAt(0)}>
           Note
         </Text>
       )}
@@ -126,11 +130,10 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flexGrow: 1 },
   content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
-  input: { flex: 1, color: colors.text, fontSize: 17 },
-  title: { color: colors.text, fontSize: 24, fontWeight: "700", lineHeight: 30 },
-  body: { color: colors.text, fontSize: 17, lineHeight: 24 },
-  checked: { color: colors.tertiary, textDecorationLine: "line-through" },
-  placeholder: { color: colors.tertiary },
+  input: { flex: 1, fontSize: 17 },
+  title: { fontSize: 24, fontWeight: "700", lineHeight: 30 },
+  body: { fontSize: 17, lineHeight: 24 },
+  checked: { textDecorationLine: "line-through" },
   item: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 32 },
   itemText: { flex: 1 },
 });

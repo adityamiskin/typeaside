@@ -4,16 +4,15 @@ import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
 import { File, Paths } from "expo-file-system";
 import * as Haptics from "expo-haptics";
-import { Stack } from "expo-router";
 import { useState } from "react";
-import { Alert, FlatList, Linking, Share, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Alert, Linking, Share } from "react-native";
+import { usageLabel } from "@/account/account";
+import { DictateView } from "@/dictate/dictate-view";
+import type { Action } from "@/dictate/format";
 import { RecordBar } from "@/dictate/record-bar";
-import { type Action, TakeRow } from "@/dictate/take-row";
 import { type Take, useTakes } from "@/dictate/takes";
 import { DictationError } from "@/lib/dictate";
 import { MicrophoneDenied, transcribe } from "@/lib/recorder";
-import { colors } from "@/ui/theme";
 
 export default function DictateScreen() {
   const { takes, add, update, remove } = useTakes();
@@ -59,8 +58,7 @@ export default function DictateScreen() {
   function actions(take: Take): Action[] {
     const discard: Action = {
       label: "Delete",
-      ios: "trash",
-      android: "delete",
+      icon: "delete",
       onPress: () => {
         if (take.pending) new File(take.pending.uri).delete();
         remove(take.id);
@@ -73,8 +71,7 @@ export default function DictateScreen() {
         : [
             {
               label: "Retry",
-              ios: "arrow.clockwise",
-              android: "refresh",
+              icon: "retry",
               onPress: () => void process(take, pending.uri),
             },
             discard,
@@ -82,8 +79,7 @@ export default function DictateScreen() {
     return [
       {
         label: "Copy",
-        ios: "doc.on.doc",
-        android: "content_copy",
+        icon: "copy",
         onPress: () => {
           void Clipboard.setStringAsync(take.text);
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -91,14 +87,12 @@ export default function DictateScreen() {
       },
       {
         label: "Share",
-        ios: "square.and.arrow.up",
-        android: "share",
+        icon: "share",
         onPress: () => void Share.share({ message: take.text }),
       },
       {
         label: take.noteId ? "Saved" : "Save as note",
-        ios: take.noteId ? "checkmark" : "note.text.badge.plus",
-        android: take.noteId ? "check" : "note_add",
+        icon: take.noteId ? "saved" : "save",
         onPress: () => {
           if (take.noteId) return;
           const id = Crypto.randomUUID().replaceAll("-", "");
@@ -114,40 +108,15 @@ export default function DictateScreen() {
     ];
   }
 
-  const usage = account?.usage;
   return (
-    <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          headerRight: () =>
-            usage ? (
-              <Text style={styles.usage}>
-                {usage.cap === null
-                  ? "Pro"
-                  : `${usage.words.toLocaleString()} / ${usage.cap.toLocaleString()}`}
-              </Text>
-            ) : null,
-        }}
-      />
-      <FlatList
-        data={takes}
-        keyExtractor={(take) => take.id}
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="on-drag"
-        renderItem={({ item }) => (
-          <TakeRow
-            take={item}
-            expanded={item.id === expandedId}
-            onToggle={() => setExpandedId(item.id === expandedId ? undefined : item.id)}
-            actions={actions(item)}
-          />
-        )}
-        ListEmptyComponent={<Text style={styles.empty}>Your dictations appear here.</Text>}
-      />
-      <SafeAreaView edges={["bottom"]} style={styles.bar}>
-        <RecordBar busy={busy} onRecorded={recorded} onError={failed} />
-      </SafeAreaView>
-    </View>
+    <DictateView
+      takes={takes}
+      expandedId={expandedId}
+      onToggle={(take) => setExpandedId(take.id === expandedId ? undefined : take.id)}
+      actions={actions}
+      usage={account && usageLabel(account.usage)}
+      recordBar={<RecordBar busy={busy} onRecorded={recorded} onError={failed} />}
+    />
   );
 }
 
@@ -160,10 +129,3 @@ function describe(error: unknown) {
   }
   return "Offline";
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  usage: { color: colors.secondary, fontSize: 13, fontVariant: ["tabular-nums"] },
-  empty: { color: colors.tertiary, fontSize: 15, padding: 16 },
-  bar: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 },
-});

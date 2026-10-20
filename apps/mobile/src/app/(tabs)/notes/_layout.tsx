@@ -1,11 +1,11 @@
 import { Stack } from "expo-router";
-import { stackOptions } from "@/ui/theme";
+import { useStackOptions } from "@/ui/theme";
 
 export const unstable_settings = { anchor: "index" };
 
 export default function NotesLayout() {
   return (
-    <Stack screenOptions={stackOptions}>
+    <Stack screenOptions={useStackOptions()}>
       <Stack.Screen name="index" options={{ title: "Notes" }} />
       <Stack.Screen
         name="[id]"

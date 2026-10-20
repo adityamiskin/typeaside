@@ -1,17 +1,14 @@
 import { ConvexProviderWithAuth } from "convex/react";
-import { DarkTheme, Stack, ThemeProvider } from "expo-router";
+import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { convex } from "@/lib/convex";
 import { fetchAccessToken, restoreSession, useSession } from "@/lib/session";
+import { useNavigationTheme } from "@/ui/theme";
 
 void SplashScreen.preventAutoHideAsync();
 void restoreSession();
-
-const theme = {
-  ...DarkTheme,
-  colors: { ...DarkTheme.colors, background: "#000", card: "#000", text: "#fff" },
-};
 
 function useAuth() {
   const status = useSession((session) => session.status);
@@ -24,6 +21,7 @@ function useAuth() {
 
 export default function RootLayout() {
   const status = useSession((session) => session.status);
+  const theme = useNavigationTheme();
   useEffect(() => {
     if (status !== "loading") void SplashScreen.hideAsync();
   }, [status]);
@@ -31,6 +29,7 @@ export default function RootLayout() {
   return (
     <ConvexProviderWithAuth client={convex} useAuth={useAuth}>
       <ThemeProvider value={theme}>
+        <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Protected guard={status === "signedIn"}>
             <Stack.Screen name="(tabs)" />

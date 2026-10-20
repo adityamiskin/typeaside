@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { DictationError } from "@/lib/dictate";
 import { MicrophoneDenied, transcribe, useDictation } from "@/lib/recorder";
-import { colors, noteColors } from "@/ui/theme";
+import { useColors, useNoteColors } from "@/ui/theme";
 
 export function EditorBar({
   color,
@@ -18,6 +18,8 @@ export function EditorBar({
   onNotice: (message: string) => void;
 }) {
   const [dictating, setDictating] = useState(false);
+  const colors = useColors();
+  const noteColors = useNoteColors();
 
   // The recorder polls its state while mounted, so it only exists during a take.
   if (dictating)
@@ -26,7 +28,7 @@ export function EditorBar({
     );
 
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, { borderTopColor: colors.separator }]}>
       {noteColorNames.map((name) => (
         <Pressable
           key={name}
@@ -35,15 +37,20 @@ export function EditorBar({
           accessibilityState={{ selected: color === name }}
           hitSlop={6}
           onPress={() => onColor(name)}
-          style={[styles.ring, color === name && styles.ringSelected]}
+          style={[styles.ring, color === name && { borderColor: colors.text }]}
         >
           <View
             style={[
               styles.swatch,
-              { backgroundColor: name === "none" ? colors.background : noteColors[name].accent },
+              {
+                borderColor: colors.separator,
+                backgroundColor: name === "none" ? colors.background : noteColors[name].accent,
+              },
             ]}
           >
-            {name === "none" && <View style={styles.slash} />}
+            {name === "none" && (
+              <View style={[styles.slash, { backgroundColor: colors.tertiary }]} />
+            )}
           </View>
         </Pressable>
       ))}
@@ -69,6 +76,7 @@ function Dictation({
   onEnd: () => void;
 }) {
   const dictation = useDictation();
+  const colors = useColors();
   const [transcribing, setTranscribing] = useState(false);
   const phase = useRef<"starting" | "recording" | "stopping" | "ended">("starting");
   const active = useRef(true);
@@ -121,13 +129,13 @@ function Dictation({
 
   if (transcribing)
     return (
-      <View style={styles.bar}>
-        <Text style={styles.status}>Transcribing</Text>
+      <View style={[styles.bar, { borderTopColor: colors.separator }]}>
+        <Text style={[styles.status, { color: colors.secondary }]}>Transcribing</Text>
       </View>
     );
 
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, { borderTopColor: colors.separator }]}>
       <Pressable
         accessibilityLabel="Cancel dictation"
         disabled={!dictation.recording}
@@ -145,18 +153,25 @@ function Dictation({
           size={20}
         />
       </Pressable>
-      <View style={styles.meter}>
-        <View style={[styles.level, { width: `${Math.round(dictation.level * 100)}%` }]} />
+      <View style={[styles.meter, { backgroundColor: colors.separator }]}>
+        <View
+          style={[
+            styles.level,
+            { backgroundColor: colors.accent, width: `${Math.round(dictation.level * 100)}%` },
+          ]}
+        />
       </View>
-      <Text style={styles.time}>{formatElapsed(dictation.elapsedMs)}</Text>
+      <Text style={[styles.time, { color: colors.text }]}>
+        {formatElapsed(dictation.elapsedMs)}
+      </Text>
       <Pressable
         accessibilityLabel="Stop and insert"
         hitSlop={10}
         disabled={!dictation.recording}
         onPress={() => void finish()}
-        style={styles.stop}
+        style={[styles.stop, { backgroundColor: colors.danger }]}
       >
-        <View style={styles.stopSquare} />
+        <View style={[styles.stopSquare, { backgroundColor: colors.onAccent }]} />
       </Pressable>
     </View>
   );
@@ -175,39 +190,34 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(255,255,255,0.08)",
   },
   ring: { padding: 2, borderRadius: 17, borderWidth: 2, borderColor: "transparent" },
-  ringSelected: { borderColor: colors.text },
   swatch: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#2f3034",
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  slash: { width: 30, height: 1.5, backgroundColor: "#555", transform: [{ rotate: "-45deg" }] },
+  slash: { width: 30, height: 1.5, transform: [{ rotate: "-45deg" }] },
   trailing: { marginLeft: "auto" },
-  status: { color: colors.secondary, fontSize: 15 },
+  status: { fontSize: 15 },
   meter: {
     flex: 1,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.12)",
     overflow: "hidden",
   },
-  level: { height: 4, backgroundColor: colors.text },
-  time: { color: colors.text, fontSize: 15, fontVariant: ["tabular-nums"] },
+  level: { height: 4 },
+  time: { fontSize: 15, fontVariant: ["tabular-nums"] },
   stop: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.danger,
     alignItems: "center",
     justifyContent: "center",
   },
-  stopSquare: { width: 12, height: 12, borderRadius: 3, backgroundColor: colors.background },
+  stopSquare: { width: 12, height: 12, borderRadius: 3 },
 });

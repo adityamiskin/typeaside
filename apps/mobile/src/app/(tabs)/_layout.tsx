@@ -3,10 +3,12 @@ import { useAction, useConvexAuth } from "convex/react";
 import { NativeTabs } from "expo-router/native-tabs";
 import { useEffect } from "react";
 import { connectKeyboard } from "@/lib/dictate";
+import { useTabsAppearance } from "@/ui/theme";
 
 export default function TabsLayout() {
   const { isAuthenticated } = useConvexAuth();
   const sync = useAction(api.viewer.sync);
+  const appearance = useTabsAppearance();
   useEffect(() => {
     if (!isAuthenticated) return;
     void sync()
@@ -15,7 +17,7 @@ export default function TabsLayout() {
   }, [isAuthenticated, sync]);
 
   return (
-    <NativeTabs>
+    <NativeTabs {...appearance}>
       <NativeTabs.Trigger name="dictate">
         <NativeTabs.Trigger.Label>Dictate</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="mic" md="mic" />

@@ -1,15 +1,27 @@
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 import { SymbolView } from "expo-symbols";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Link } from "expo-router";
+import type { ReactNode } from "react";
+import {
+  PlatformColor,
+  Pressable,
+  type StyleProp,
+  StyleSheet,
+  Text,
+  View,
+  type ViewStyle,
+  type ColorValue,
+} from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
-import { colors, noteColors } from "@/ui/theme";
+import { useNoteColors } from "@/ui/theme";
 import type { NoteActions } from "./actions";
 import { type Note, relativeTime, summarize } from "./model";
-import { NoteLink } from "./note-link";
 
 const PREVIEW_ITEMS = 3;
 
-export function NoteRow({ note, actions }: { note: Note; actions: NoteActions }) {
+// iOS list row: swipe for pin, archive and delete; long press for the context menu.
+export function SwipeRow({ note, actions }: { note: Note; actions: NoteActions }) {
+  const noteColors = useNoteColors();
   const { title, items, preview } = summarize(note.text);
   const done = items.filter((item) => item.checked).length;
   const meta = [items.length > 0 && `${done} of ${items.length} done`, relativeTime(note.updatedAt)]
@@ -30,7 +42,7 @@ export function NoteRow({ note, actions }: { note: Note; actions: NoteActions })
                 label={note.pinned ? "Unpin" : "Pin"}
                 ios={note.pinned ? "pin.slash.fill" : "pin.fill"}
                 android="push_pin"
-                color={noteColors.sand.accent}
+                color={PlatformColor("systemOrange")}
                 onPress={() => {
                   swipe.close();
                   actions.togglePin(note);
@@ -44,7 +56,7 @@ export function NoteRow({ note, actions }: { note: Note; actions: NoteActions })
             label={note.archived ? "Unarchive" : "Archive"}
             ios={note.archived ? "tray.and.arrow.up.fill" : "archivebox.fill"}
             android={note.archived ? "unarchive" : "archive"}
-            color={noteColors.sky.accent}
+            color={PlatformColor("systemIndigo")}
             onPress={() => {
               swipe.close();
               actions.toggleArchive(note);
@@ -54,7 +66,7 @@ export function NoteRow({ note, actions }: { note: Note; actions: NoteActions })
             label="Delete"
             ios="trash.fill"
             android="delete"
-            color={colors.danger}
+            color={PlatformColor("systemRed")}
             onPress={() => {
               swipe.close();
               actions.confirmDelete(note);
@@ -68,7 +80,10 @@ export function NoteRow({ note, actions }: { note: Note; actions: NoteActions })
         actions={actions}
         style={[
           styles.row,
-          { backgroundColor: note.color === "none" ? colors.background : tint.background },
+          {
+            backgroundColor:
+              note.color === "none" ? PlatformColor("systemBackground") : tint.background,
+          },
         ]}
       >
         {title ? (
@@ -115,7 +130,7 @@ function SwipeAction({
   label: string;
   ios: SFSymbol;
   android: AndroidSymbol;
-  color: string;
+  color: ColorValue;
   onPress: () => void;
 }) {
   return (
@@ -128,30 +143,81 @@ function SwipeAction({
         pressed && styles.pressed,
       ]}
     >
-      <SymbolView name={{ ios, android }} tintColor={colors.text} size={20} />
+      <SymbolView name={{ ios, android }} tintColor={PlatformColor("white")} size={20} />
       <Text style={styles.actionLabel}>{label}</Text>
     </Pressable>
   );
 }
 
+function NoteLink({
+  note,
+  actions,
+  style,
+  children,
+}: {
+  note: Note;
+  actions: NoteActions;
+  style: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  return (
+    <Link href={{ pathname: "/notes/[id]", params: { id: note.id } }} asChild>
+      <Link.Trigger>
+        <Pressable style={({ pressed }) => [style, pressed && { opacity: 0.7 }]}>
+          {children}
+        </Pressable>
+      </Link.Trigger>
+      <Link.Menu>
+        <Link.MenuAction
+          hidden={note.archived}
+          title={note.pinned ? "Unpin" : "Pin"}
+          icon={note.pinned ? "pin.slash" : "pin"}
+          onPress={() => actions.togglePin(note)}
+        />
+        <Link.MenuAction
+          title={note.archived ? "Unarchive" : "Archive"}
+          icon={note.archived ? "tray.and.arrow.up" : "archivebox"}
+          onPress={() => actions.toggleArchive(note)}
+        />
+        <Link.MenuAction
+          title="Delete"
+          icon="trash"
+          destructive
+          onPress={() => actions.confirmDelete(note)}
+        />
+      </Link.Menu>
+    </Link>
+  );
+}
+
 const styles = StyleSheet.create({
-  row: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 11, gap: 2 },
+  row: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 11,
+    gap: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: PlatformColor("separator"),
+  },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  title: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "600" },
-  preview: { flexShrink: 1, color: colors.secondary, fontSize: 14, lineHeight: 19 },
+  title: { flex: 1, color: PlatformColor("label"), fontSize: 15, fontWeight: "600" },
+  preview: { flexShrink: 1, color: PlatformColor("secondaryLabel"), fontSize: 14, lineHeight: 19 },
   item: { flexDirection: "row", alignItems: "center", gap: 7 },
   box: {
     width: 12,
     height: 12,
     borderRadius: 3,
     borderWidth: 1.5,
-    borderColor: colors.tertiary,
+    borderColor: PlatformColor("tertiaryLabel"),
   },
-  boxChecked: { backgroundColor: colors.secondary, borderColor: colors.secondary },
-  checked: { color: colors.tertiary, textDecorationLine: "line-through" },
-  meta: { color: colors.tertiary, fontSize: 12, marginTop: 2 },
+  boxChecked: {
+    backgroundColor: PlatformColor("secondaryLabel"),
+    borderColor: PlatformColor("secondaryLabel"),
+  },
+  checked: { color: PlatformColor("tertiaryLabel"), textDecorationLine: "line-through" },
+  meta: { color: PlatformColor("tertiaryLabel"), fontSize: 12, marginTop: 2 },
   actions: { flexDirection: "row" },
   action: { width: 76, alignItems: "center", justifyContent: "center", gap: 4 },
-  actionLabel: { color: colors.text, fontSize: 12, fontWeight: "500" },
+  actionLabel: { color: PlatformColor("white"), fontSize: 12, fontWeight: "500" },
   pressed: { opacity: 0.7 },
 });

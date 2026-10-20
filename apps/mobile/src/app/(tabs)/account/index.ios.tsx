@@ -13,13 +13,11 @@ import {
   VStack,
 } from "@expo/ui/swift-ui";
 import {
-  background,
   buttonStyle,
   font,
   foregroundStyle,
   gaugeStyle,
   monospacedDigit,
-  scrollContentBackground,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { Alert } from "react-native";
@@ -35,10 +33,11 @@ import {
   usageProgress,
 } from "@/account/account";
 import { keyboardStatus, openKeyboardSettings, useKeyboardEnabled } from "@/account/keyboard";
-import { colors } from "@/ui/theme";
 
 const secondary = foregroundStyle({ type: "hierarchical", style: "secondary" });
+const tertiary = foregroundStyle({ type: "hierarchical", style: "tertiary" });
 const footnote = font({ textStyle: "footnote" });
+const danger = tint("red");
 
 export default function AccountScreen() {
   const { account, devices, signOut, openBilling, confirmRemoveDevice, deleteAccount } =
@@ -70,8 +69,8 @@ export default function AccountScreen() {
   };
 
   return (
-    <Host style={{ flex: 1 }} colorScheme="dark" seedColor={colors.accent}>
-      <Form modifiers={[scrollContentBackground("hidden"), background(colors.background)]}>
+    <Host style={{ flex: 1 }}>
+      <Form>
         {account && (
           <Section>
             <LabeledContent label="Email">
@@ -83,10 +82,7 @@ export default function AccountScreen() {
                 <Button
                   label={billingAction(account)}
                   onPress={openBilling}
-                  modifiers={[
-                    buttonStyle("borderless"),
-                    ...(account.billingIssue ? [tint(colors.danger)] : []),
-                  ]}
+                  modifiers={[buttonStyle("borderless"), ...(account.billingIssue ? [danger] : [])]}
                 />
               </HStack>
             </LabeledContent>
@@ -106,10 +102,12 @@ export default function AccountScreen() {
         <Section>
           <Button onPress={openKeyboardSettings}>
             <HStack>
-              <Text modifiers={[foregroundStyle(colors.text)]}>Keyboard</Text>
+              <Text modifiers={[foregroundStyle({ type: "hierarchical", style: "primary" })]}>
+                Keyboard
+              </Text>
               <Spacer />
               <Text modifiers={[secondary]}>{keyboardStatus(keyboardEnabled)}</Text>
-              <Image systemName="chevron.right" size={13} color={colors.tertiary} />
+              <Image systemName="chevron.right" size={13} modifiers={[tertiary]} />
             </HStack>
           </Button>
         </Section>
@@ -138,7 +136,7 @@ export default function AccountScreen() {
                     label="Remove"
                     systemImage="trash"
                     onPress={() => confirmRemoveDevice(device)}
-                    modifiers={[tint(colors.danger)]}
+                    modifiers={[danger]}
                   />
                 </SwipeActions.Actions>
               </SwipeActions>
