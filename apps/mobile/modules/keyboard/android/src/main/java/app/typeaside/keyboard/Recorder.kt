@@ -22,6 +22,9 @@ private const val MAX_PCM_BYTES = 20_000_000 - WAV_HEADER
 /** One recording; [stop] may be called before [record] starts reading. */
 class Recorder {
   @Volatile private var active = true
+  @Volatile private var paused = false
+
+  fun pause(value: Boolean) { paused = value }
 
   fun stop() {
     active = false
@@ -46,6 +49,7 @@ class Recorder {
       while (active && isActive && pcm.size() < MAX_PCM_BYTES) {
         val read = audio.read(frame, 0, minOf(frame.size, (MAX_PCM_BYTES - pcm.size()) / 2))
         check(read >= 0) { "Microphone unavailable" }
+        if (paused) continue
         bytes.clear()
         var sum = 0.0
         for (i in 0 until read) {

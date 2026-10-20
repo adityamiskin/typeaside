@@ -2,10 +2,10 @@ import {
   Box,
   Column,
   Host,
-  Icon,
   LazyColumn,
   ListItem,
   Row,
+  RNHostView,
   SegmentedButton,
   SingleChoiceSegmentedButtonRow,
   Slider,
@@ -15,7 +15,6 @@ import {
   useMaterialColors,
 } from "@expo/ui/jetpack-compose";
 import {
-  alpha,
   background,
   clickable,
   clip,
@@ -24,13 +23,12 @@ import {
   height,
   padding,
   Shapes,
-  size,
 } from "@expo/ui/jetpack-compose/modifiers";
 import { Stack } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 import { openKeyboardSettings, useKeyboardEnabled } from "@/account/keyboard";
-import { icons } from "@/ui/icons";
+import { BubblePreview, bubblePreviewPhases } from "@/ui/bubble-preview";
 import { seedColor, useStackOptions } from "@/ui/theme";
 import { type BubbleAppearance, keyboard } from "../../modules/keyboard";
 
@@ -46,6 +44,7 @@ export default function FloatingMicScreen() {
   const material = useMaterialColors({ seedColor });
   const options = useStackOptions();
   const enabled = useKeyboardEnabled();
+  const [preview, setPreview] = useState<(typeof bubblePreviewPhases)[number]>("idle");
   const [appearance, setAppearance] = useState<BubbleAppearance>(defaults);
   const latest = useRef<BubbleAppearance>(defaults);
   useEffect(() => {
@@ -69,12 +68,12 @@ export default function FloatingMicScreen() {
     if (persist) save();
   }
   const reset = () => update({ ...defaults, position: latest.current.position });
-  const pillHeight = 32 + appearance.size * 24;
+
   const heading = (label: string, value?: string) => (
     <Row
       horizontalArrangement="spaceBetween"
       verticalAlignment="center"
-      modifiers={[fillMaxWidth(), padding(24, 24, 24, 8)]}
+      modifiers={[fillMaxWidth(), padding(32, 24, 32, 8)]}
     >
       <Text color={material.primary} style={{ typography: "titleSmall" }}>
         {label}
@@ -110,88 +109,118 @@ export default function FloatingMicScreen() {
             modifiers={[
               padding(16, 16, 16, 0),
               fillMaxWidth(),
-              height(160),
+              height(preview === "limit" ? 304 : 240),
               clip(Shapes.RoundedCorner(28)),
-              background(material.surfaceContainerHigh),
+              background(material.surfaceContainerLow),
             ]}
           >
-            <Column horizontalAlignment="center" verticalArrangement={{ spacedBy: 16 }}>
-              <Box
-                contentAlignment="center"
-                modifiers={[
-                  size(appearance.shape === "circle" ? pillHeight : pillHeight + 24, pillHeight),
-                  alpha(appearance.opacity),
-                  clip(Shapes.Circle),
-                  background(material.secondaryContainer),
-                ]}
-              >
-                <Icon source={icons.typeAside} size={24} tint={material.onSecondaryContainer} />
-              </Box>
+            <Column horizontalAlignment="center" verticalArrangement={{ spacedBy: 4 }}>
+              <RNHostView modifiers={[fillMaxWidth(), height(preview === "limit" ? 184 : 120)]}>
+                <BubblePreview phase={preview} appearance={appearance} style={{ flex: 1 }} />
+              </RNHostView>
               <Text color={material.onSurfaceVariant} style={{ typography: "bodySmall" }}>
                 Drag the mic to move it
               </Text>
+              <TextButton
+                onClick={() =>
+                  setPreview(
+                    bubblePreviewPhases[
+                      (bubblePreviewPhases.indexOf(preview) + 1) % bubblePreviewPhases.length
+                    ] ?? "idle",
+                  )
+                }
+              >
+                <Text>{preview === "idle" ? "Preview recording" : `Preview: ${preview}`}</Text>
+              </TextButton>
             </Column>
           </Box>
-          <ListItem modifiers={[clickable(openKeyboardSettings)]}>
+          {heading("Access")}
+          <ListItem
+            colors={{ containerColor: material.surfaceContainer }}
+            modifiers={[
+              padding(16, 0, 16, 0),
+              clip(Shapes.RoundedCorner(24)),
+              clickable(openKeyboardSettings),
+            ]}
+          >
             <ListItem.HeadlineContent>
               <Text>Show floating mic</Text>
             </ListItem.HeadlineContent>
             <ListItem.SupportingContent>
-              <Text>Needs accessibility access</Text>
+              <Text>
+                {enabled ? "Appears when a text field is focused" : "Needs accessibility access"}
+              </Text>
             </ListItem.SupportingContent>
             <ListItem.TrailingContent>
               <Switch value={enabled ?? false} onCheckedChange={openKeyboardSettings} />
             </ListItem.TrailingContent>
           </ListItem>
-          {heading("Size")}
-          <Slider
-            value={appearance.size}
-            onValueChange={(value) => update({ size: value }, false)}
-            onValueChangeFinished={save}
-            modifiers={[fillMaxWidth(), padding(24, 0, 24, 0)]}
-          />
-          <Row
-            horizontalArrangement="spaceBetween"
-            modifiers={[fillMaxWidth(), padding(24, 0, 24, 0)]}
+          {heading("Appearance")}
+          <Column
+            modifiers={[
+              padding(16, 0, 16, 0),
+              fillMaxWidth(),
+              clip(Shapes.RoundedCorner(24)),
+              background(material.surfaceContainer),
+              padding(0, 0, 0, 8),
+            ]}
           >
-            <Text color={material.onSurfaceVariant} style={{ typography: "bodySmall" }}>
-              Small
-            </Text>
-            <Text color={material.onSurfaceVariant} style={{ typography: "bodySmall" }}>
-              Large
-            </Text>
-          </Row>
-          {heading("Opacity", `${Math.round(appearance.opacity * 100)}%`)}
-          <Slider
-            value={appearance.opacity}
-            min={0.2}
-            max={1}
-            steps={7}
-            onValueChange={(value) => update({ opacity: Math.round(value * 10) / 10 }, false)}
-            onValueChangeFinished={save}
-            modifiers={[fillMaxWidth(), padding(24, 0, 24, 0)]}
-          />
-          {heading("Shape")}
-          <SingleChoiceSegmentedButtonRow modifiers={[fillMaxWidth(), padding(24, 0, 24, 16)]}>
-            <SegmentedButton
-              selected={appearance.shape === "pill"}
-              onClick={() => update({ shape: "pill" })}
+            {heading("Size")}
+            <Slider
+              value={appearance.size}
+              onValueChange={(value) => update({ size: value }, false)}
+              onValueChangeFinished={save}
+              modifiers={[fillMaxWidth(), padding(24, 0, 24, 0)]}
+            />
+            <Row
+              horizontalArrangement="spaceBetween"
+              modifiers={[fillMaxWidth(), padding(24, 0, 24, 0)]}
             >
-              <SegmentedButton.Label>
-                <Text>Pill</Text>
-              </SegmentedButton.Label>
-            </SegmentedButton>
-            <SegmentedButton
-              selected={appearance.shape === "circle"}
-              onClick={() => update({ shape: "circle" })}
-            >
-              <SegmentedButton.Label>
-                <Text>Circle</Text>
-              </SegmentedButton.Label>
-            </SegmentedButton>
-          </SingleChoiceSegmentedButtonRow>
+              <Text color={material.onSurfaceVariant} style={{ typography: "bodySmall" }}>
+                Small
+              </Text>
+              <Text color={material.onSurfaceVariant} style={{ typography: "bodySmall" }}>
+                Large
+              </Text>
+            </Row>
+            {heading("Opacity", `${Math.round(appearance.opacity * 100)}%`)}
+            <Slider
+              value={appearance.opacity}
+              min={0.2}
+              max={1}
+              steps={7}
+              onValueChange={(value) => update({ opacity: Math.round(value * 10) / 10 }, false)}
+              onValueChangeFinished={save}
+              modifiers={[fillMaxWidth(), padding(24, 0, 24, 0)]}
+            />
+            {heading("Shape")}
+            <SingleChoiceSegmentedButtonRow modifiers={[fillMaxWidth(), padding(24, 0, 24, 16)]}>
+              <SegmentedButton
+                selected={appearance.shape === "pill"}
+                onClick={() => update({ shape: "pill" })}
+              >
+                <SegmentedButton.Label>
+                  <Text>Pill</Text>
+                </SegmentedButton.Label>
+              </SegmentedButton>
+              <SegmentedButton
+                selected={appearance.shape === "circle"}
+                onClick={() => update({ shape: "circle" })}
+              >
+                <SegmentedButton.Label>
+                  <Text>Circle</Text>
+                </SegmentedButton.Label>
+              </SegmentedButton>
+            </SingleChoiceSegmentedButtonRow>
+          </Column>
+          {heading("Behavior")}
           <ListItem
-            modifiers={[clickable(() => update({ shrinkWhenIdle: !appearance.shrinkWhenIdle }))]}
+            colors={{ containerColor: material.surfaceContainer }}
+            modifiers={[
+              padding(16, 0, 16, 0),
+              clip(Shapes.RoundedCorner(24)),
+              clickable(() => update({ shrinkWhenIdle: !appearance.shrinkWhenIdle })),
+            ]}
           >
             <ListItem.HeadlineContent>
               <Text>Shrink when idle</Text>
