@@ -3,20 +3,15 @@ import type { Take } from "./takes";
 
 export type Action = {
   label: string;
-  icon: "copy" | "share" | "save" | "saved" | "delete" | "retry";
+  icon: "copy" | "save" | "saved" | "delete";
   onPress: () => void;
 };
-
-export function takeText(take: Take) {
-  if (!take.pending) return take.text;
-  return take.pending.error ? "Not transcribed yet" : "Cleaning up";
-}
 
 export function takeMeta(take: Take) {
   const words = take.text.split(/\s+/).filter(Boolean).length;
   return [
     new Date(take.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-    take.pending ? take.pending.error : `${words} ${words === 1 ? "word" : "words"}`,
+    `${words} ${words === 1 ? "word" : "words"}`,
     take.noteId && "Saved",
   ]
     .filter(Boolean)
@@ -27,11 +22,6 @@ export function usageText({ words, cap }: Account["usage"]) {
   if (cap === null) return `${words.toLocaleString()} words this week`;
   if (words >= cap) return "Weekly limit reached";
   return `${(cap - words).toLocaleString()} words left`;
-}
-
-export function formatElapsed(ms: number) {
-  const seconds = Math.floor(ms / 1000);
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 // Takes arrive newest first, so each day's group is contiguous.

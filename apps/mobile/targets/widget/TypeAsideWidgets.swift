@@ -86,7 +86,7 @@ struct DictateView: View {
             .frame(width: 44, height: 44)
             .background(.tint, in: Circle())
           Spacer()
-          Text("Dictate").font(.headline)
+          Text("Voice note").font(.headline)
           if let words = entry.snapshot?.wordsLeft {
             Text("\(words.formatted()) words left").font(.caption).foregroundStyle(.secondary)
           }
@@ -151,8 +151,8 @@ struct RecentNotesView: View {
 struct DictateWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "app.typeaside.dictate", provider: Provider()) { DictateView(entry: $0) }
-      .configurationDisplayName("Dictate")
-      .description("Start dictating in TypeAside")
+      .configurationDisplayName("Voice note")
+      .description("Start a voice note in TypeAside")
       .supportedFamilies([.systemSmall, .accessoryCircular])
   }
 }
@@ -171,9 +171,9 @@ struct DictateControl: ControlWidget {
   var body: some ControlWidgetConfiguration {
     StaticControlConfiguration(kind: "app.typeaside.dictate.control") {
       ControlWidgetButton(action: DictateIntent()) {
-        Label("Dictate", systemImage: "mic.fill")
+        Label("Voice note", systemImage: "mic.fill")
       }
-    }.displayName("Dictate")
+    }.displayName("Voice note")
   }
 }
 

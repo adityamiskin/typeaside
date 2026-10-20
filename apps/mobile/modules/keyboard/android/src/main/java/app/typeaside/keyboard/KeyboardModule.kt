@@ -34,6 +34,14 @@ class KeyboardModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("Keyboard")
+    Events("onHistoryChanged")
+    OnStartObserving { HistoryQueue.onChanged = { sendEvent("onHistoryChanged", emptyMap<String, String>()) } }
+    OnStopObserving { HistoryQueue.onChanged = null }
+    OnDestroy { HistoryQueue.onChanged = null }
+
+    AsyncFunction("readHistory") { HistoryQueue.read(context).toString() }
+    AsyncFunction("acknowledgeHistory") { ids: List<String> -> HistoryQueue.acknowledge(context, ids) }
+
 
     AsyncFunction("setCredentials") { credentials: CredentialsRecord ->
       CredentialStore(context).write(Credentials(credentials.token, credentials.apiUrl, credentials.dictionary, credentials.snippets.map { Snippet(it.trigger, it.text) }))

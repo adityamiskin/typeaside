@@ -13,7 +13,6 @@ import {
 import { fillMaxSize, fillMaxWidth, padding } from "@expo/ui/jetpack-compose/modifiers";
 import { api } from "@typeaside/backend/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
-import { Stack } from "expo-router";
 import { useState } from "react";
 import { Alert } from "react-native";
 import { icons } from "@/ui/icons";
@@ -43,7 +42,6 @@ export default function DictionaryScreen() {
   }
   return (
     <>
-      <Stack.Screen options={{ headerShown: true, title: "Dictionary" }} />
       <Host style={{ flex: 1 }} seedColor={seedColor}>
         <LazyColumn modifiers={[fillMaxSize()]}>
           <OutlinedTextField

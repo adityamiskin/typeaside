@@ -11,6 +11,8 @@
   "dependencies": {
     "@bacons/apple-targets": "^5.0.0",
     "@expo/ui": "~58.0.21",
+    "@react-navigation/drawer": "^7.14.4",
+    "@react-navigation/native": "^7.5.1",
     "@typeaside/backend": "workspace:*",
     "convex": "catalog:",
     "expo": "~58.0.16",

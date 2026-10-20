@@ -3,7 +3,6 @@ import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { loudness } from "@/dictate/use-record-bar";
 import { DictationError } from "@/lib/dictate";
 import { MicrophoneDenied, transcribe, useDictation } from "@/lib/recorder";
 import { useColors, useNoteColors } from "@/ui/theme";
@@ -303,3 +302,10 @@ const styles = StyleSheet.create({
   },
   stopSquare: { width: 12, height: 12, borderRadius: 3 },
 });
+
+// A quiet room already reads about -40 dBFS on Android; speech lives between -40 and -6.
+// Exactly 0 means the meter was read twice within one sampling window, so it is no reading.
+function loudness(db: number | undefined) {
+  if (db === undefined || db === 0) return undefined;
+  return Math.min(1, Math.max(0, (db + 40) / 34));
+}

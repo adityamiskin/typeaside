@@ -104,10 +104,10 @@ class DictateWidget : GlanceAppWidget() {
           verticalAlignment = Alignment.CenterVertically,
           horizontalAlignment = if (wide) Alignment.Start else Alignment.CenterHorizontally,
         ) {
-          Image(ImageProvider(R.drawable.typeaside_widget_mic), "Dictate", GlanceModifier.size(if (wide) 28.dp else 32.dp), colorFilter = ColorFilter.tint(GlanceTheme.colors.onPrimaryContainer))
+          Image(ImageProvider(R.drawable.typeaside_widget_mic), "Voice note", GlanceModifier.size(if (wide) 28.dp else 32.dp), colorFilter = ColorFilter.tint(GlanceTheme.colors.onPrimaryContainer))
           if (wide) {
             Spacer(GlanceModifier.width(12.dp))
-            Text("Dictate", style = TextStyle(color = GlanceTheme.colors.onPrimaryContainer, fontSize = 18.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+            Text("Voice note", style = TextStyle(color = GlanceTheme.colors.onPrimaryContainer, fontSize = 18.sp, fontWeight = FontWeight.Medium), maxLines = 1)
             if (width >= 250.dp && snapshot?.wordsLeft != null) {
               Spacer(GlanceModifier.defaultWeight())
               Text("${NumberFormat.getIntegerInstance().format(snapshot.wordsLeft)} left", style = TextStyle(color = GlanceTheme.colors.onPrimaryContainer, fontSize = 13.sp), maxLines = 1)
@@ -133,7 +133,7 @@ class NotesWidget : GlanceAppWidget() {
         ) {
           Row(GlanceModifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Notes", GlanceModifier.defaultWeight().padding(start = 4.dp), style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Medium), maxLines = 1)
-            CaptureButton(R.drawable.typeaside_widget_mic, "Dictate", "dictate?start=1", primary = false)
+            CaptureButton(R.drawable.typeaside_widget_mic, "Voice note", "dictate?start=1", primary = false)
             Spacer(GlanceModifier.width(8.dp))
             CaptureButton(R.drawable.typeaside_widget_add, "New note", "notes/new", primary = true)
           }

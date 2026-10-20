@@ -25,7 +25,6 @@ import {
 } from "@expo/ui/jetpack-compose/modifiers";
 import { api } from "@typeaside/backend/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
-import { Stack } from "expo-router";
 import { useState } from "react";
 import { Alert } from "react-native";
 import { icons } from "@/ui/icons";
@@ -41,7 +40,6 @@ export default function SnippetsScreen() {
   );
   return (
     <>
-      <Stack.Screen options={{ headerShown: true, title: "Snippets" }} />
       <Host style={{ flex: 1 }} seedColor={seedColor}>
         <Box modifiers={[fillMaxSize()]}>
           <LazyColumn modifiers={[fillMaxSize()]} contentPadding={{ bottom: 104 }}>

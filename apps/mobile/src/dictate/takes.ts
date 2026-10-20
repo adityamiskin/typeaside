@@ -3,12 +3,10 @@ import { z } from "zod";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-const take = z.object({
+export const take = z.object({
   id: z.string(),
   createdAt: z.number(),
   text: z.string(),
-  // Set until the audio is transcribed; `error` explains why the last attempt failed.
-  pending: z.object({ uri: z.string(), error: z.string().optional() }).optional(),
   noteId: z.string().optional(),
 });
 export type Take = z.infer<typeof take>;
@@ -18,14 +16,22 @@ const file = new File(Paths.document, "takes.json");
 
 export const useTakes = create<{
   takes: Take[];
-  add: (take: Take) => void;
+  merge: (incoming: Take[]) => void;
   update: (id: string, changes: Partial<Take>) => void;
   remove: (id: string) => void;
 }>()(
   persist(
     (set) => ({
       takes: [],
-      add: (take) => set(({ takes }) => ({ takes: [take, ...takes].slice(0, MAX_TAKES) })),
+      merge: (incoming) =>
+        set(({ takes }) => {
+          const ids = new Set(takes.map((take) => take.id));
+          return {
+            takes: [...takes, ...incoming.filter((take) => !ids.has(take.id))]
+              .sort((a, b) => b.createdAt - a.createdAt)
+              .slice(0, MAX_TAKES),
+          };
+        }),
       update: (id, changes) =>
         set(({ takes }) => ({
           takes: takes.map((take) => (take.id === id ? { ...take, ...changes } : take)),

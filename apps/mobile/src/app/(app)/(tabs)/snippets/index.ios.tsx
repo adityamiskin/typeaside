@@ -35,13 +35,6 @@ export default function SnippetsScreen() {
   );
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: "Snippets",
-          headerLargeTitle: true,
-        }}
-      />
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
           icon="plus"

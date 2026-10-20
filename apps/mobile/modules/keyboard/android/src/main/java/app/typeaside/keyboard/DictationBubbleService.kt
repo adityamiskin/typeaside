@@ -242,6 +242,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
         state = Bubble.Sending
         when (val outcome = dictate(credentials, pcm, context)) {
           is Outcome.Text -> {
+            HistoryQueue.append(this@DictationBubbleService, outcome.text)
             val clipboard = getSystemService(ClipboardManager::class.java)
             val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             if (node.refresh() && node.isEditable && !node.isPassword && node == focused) {

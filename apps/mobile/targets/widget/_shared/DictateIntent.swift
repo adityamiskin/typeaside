@@ -3,7 +3,7 @@ import Foundation
 
 @available(iOS 18.0, *)
 struct DictateIntent: AppIntent {
-  static let title: LocalizedStringResource = "Dictate"
+  static let title: LocalizedStringResource = "Voice note"
   static let openAppWhenRun = true
 
   @MainActor

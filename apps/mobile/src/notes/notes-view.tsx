@@ -33,8 +33,7 @@ import {
 import { noteColors as noteColorNames } from "@typeaside/backend/convex/noteColors";
 import * as Haptics from "expo-haptics";
 import { useEffect, useState } from "react";
-import { BackHandler, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BackHandler, useColorScheme, View } from "react-native";
 import { icons } from "@/ui/icons";
 import { seedColor, useColors, useNoteColors } from "@/ui/theme";
 import type { NoteActions } from "./actions";
@@ -56,10 +55,15 @@ export type NotesViewProps = {
 };
 
 export function NotesView(props: NotesViewProps) {
-  const insets = useSafeAreaInsets();
   const colors = useColors();
+  const dark = useColorScheme() === "dark";
   return (
-    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.background }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: dark ? "#000" : colors.background,
+      }}
+    >
       <Host style={{ flex: 1 }} seedColor={seedColor}>
         <NotesList {...props} />
       </Host>
@@ -328,6 +332,7 @@ function NoteCard({
   onLongPress: () => void;
 }) {
   const material = useMaterialColors();
+  const dark = useColorScheme() === "dark";
   const tint = useNoteColors()[note.color];
   const { title, items, preview } = summarize(note.text);
   const plain = note.color === "none";
@@ -340,7 +345,7 @@ function NoteCard({
   return (
     <Card
       colors={{
-        containerColor: plain ? material.surface : tint.background,
+        containerColor: plain ? (dark ? "#000" : material.surface) : tint.background,
         contentColor: tint.text,
       }}
       border={outline}

@@ -30,7 +30,6 @@ export function NotesView({
           onPress={onCreate}
         />
       </Stack.Toolbar>
-      {/* Swipeable rows need a gesture root; collapsable keeps the large title tracking the list. */}
       <GestureHandlerRootView style={styles.screen} collapsable={false}>
         <FlatList
           data={notes}
