@@ -1,42 +1,64 @@
 import {
   AlertDialog,
+  Box,
   Column,
   Host,
-  HorizontalDivider,
+  Icon,
+  IconButton,
   LazyColumn,
   LinearProgressIndicator,
   ListItem,
+  Switch,
   Text,
   TextButton,
   TextField,
   useMaterialColors,
 } from "@expo/ui/jetpack-compose";
 import {
+  background,
   clickable,
-  combinedClickable,
+  clip,
   fillMaxSize,
   fillMaxWidth,
   padding,
+  Shapes,
+  size,
 } from "@expo/ui/jetpack-compose/modifiers";
 import { useState } from "react";
-import { View } from "react-native";
+import { type ImageSourcePropType, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   billingAction,
   DELETE_MESSAGE,
+  initial,
   isThisPhone,
   lastUsed,
   planLabel,
   resetsLabel,
+  SIGN_OUT_MESSAGE,
   useAccount,
   usageLabel,
   usageProgress,
 } from "@/account/account";
-import { keyboardStatus, openKeyboardSettings, useKeyboardEnabled } from "@/account/keyboard";
-import { LargeTitle } from "@/ui/large-title";
+import { accountIcons } from "@/account/icons";
+import { openKeyboardSettings, useKeyboardEnabled } from "@/account/keyboard";
+import { icons } from "@/ui/icons";
 import { seedColor } from "@/ui/theme";
 
-const divider = <HorizontalDivider modifiers={[padding(16, 8, 16, 8)]} />;
+// Android 16 Settings groups: rounded outer corners, tight inner corners, 2dp gaps.
+const segment = (index: number, count: number) => [
+  padding(16, 0, 16, index === count - 1 ? 0 : 2),
+  clip(
+    Shapes.RoundedCorner({
+      topStart: index === 0 ? 24 : 4,
+      topEnd: index === 0 ? 24 : 4,
+      bottomStart: index === count - 1 ? 24 : 4,
+      bottomEnd: index === count - 1 ? 24 : 4,
+    }),
+  ),
+];
+
+type Dialog = "signOut" | "delete";
 
 export default function AccountScreen() {
   const { account, devices, signOut, openBilling, confirmRemoveDevice, deleteAccount } =
@@ -44,86 +66,125 @@ export default function AccountScreen() {
   const keyboardEnabled = useKeyboardEnabled();
   const material = useMaterialColors({ seedColor });
   const insets = useSafeAreaInsets();
-  const [deleting, setDeleting] = useState(false);
+  const [dialog, setDialog] = useState<Dialog>();
   const [typed, setTyped] = useState("");
   const progress = account && usageProgress(account.usage);
   const email = account?.email;
-  const closeDelete = () => {
-    setDeleting(false);
+  const item = { containerColor: material.surfaceContainer };
+  const closeDialog = () => {
+    setDialog(undefined);
     setTyped("");
   };
+
+  const header = (title: string) => (
+    <Text
+      color={material.primary}
+      style={{ typography: "titleSmall" }}
+      modifiers={[padding(32, 24, 32, 8)]}
+    >
+      {title}
+    </Text>
+  );
+  const leading = (source: ImageSourcePropType, tint = material.onSurfaceVariant) => (
+    <ListItem.LeadingContent>
+      <Icon source={source} tint={tint} size={24} />
+    </ListItem.LeadingContent>
+  );
 
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: material.surface }}>
       <Host style={{ flex: 1 }} seedColor={seedColor}>
         <LazyColumn modifiers={[fillMaxSize()]}>
-          <LargeTitle title="Account" />
           {account && (
-            <ListItem>
-              <ListItem.HeadlineContent>
-                <Text>Email</Text>
-              </ListItem.HeadlineContent>
-              <ListItem.SupportingContent>
-                <Text>{email ?? ""}</Text>
-              </ListItem.SupportingContent>
-            </ListItem>
-          )}
-          {account && (
-            <ListItem>
-              <ListItem.HeadlineContent>
-                <Text>Plan</Text>
-              </ListItem.HeadlineContent>
-              <ListItem.SupportingContent>
-                <Text>{planLabel(account)}</Text>
-              </ListItem.SupportingContent>
-              <ListItem.TrailingContent>
-                <TextButton onClick={openBilling}>
-                  <Text color={account.billingIssue ? material.error : material.primary}>
-                    {billingAction(account)}
-                  </Text>
-                </TextButton>
-              </ListItem.TrailingContent>
-            </ListItem>
-          )}
-          {account && (
-            <ListItem>
-              <ListItem.HeadlineContent>
-                <Text>This week</Text>
-              </ListItem.HeadlineContent>
-              <ListItem.TrailingContent>
-                <Text>{usageLabel(account.usage)}</Text>
-              </ListItem.TrailingContent>
-              {progress != null && (
-                <ListItem.SupportingContent>
-                  <Column modifiers={[fillMaxWidth(), padding(0, 8, 0, 0)]}>
-                    <LinearProgressIndicator progress={progress} modifiers={[fillMaxWidth()]} />
-                    <Text modifiers={[padding(0, 6, 0, 0)]}>{resetsLabel(account.usage)}</Text>
-                  </Column>
-                </ListItem.SupportingContent>
-              )}
-            </ListItem>
-          )}
-          {account && divider}
-          <ListItem modifiers={[clickable(openKeyboardSettings)]}>
-            <ListItem.HeadlineContent>
-              <Text>Keyboard</Text>
-            </ListItem.HeadlineContent>
-            <ListItem.TrailingContent>
-              <Text>{keyboardStatus(keyboardEnabled)}</Text>
-            </ListItem.TrailingContent>
-          </ListItem>
-          {devices && devices.length > 0 && divider}
-          {devices?.map((device) => (
-            <ListItem
-              key={device._id}
-
-              modifiers={[
-                combinedClickable({
-                  onClick: () => confirmRemoveDevice(device),
-                  onLongClick: () => confirmRemoveDevice(device),
-                }),
-              ]}
+            <Column
+              horizontalAlignment="center"
+              modifiers={[fillMaxWidth(), padding(24, 40, 24, 8)]}
             >
+              <Box
+                contentAlignment="center"
+                modifiers={[size(80, 80), clip(Shapes.Circle), background(material.primaryContainer)]}
+              >
+                <Text color={material.onPrimaryContainer} style={{ typography: "headlineLarge" }}>
+                  {initial(account)}
+                </Text>
+              </Box>
+              <Text style={{ typography: "headlineSmall" }} modifiers={[padding(0, 16, 0, 0)]}>
+                {account.name || email || ""}
+              </Text>
+              {account.name && email ? (
+                <Text color={material.onSurfaceVariant} style={{ typography: "bodyMedium" }}>
+                  {email}
+                </Text>
+              ) : null}
+              <Text
+                color={material.primary}
+                style={{ typography: "labelLarge" }}
+                modifiers={[padding(0, 8, 0, 0)]}
+              >
+                {`${planLabel(account)} plan`}
+              </Text>
+            </Column>
+          )}
+
+          {account && header("Usage")}
+          {account && (
+            <ListItem colors={item} modifiers={segment(0, 2)}>
+              {leading(accountIcons.dataUsage)}
+              <ListItem.HeadlineContent>
+                <Text>{`${usageLabel(account.usage)} this week`}</Text>
+              </ListItem.HeadlineContent>
+              <ListItem.SupportingContent>
+                <Column verticalArrangement={{ spacedBy: 8 }} modifiers={[padding(0, 8, 0, 0)]}>
+                  {progress != null && (
+                    <LinearProgressIndicator progress={progress} modifiers={[fillMaxWidth()]} />
+                  )}
+                  <Text>{resetsLabel(account.usage)}</Text>
+                </Column>
+              </ListItem.SupportingContent>
+            </ListItem>
+          )}
+          {account && (
+            <ListItem
+              colors={{
+                ...item,
+                ...(account.billingIssue ? { contentColor: material.error } : {}),
+              }}
+              modifiers={[...segment(1, 2), clickable(openBilling)]}
+            >
+              {leading(
+                accountIcons.premium,
+                account.billingIssue ? material.error : material.onSurfaceVariant,
+              )}
+              <ListItem.HeadlineContent>
+                <Text>{billingAction(account)}</Text>
+              </ListItem.HeadlineContent>
+              <ListItem.TrailingContent>
+                <Icon source={accountIcons.openInNew} tint={material.onSurfaceVariant} size={20} />
+              </ListItem.TrailingContent>
+            </ListItem>
+          )}
+
+          {header("Keyboard")}
+          <ListItem colors={item} modifiers={[...segment(0, 1), clickable(openKeyboardSettings)]}>
+            {leading(accountIcons.keyboard)}
+            <ListItem.HeadlineContent>
+              <Text>TypeAside keyboard</Text>
+            </ListItem.HeadlineContent>
+            <ListItem.SupportingContent>
+              <Text>Dictate into any app</Text>
+            </ListItem.SupportingContent>
+            {keyboardEnabled !== undefined && (
+              <ListItem.TrailingContent>
+                {/* Only system settings can enable an IME, so the switch hands off there. */}
+                <Switch value={keyboardEnabled} onCheckedChange={openKeyboardSettings} />
+              </ListItem.TrailingContent>
+            )}
+          </ListItem>
+
+          {devices && devices.length > 0 && header("Devices")}
+          {devices?.map((device, index) => (
+            <ListItem key={device._id} colors={item} modifiers={segment(index, devices.length)}>
+              {leading(isThisPhone(device) ? accountIcons.phone : accountIcons.computer)}
               <ListItem.HeadlineContent>
                 <Text>{device.name}</Text>
               </ListItem.HeadlineContent>
@@ -134,29 +195,78 @@ export default function AccountScreen() {
                     : lastUsed(device.lastUsedAt)}
                 </Text>
               </ListItem.SupportingContent>
+              <ListItem.TrailingContent>
+                <IconButton onClick={() => confirmRemoveDevice(device)}>
+                  <Icon
+                    source={icons.delete}
+                    tint={material.onSurfaceVariant}
+                    size={24}
+                    contentDescription={`Remove ${device.name}`}
+                  />
+                </IconButton>
+              </ListItem.TrailingContent>
             </ListItem>
           ))}
-          {divider}
-          <ListItem modifiers={[clickable(signOut)]}>
-            <ListItem.HeadlineContent>
-              <Text>Sign out</Text>
-            </ListItem.HeadlineContent>
-          </ListItem>
-          {email && (
+
+          <Column modifiers={[padding(0, 24, 0, 24)]}>
             <ListItem
-              colors={{ contentColor: material.error }}
-              modifiers={[clickable(() => setDeleting(true))]}
+              colors={item}
+              modifiers={[...segment(0, email ? 2 : 1), clickable(() => setDialog("signOut"))]}
             >
+              {leading(accountIcons.signOut)}
               <ListItem.HeadlineContent>
-                <Text>Delete account</Text>
+                <Text>Sign out</Text>
               </ListItem.HeadlineContent>
             </ListItem>
-          )}
+            {email && (
+              <ListItem
+                colors={{ ...item, contentColor: material.error }}
+                modifiers={[...segment(1, 2), clickable(() => setDialog("delete"))]}
+              >
+                {leading(accountIcons.deleteForever, material.error)}
+                <ListItem.HeadlineContent>
+                  <Text>Delete account</Text>
+                </ListItem.HeadlineContent>
+              </ListItem>
+            )}
+          </Column>
         </LazyColumn>
-        {deleting && email && (
-          <AlertDialog onDismissRequest={closeDelete}>
+
+        {dialog === "signOut" && (
+          <AlertDialog onDismissRequest={closeDialog}>
+            <AlertDialog.Icon>
+              <Icon source={accountIcons.signOut} size={24} />
+            </AlertDialog.Icon>
             <AlertDialog.Title>
-              <Text>Delete account</Text>
+              <Text>Sign out?</Text>
+            </AlertDialog.Title>
+            <AlertDialog.Text>
+              <Text>{SIGN_OUT_MESSAGE}</Text>
+            </AlertDialog.Text>
+            <AlertDialog.ConfirmButton>
+              <TextButton
+                onClick={() => {
+                  closeDialog();
+                  signOut();
+                }}
+              >
+                <Text>Sign out</Text>
+              </TextButton>
+            </AlertDialog.ConfirmButton>
+            <AlertDialog.DismissButton>
+              <TextButton onClick={closeDialog}>
+                <Text>Cancel</Text>
+              </TextButton>
+            </AlertDialog.DismissButton>
+          </AlertDialog>
+        )}
+        {dialog === "delete" && email && (
+          <AlertDialog onDismissRequest={closeDialog}>
+            <AlertDialog.Icon>
+              <Icon source={accountIcons.deleteForever} tint={material.error} size={24} />
+            </AlertDialog.Icon>
+            <AlertDialog.Title>
+              <Text>Delete account?</Text>
             </AlertDialog.Title>
             <AlertDialog.Text>
               <Column>
@@ -178,15 +288,15 @@ export default function AccountScreen() {
               <TextButton
                 enabled={typed.trim() === email}
                 onClick={() => {
-                  setDeleting(false);
+                  closeDialog();
                   void deleteAccount(email);
                 }}
               >
-                <Text color={material.error}>Delete</Text>
+                <Text color={typed.trim() === email ? material.error : undefined}>Delete</Text>
               </TextButton>
             </AlertDialog.ConfirmButton>
             <AlertDialog.DismissButton>
-              <TextButton onClick={closeDelete}>
+              <TextButton onClick={closeDialog}>
                 <Text>Cancel</Text>
               </TextButton>
             </AlertDialog.DismissButton>

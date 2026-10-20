@@ -61,13 +61,18 @@ export function useAccount() {
 
 export const isThisPhone = (device: Device) => device.name === deviceName;
 
+export const initial = (account: Account) =>
+  (account.name || account.email || "?").trim().charAt(0).toUpperCase();
+
+export const SIGN_OUT_MESSAGE = "This phone will stop syncing until you sign in again.";
+
 export const DELETE_MESSAGE =
   "This permanently deletes your account, usage and connected devices, and cancels any active subscription. Type your email to confirm.";
 
 export const planLabel = (account: Account) => (account.plan === "pro" ? "Pro" : "Free");
 
 export const billingAction = (account: Account) =>
-  account.billingIssue ? "Fix billing" : account.plan === "pro" ? "Manage" : "Upgrade";
+  account.billingIssue ? "Fix billing" : account.plan === "pro" ? "Manage plan" : "Upgrade to Pro";
 
 export const usageLabel = ({ words, cap }: Account["usage"]) =>
   cap === null
