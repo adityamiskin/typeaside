@@ -61,10 +61,10 @@ fun BubbleTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun MicBubble(state: Bubble, appearance: Appearance, onTouch: (MotionEvent) -> Boolean, onToggle: () -> Unit, onCancel: () -> Unit) {
+fun MicBubble(state: Bubble, appearance: Appearance, shrunk: Boolean, onTouch: (MotionEvent) -> Boolean, onToggle: () -> Unit, onCancel: () -> Unit) {
   val colors = MaterialTheme.colorScheme
   val recording = state is Bubble.Recording
-  val width = if (recording) RECORDING_WIDTH_DP else appearance.width
+  val width = if (recording) RECORDING_WIDTH_DP else if (shrunk) 12 else appearance.width
   Box(
     Modifier.size(maxOf(width, 48).dp, (appearance.height + 16).dp)
       .pointerInteropFilter(onTouchEvent = onTouch)
@@ -81,12 +81,12 @@ fun MicBubble(state: Bubble, appearance: Appearance, onTouch: (MotionEvent) -> B
     contentAlignment = Alignment.Center,
   ) {
     Surface(
-      Modifier.size(width.dp, appearance.height.dp), shape = CircleShape,
-      color = if (state == Bubble.Error) colors.errorContainer else colors.secondaryContainer,
+      Modifier.size(width.dp, (if (shrunk) 12 else appearance.height).dp), shape = CircleShape,
+      color = if (shrunk) colors.primary else if (state == Bubble.Error) colors.errorContainer else colors.secondaryContainer,
       contentColor = if (state == Bubble.Error) colors.onErrorContainer else colors.onSecondaryContainer,
       shadowElevation = 2.dp,
     ) {
-      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+      if (!shrunk) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
         when (state) {
           is Bubble.Recording -> {
             Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(20.dp))

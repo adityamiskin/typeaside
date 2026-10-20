@@ -23,7 +23,9 @@ class CredentialsRecord : Record {
 
 class AppearanceRecord : Record {
   @Field val shape: String = "pill"
-  @Field val size: String = "standard"
+  @Field val size: Float = 0.5f
+  @Field val opacity: Float = 1f
+  @Field val shrinkWhenIdle: Boolean = false
   @Field val position: Float = 0.5f
 }
 
@@ -43,15 +45,17 @@ class KeyboardModule : Module() {
 
     AsyncFunction("getAppearance") {
       val appearance = Appearance.read(context)
-      mapOf("shape" to appearance.shape, "size" to appearance.size, "position" to appearance.position)
+      mapOf("shape" to appearance.shape, "size" to appearance.size, "opacity" to appearance.opacity, "shrinkWhenIdle" to appearance.shrinkWhenIdle, "position" to appearance.position)
     }
 
     AsyncFunction("setAppearance") { appearance: AppearanceRecord ->
       require(appearance.shape in listOf("pill", "circle"))
-      require(appearance.size in listOf("small", "standard", "large"))
+      require(appearance.size.isFinite() && appearance.size in 0f..1f)
+      require(appearance.opacity.isFinite() && appearance.opacity in 0.2f..1f)
       require(appearance.position.isFinite() && appearance.position in 0f..1f)
       context.getSharedPreferences(Appearance.STORE, Context.MODE_PRIVATE).edit()
-        .putString("shape", appearance.shape).putString("size", appearance.size)
+        .putString("shape", appearance.shape).putFloat("size", appearance.size)
+        .putFloat("opacity", appearance.opacity).putBoolean("shrinkWhenIdle", appearance.shrinkWhenIdle)
         .putFloat("position", appearance.position).apply()
     }
 

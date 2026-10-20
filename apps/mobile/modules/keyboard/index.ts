@@ -11,7 +11,9 @@ type Credentials = {
 
 export type BubbleAppearance = {
   shape: "pill" | "circle";
-  size: "small" | "standard" | "large";
+  size: number;
+  opacity: number;
+  shrinkWhenIdle: boolean;
   position: number;
 };
 

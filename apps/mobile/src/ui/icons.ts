@@ -29,6 +29,7 @@ const sources = {
   share: require("@/assets/icons/share.xml"),
   signOut: require("@/assets/icons/logout.xml"),
   stop: require("@/assets/icons/stop_fill.xml"),
+  typeAside: require("@/assets/icons/typeaside_mark.xml"),
   unarchive: require("@/assets/icons/unarchive.xml"),
   viewAgenda: require("@/assets/icons/view_agenda.xml"),
 };

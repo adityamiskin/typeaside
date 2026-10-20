@@ -2,6 +2,7 @@ package app.typeaside.keyboard
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.SharedPreferences
@@ -50,22 +51,29 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   private val preferences by lazy { getSharedPreferences(Appearance.STORE, MODE_PRIVATE) }
   private val appearanceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
     appearance = Appearance.read(this)
+    shrunk = false
     position()
+    scheduleShrink()
   }
   private val handler = Handler(Looper.getMainLooper())
   private var view: ComposeView? = null
+  private var fading = false
   private var target: AccessibilityNodeInfo? = null
   private var recorder: Recorder? = null
   private var job: Job? = null
+  private var shrunk by mutableStateOf(false)
+  private var restoredOnTouch = false
   private var bubbleState by mutableStateOf<Bubble>(Bubble.Idle)
   private var state: Bubble
     get() = bubbleState
     set(value) {
+      val wasBusy = bubbleState is Bubble.Recording || bubbleState == Bubble.Sending
       val wasRecording = bubbleState is Bubble.Recording
       bubbleState = value
-      if (wasRecording != (value is Bubble.Recording)) {
-        position()
-      }
+      if (value != Bubble.Idle) shrunk = false
+      if (wasRecording != (value is Bubble.Recording)) position()
+      scheduleShrink()
+      if (wasBusy && value !is Bubble.Recording && value != Bubble.Sending) refreshOverlay()
     }
   private val params by lazy {
     WindowManager.LayoutParams(
@@ -83,6 +91,12 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   private var dragging = false
   private var held = false
   private var beganRecording = false
+  private val shrink = Runnable {
+    if (view != null && state == Bubble.Idle && appearance.shrinkWhenIdle) {
+      shrunk = true
+      position()
+    }
+  }
   private val hold = Runnable {
     if (!dragging && state !is Bubble.Recording && state != Bubble.Sending) {
       held = true
@@ -100,16 +114,31 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   }
 
   override fun onAccessibilityEvent(event: AccessibilityEvent) {
+    when (event.eventType) {
+      AccessibilityEvent.TYPE_VIEW_FOCUSED,
+      AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+      AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+      AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> refreshOverlay(event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED)
+    }
+  }
+
+  private fun refreshOverlay(fieldFocused: Boolean = false) {
+    if (state is Bubble.Recording || state == Bubble.Sending) return
     val keyboard = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
     val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-    if (keyboard == null || node == null || !node.isEditable || node.isPassword || node.packageName == packageName) {
-      hide()
+    if (keyboard == null || node == null || !node.isEditable || node.isPassword) {
+      hideOverlay(animated = true)
       return
     }
-    if (target != node) {
-      cancel()
+    if (fieldFocused || target != node) {
+      shrunk = false
       target = node
-      if (view == null) position()
+      position()
+    }
+    if (fading) {
+      view?.animate()?.cancel()
+      view?.alpha = appearance.opacity
+      fading = false
     }
     val keyboardBounds = Rect().also(keyboard::getBoundsInScreen)
     params.y = (keyboardBounds.top - params.height).coerceAtLeast(0)
@@ -119,14 +148,22 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
         setViewTreeLifecycleOwner(this@DictationBubbleService)
         setViewTreeSavedStateRegistryOwner(this@DictationBubbleService)
         setParentCompositionContext(recomposer)
-        setContent { BubbleTheme { MicBubble(state, appearance, ::touch, ::toggle, ::cancel) } }
-      }.also { manager.addView(it, params) }
-    }
+        setContent { BubbleTheme { MicBubble(state, appearance, shrunk, ::touch, ::toggle, ::cancel) } }
+      }.also {
+        it.alpha = appearance.opacity
+        manager.addView(it, params)
+      }
+      scheduleShrink()
+    } else if (fieldFocused) scheduleShrink()
   }
 
   private fun touch(event: MotionEvent): Boolean {
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
+        restoredOnTouch = shrunk
+        shrunk = false
+        position()
+        handler.removeCallbacks(shrink)
         downX = event.rawX
         originX = params.x
         dragging = false
@@ -152,8 +189,9 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
         }
         if (held) recorder?.stop()
         else if (beganRecording && !dragging && event.x < dp(48)) cancel()
-        else if (!dragging) toggle()
+        else if (!dragging && !restoredOnTouch) toggle()
         held = false
+        scheduleShrink()
       }
       MotionEvent.ACTION_CANCEL -> {
         handler.removeCallbacks(hold)
@@ -165,6 +203,12 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   }
 
   private fun toggle() {
+    if (shrunk) {
+      shrunk = false
+      position()
+      scheduleShrink()
+      return
+    }
     when (state) {
       is Bubble.Recording -> recorder?.stop()
       Bubble.Sending -> Unit
@@ -198,8 +242,13 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
         state = Bubble.Sending
         when (val outcome = dictate(credentials, pcm, context)) {
           is Outcome.Text -> {
-            if (node.refresh() && node.isFocused && !node.isPassword && node == target) {
-              if (!node.insert(outcome.text, getSystemService(ClipboardManager::class.java))) error("Could not insert text")
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (node.refresh() && node.isEditable && !node.isPassword && node == focused) {
+              if (!node.insert(outcome.text, clipboard)) error("Could not insert text")
+            } else {
+              clipboard.setPrimaryClip(ClipData.newPlainText("TypeAside", outcome.text))
+              Toast.makeText(this@DictationBubbleService, "Dictation copied to clipboard", Toast.LENGTH_SHORT).show()
             }
             state = Bubble.Idle
           }
@@ -229,11 +278,33 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
     state = Bubble.Idle
   }
 
+  private fun hideOverlay(animated: Boolean = false) {
+    handler.removeCallbacks(shrink)
+    target = null
+    val current = view ?: return
+    if (animated && fading) return
+    current.animate().cancel()
+    if (animated) {
+      fading = true
+      current.animate().alpha(0f).setDuration(120).withEndAction {
+        if (view == current && fading) {
+          manager.removeView(current)
+          current.disposeComposition()
+          view = null
+          fading = false
+        }
+      }.start()
+    } else {
+      manager.removeView(current)
+      current.disposeComposition()
+      view = null
+      fading = false
+    }
+  }
+
   private fun hide() {
     cancel()
-    target = null
-    view?.let { manager.removeView(it); it.disposeComposition() }
-    view = null
+    hideOverlay()
   }
 
   override fun onInterrupt() = hide()
@@ -246,7 +317,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   }
 
   private fun position() {
-    params.width = dp(if (state is Bubble.Recording) RECORDING_WIDTH_DP else maxOf(48, appearance.width))
+    params.width = dp(if (state is Bubble.Recording) RECORDING_WIDTH_DP else if (shrunk) 48 else maxOf(48, appearance.width))
     params.height = dp(appearance.height + 16)
     params.x = (appearance.position * resources.displayMetrics.widthPixels - params.width / 2).toInt()
       .coerceIn(0, resources.displayMetrics.widthPixels - params.width)
@@ -254,7 +325,17 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
       val bounds = Rect().also(keyboard::getBoundsInScreen)
       params.y = (bounds.top - params.height).coerceAtLeast(0)
     }
-    view?.let { manager.updateViewLayout(it, params) }
+    view?.let {
+      it.alpha = appearance.opacity
+      manager.updateViewLayout(it, params)
+    }
+  }
+
+  private fun scheduleShrink() {
+    handler.removeCallbacks(shrink)
+    if (view != null && state == Bubble.Idle && !shrunk && appearance.shrinkWhenIdle) {
+      handler.postDelayed(shrink, 5_000)
+    }
   }
 
   private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
