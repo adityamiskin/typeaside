@@ -49,6 +49,7 @@ export default function RootLayout() {
                   : { animation: "fade_from_bottom" }
               }
             />
+            <Stack.Screen name="floating-mic" />
             <Stack.Screen name="keyboard-session" />
           </Stack.Protected>
           <Stack.Protected guard={status === "signedOut"}>

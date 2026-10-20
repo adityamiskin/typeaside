@@ -1,5 +1,6 @@
 package app.typeaside.keyboard
 
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.content.ComponentName
@@ -14,6 +15,12 @@ class CredentialsRecord : Record {
   @Field val dictionary: List<String> = emptyList()
 }
 
+class AppearanceRecord : Record {
+  @Field val shape: String = "pill"
+  @Field val size: String = "standard"
+  @Field val position: Float = 0.5f
+}
+
 class KeyboardModule : Module() {
   private val context get() = requireNotNull(appContext.reactContext)
 
@@ -26,6 +33,20 @@ class KeyboardModule : Module() {
 
     AsyncFunction("clearCredentials") {
       CredentialStore(context).clear()
+    }
+
+    AsyncFunction("getAppearance") {
+      val appearance = Appearance.read(context)
+      mapOf("shape" to appearance.shape, "size" to appearance.size, "position" to appearance.position)
+    }
+
+    AsyncFunction("setAppearance") { appearance: AppearanceRecord ->
+      require(appearance.shape in listOf("pill", "circle"))
+      require(appearance.size in listOf("small", "standard", "large"))
+      require(appearance.position.isFinite() && appearance.position in 0f..1f)
+      context.getSharedPreferences(Appearance.STORE, Context.MODE_PRIVATE).edit()
+        .putString("shape", appearance.shape).putString("size", appearance.size)
+        .putFloat("position", appearance.position).apply()
     }
 
     AsyncFunction("isEnabled") {

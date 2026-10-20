@@ -45,9 +45,7 @@ sealed interface Bubble {
   data object Error : Bubble
 }
 
-const val HANDLE_WIDTH_DP = 64
 const val RECORDING_WIDTH_DP = 232
-const val BUBBLE_WINDOW_HEIGHT_DP = 56
 
 @Composable
 fun BubbleTheme(content: @Composable () -> Unit) {
@@ -63,12 +61,12 @@ fun BubbleTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun MicBubble(state: Bubble, onTouch: (MotionEvent) -> Boolean, onToggle: () -> Unit, onCancel: () -> Unit) {
+fun MicBubble(state: Bubble, appearance: Appearance, onTouch: (MotionEvent) -> Boolean, onToggle: () -> Unit, onCancel: () -> Unit) {
   val colors = MaterialTheme.colorScheme
   val recording = state is Bubble.Recording
-  val width = if (recording) RECORDING_WIDTH_DP else HANDLE_WIDTH_DP
+  val width = if (recording) RECORDING_WIDTH_DP else appearance.width
   Box(
-    Modifier.size(width.dp, BUBBLE_WINDOW_HEIGHT_DP.dp)
+    Modifier.size(maxOf(width, 48).dp, (appearance.height + 16).dp)
       .pointerInteropFilter(onTouchEvent = onTouch)
       .clearAndSetSemantics {
         role = Role.Button
@@ -83,7 +81,7 @@ fun MicBubble(state: Bubble, onTouch: (MotionEvent) -> Boolean, onToggle: () -> 
     contentAlignment = Alignment.Center,
   ) {
     Surface(
-      Modifier.size(width.dp, 40.dp), shape = CircleShape,
+      Modifier.size(width.dp, appearance.height.dp), shape = CircleShape,
       color = if (state == Bubble.Error) colors.errorContainer else colors.secondaryContainer,
       contentColor = if (state == Bubble.Error) colors.onErrorContainer else colors.onSecondaryContainer,
       shadowElevation = 2.dp,

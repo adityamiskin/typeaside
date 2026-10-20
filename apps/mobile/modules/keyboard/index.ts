@@ -4,7 +4,15 @@ import { requireNativeModule } from "expo";
 // which dictates through the hosted API without the JS runtime.
 type Credentials = { token: string; apiUrl: string; dictionary: string[] };
 
+export type BubbleAppearance = {
+  shape: "pill" | "circle";
+  size: "small" | "standard" | "large";
+  position: number;
+};
+
 type KeyboardModule = {
+  getAppearance(): Promise<BubbleAppearance>;
+  setAppearance(appearance: BubbleAppearance): Promise<void>;
   setCredentials(credentials: Credentials): Promise<void>;
   clearCredentials(): Promise<void>;
   isEnabled(): Promise<boolean>;

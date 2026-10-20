@@ -8,7 +8,6 @@ import {
   LazyColumn,
   LinearProgressIndicator,
   ListItem,
-  Switch,
   Text,
   TextButton,
   TextField,
@@ -24,6 +23,7 @@ import {
   Shapes,
   size,
 } from "@expo/ui/jetpack-compose/modifiers";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { type ImageSourcePropType, View } from "react-native";
 import {
@@ -39,7 +39,7 @@ import {
   usageLabel,
   usageProgress,
 } from "@/account/account";
-import { openKeyboardSettings, useKeyboardEnabled } from "@/account/keyboard";
+import { useKeyboardEnabled } from "@/account/keyboard";
 import { icons } from "@/ui/icons";
 import { seedColor } from "@/ui/theme";
 
@@ -62,6 +62,7 @@ export default function AccountScreen() {
   const { account, devices, signOut, openBilling, confirmRemoveDevice, deleteAccount } =
     useAccount();
   const keyboardEnabled = useKeyboardEnabled();
+  const router = useRouter();
   const material = useMaterialColors({ seedColor });
   const [dialog, setDialog] = useState<Dialog>();
   const [typed, setTyped] = useState("");
@@ -166,7 +167,10 @@ export default function AccountScreen() {
           )}
 
           {header("Floating mic")}
-          <ListItem colors={item} modifiers={[...segment(0, 1), clickable(openKeyboardSettings)]}>
+          <ListItem
+            colors={item}
+            modifiers={[...segment(0, 1), clickable(() => router.push("/floating-mic"))]}
+          >
             {leading(icons.mic)}
             <ListItem.HeadlineContent>
               <Text>Floating mic</Text>
@@ -176,8 +180,7 @@ export default function AccountScreen() {
             </ListItem.SupportingContent>
             {keyboardEnabled !== undefined && (
               <ListItem.TrailingContent>
-                {/* Accessibility access is granted in system settings. */}
-                <Switch value={keyboardEnabled} onCheckedChange={openKeyboardSettings} />
+                <Text color={material.onSurfaceVariant}>{keyboardEnabled ? "On" : "Off"}</Text>
               </ListItem.TrailingContent>
             )}
           </ListItem>

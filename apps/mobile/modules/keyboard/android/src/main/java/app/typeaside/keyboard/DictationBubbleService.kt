@@ -4,6 +4,7 @@ import android.Manifest
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -45,6 +46,12 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
   override val savedStateRegistry get() = savedState.savedStateRegistry
   private val manager by lazy { getSystemService(WindowManager::class.java) }
   private val store by lazy { CredentialStore(this) }
+  private var appearance by mutableStateOf(Appearance())
+  private val preferences by lazy { getSharedPreferences(Appearance.STORE, MODE_PRIVATE) }
+  private val appearanceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+    appearance = Appearance.read(this)
+    position()
+  }
   private val handler = Handler(Looper.getMainLooper())
   private var view: ComposeView? = null
   private var target: AccessibilityNodeInfo? = null
@@ -57,15 +64,12 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
       val wasRecording = bubbleState is Bubble.Recording
       bubbleState = value
       if (wasRecording != (value is Bubble.Recording)) {
-        val center = params.x + params.width / 2
-        params.width = dp(if (value is Bubble.Recording) RECORDING_WIDTH_DP else HANDLE_WIDTH_DP)
-        params.x = (center - params.width / 2).coerceIn(0, resources.displayMetrics.widthPixels - params.width)
-        view?.let { manager.updateViewLayout(it, params) }
+        position()
       }
     }
   private val params by lazy {
     WindowManager.LayoutParams(
-      dp(HANDLE_WIDTH_DP), dp(BUBBLE_WINDOW_HEIGHT_DP),
+      dp(maxOf(48, appearance.width)), dp(appearance.height + 16),
       WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
       WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
       PixelFormat.TRANSLUCENT,
@@ -88,6 +92,8 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
 
   override fun onCreate() {
     super.onCreate()
+    appearance = Appearance.read(this)
+    preferences.registerOnSharedPreferenceChangeListener(appearanceListener)
     savedState.performRestore(null)
     registry.currentState = Lifecycle.State.RESUMED
     lifecycleScope.launch(AndroidUiDispatcher.Main) { recomposer.runRecomposeAndApplyChanges() }
@@ -103,7 +109,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
     if (target != node) {
       cancel()
       target = node
-      if (view == null) params.x = (resources.displayMetrics.widthPixels - params.width) / 2
+      if (view == null) position()
     }
     val keyboardBounds = Rect().also(keyboard::getBoundsInScreen)
     params.y = (keyboardBounds.top - params.height).coerceAtLeast(0)
@@ -113,7 +119,7 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
         setViewTreeLifecycleOwner(this@DictationBubbleService)
         setViewTreeSavedStateRegistryOwner(this@DictationBubbleService)
         setParentCompositionContext(recomposer)
-        setContent { BubbleTheme { MicBubble(state, ::touch, ::toggle, ::cancel) } }
+        setContent { BubbleTheme { MicBubble(state, appearance, ::touch, ::toggle, ::cancel) } }
       }.also { manager.addView(it, params) }
     }
   }
@@ -141,6 +147,9 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
       }
       MotionEvent.ACTION_UP -> {
         handler.removeCallbacks(hold)
+        if (dragging) {
+          preferences.edit().putFloat("position", (params.x + params.width / 2f) / resources.displayMetrics.widthPixels).apply()
+        }
         if (held) recorder?.stop()
         else if (beganRecording && !dragging && event.x < dp(48)) cancel()
         else if (!dragging) toggle()
@@ -229,10 +238,23 @@ class DictationBubbleService : AccessibilityService(), LifecycleOwner, SavedStat
 
   override fun onInterrupt() = hide()
   override fun onDestroy() {
+    preferences.unregisterOnSharedPreferenceChangeListener(appearanceListener)
     hide()
     recomposer.cancel()
     registry.currentState = Lifecycle.State.DESTROYED
     super.onDestroy()
+  }
+
+  private fun position() {
+    params.width = dp(if (state is Bubble.Recording) RECORDING_WIDTH_DP else maxOf(48, appearance.width))
+    params.height = dp(appearance.height + 16)
+    params.x = (appearance.position * resources.displayMetrics.widthPixels - params.width / 2).toInt()
+      .coerceIn(0, resources.displayMetrics.widthPixels - params.width)
+    windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }?.let { keyboard ->
+      val bounds = Rect().also(keyboard::getBoundsInScreen)
+      params.y = (bounds.top - params.height).coerceAtLeast(0)
+    }
+    view?.let { manager.updateViewLayout(it, params) }
   }
 
   private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
