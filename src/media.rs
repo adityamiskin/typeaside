@@ -77,16 +77,18 @@ impl ListeningEffects {
             .spawn(move || {
                 static SERIAL: Mutex<()> = Mutex::new(());
                 let _serial = SERIAL.lock().unwrap_or_else(|poison| poison.into_inner());
-                if sounds {
-                    cues::wait(Cue::Start);
+                // One stream for both cues, so the stop cue does not reopen the device.
+                let player = sounds.then(cues::Player::open).and_then(Result::ok);
+                if let Some(player) = &player {
+                    player.play(Cue::Start);
                 }
                 if matches!(receiver.try_recv(), Err(mpsc::TryRecvError::Empty)) {
                     // Restores the volume when it goes out of scope, before the stop cue.
                     let _volume = if duck { Volume::duck() } else { None };
                     let _ = receiver.recv();
                 }
-                if sounds {
-                    cues::wait(Cue::Stop);
+                if let Some(player) = &player {
+                    player.play(Cue::Stop);
                 }
             })
             .ok()?;

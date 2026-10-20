@@ -85,63 +85,79 @@ fn add_thunk(samples: &mut [f32], rate: f32, thunk: &Thunk) {
     }
 }
 
-fn spawn(cue: Cue) -> Option<std::thread::JoinHandle<()>> {
-    std::thread::Builder::new()
+pub(crate) fn play(cue: Cue) {
+    let _ = std::thread::Builder::new()
         .name("typeaside-cue".into())
         .spawn(move || {
-            let _ = blocking(cue);
+            if let Ok(player) = Player::open() {
+                player.play(cue);
+            }
+        });
+}
+
+/// An output stream that plays silence between cues. Reopening the device per cue
+/// wakes a suspended sink, and some codecs (Realtek ALC285) pop when that happens.
+pub(crate) struct Player {
+    _stream: cpal::Stream,
+    rate: u32,
+    clips: mpsc::Sender<Vec<f32>>,
+    drained: mpsc::Receiver<()>,
+}
+
+impl Player {
+    pub(crate) fn open() -> Result<Self> {
+        let device = cpal::default_host()
+            .default_output_device()
+            .context("no cue output device")?;
+        let supported = device.default_output_config()?;
+        let config = supported.config();
+        let (clips, queued) = mpsc::channel();
+        let (done, drained) = mpsc::channel();
+        let stream = match supported.sample_format() {
+            SampleFormat::F32 => stream::<f32>(&device, &config, queued, done),
+            SampleFormat::I16 => stream::<i16>(&device, &config, queued, done),
+            SampleFormat::U16 => stream::<u16>(&device, &config, queued, done),
+            format => anyhow::bail!("unsupported cue format: {format:?}"),
+        }?;
+        stream.play()?;
+        Ok(Self {
+            _stream: stream,
+            rate: config.sample_rate,
+            clips,
+            drained,
         })
-        .ok()
-}
-
-pub(crate) fn play(cue: Cue) {
-    let _ = spawn(cue);
-}
-
-pub(crate) fn wait(cue: Cue) {
-    if let Some(thread) = spawn(cue) {
-        let _ = thread.join();
     }
-}
 
-fn blocking(cue: Cue) -> Result<()> {
-    let device = cpal::default_host()
-        .default_output_device()
-        .context("no cue output device")?;
-    let supported = device.default_output_config()?;
-    let config = supported.config();
-    let samples = render(cue, config.sample_rate);
-    let (done, finished) = mpsc::channel();
-    let stream = match supported.sample_format() {
-        SampleFormat::F32 => stream::<f32>(&device, &config, samples, done),
-        SampleFormat::I16 => stream::<i16>(&device, &config, samples, done),
-        SampleFormat::U16 => stream::<u16>(&device, &config, samples, done),
-        format => anyhow::bail!("unsupported cue format: {format:?}"),
-    }?;
-    stream.play()?;
-    let _ = finished.recv_timeout(Duration::from_secs(1));
-    Ok(())
+    /// Returns once `cue` has been handed to the device.
+    pub(crate) fn play(&self, cue: Cue) {
+        if self.clips.send(render(cue, self.rate)).is_ok() {
+            let _ = self.drained.recv_timeout(Duration::from_secs(1));
+        }
+    }
 }
 
 fn stream<T: SizedSample + FromSample<f32>>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
-    samples: Vec<f32>,
+    queued: mpsc::Receiver<Vec<f32>>,
     done: mpsc::Sender<()>,
 ) -> Result<cpal::Stream> {
     let channels = usize::from(config.channels);
-    let mut next = samples.into_iter();
+    let mut clip = Vec::new().into_iter();
+    let mut playing = false;
     Ok(device.build_output_stream(
         config,
         move |data: &mut [T], _| {
             for frame in data.chunks_mut(channels) {
-                match next.next() {
-                    Some(value) => frame.fill(T::from_sample(value)),
-                    None => {
-                        frame.fill(T::from_sample(0f32));
-                        let _ = done.send(());
-                    }
+                let value = clip.next().or_else(|| {
+                    clip = queued.try_recv().ok()?.into_iter();
+                    playing = true;
+                    clip.next()
+                });
+                if value.is_none() && std::mem::take(&mut playing) {
+                    let _ = done.send(());
                 }
+                frame.fill(T::from_sample(value.unwrap_or(0.)));
             }
         },
         |_| {},
