@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import type { PressableProps } from "react-native";
 import { useDictation } from "@/lib/recorder";
 
@@ -17,8 +18,23 @@ export type RecordBarProps = {
 // Outside a hold that Pressable is disabled while recording, so only `stop` ends a take.
 export function useRecordBar({ busy, onRecorded, onError }: RecordBarProps) {
   const dictation = useDictation();
+  const { start: requestedStart } = useLocalSearchParams<{ start?: string }>();
+  const router = useRouter();
+  const consumedStart = useRef(false);
+  useEffect(() => {
+    if (requestedStart !== "1") {
+      consumedStart.current = false;
+      return;
+    }
+    if (busy || consumedStart.current) return;
+    consumedStart.current = true;
+    router.setParams({ start: undefined });
+    if (!dictation.recording) void dictation.start().catch(onError);
+  }, [requestedStart, busy, dictation.recording, dictation.start, onError, router]);
   const [levels, setLevels] = useState<number[]>([]);
-  const [held, setHeld] = useState(false);
+  const [holding, setHolding] = useState(false);
+  const held = useRef(false);
+  const starting = useRef<Promise<void> | undefined>(undefined);
 
   useEffect(() => {
     if (!dictation.recording) return setLevels([]);
@@ -27,26 +43,45 @@ export function useRecordBar({ busy, onRecorded, onError }: RecordBarProps) {
     setLevels((current) => [...current, level].slice(-BARS));
   }, [dictation.recording, dictation.elapsedMs, dictation.metering]);
 
-  async function start() {
-    await dictation.start().catch(onError);
+  function start() {
+    starting.current ??= dictation
+      .start()
+      .catch(onError)
+      .finally(() => {
+        starting.current = undefined;
+      });
+    return starting.current;
   }
   async function stop() {
-    const uri = await dictation.stop();
+    await starting.current;
+    const uri = await dictation.stop().catch(onError);
     if (uri) onRecorded(uri);
+  }
+  async function cancel() {
+    await starting.current;
+    await dictation.cancel().catch(onError);
   }
 
   const press = {
-    disabled: busy || (dictation.recording && !held),
+    disabled: busy || (dictation.recording && !holding),
     accessibilityLabel: "Dictate",
     onPress: () => void start(),
     onLongPress: () => {
-      setHeld(true);
+      held.current = true;
+      setHolding(true);
       void start();
     },
-    onPressOut: () => {
-      if (!held) return;
-      setHeld(false);
+    onTouchEnd: () => {
+      if (!held.current) return;
+      held.current = false;
+      setHolding(false);
       void stop();
+    },
+    onTouchCancel: () => {
+      if (!held.current) return;
+      held.current = false;
+      setHolding(false);
+      void cancel();
     },
   } satisfies PressableProps;
 
@@ -58,7 +93,7 @@ export function useRecordBar({ busy, onRecorded, onError }: RecordBarProps) {
     press,
     bars,
     stop: () => void stop(),
-    cancel: () => void dictation.cancel(),
+    cancel: () => void cancel(),
   };
 }
 

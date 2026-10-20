@@ -3,9 +3,12 @@ import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
+import { WidgetSync } from "@/lib/widget-sync";
 import { convex } from "@/lib/convex";
 import { fetchAccessToken, restoreSession, useSession } from "@/lib/session";
 import { useNavigationTheme } from "@/ui/theme";
+
+export const unstable_settings = { anchor: "(tabs)" };
 
 void SplashScreen.preventAutoHideAsync();
 void restoreSession();
@@ -28,6 +31,7 @@ export default function RootLayout() {
   if (status === "loading") return null;
   return (
     <ConvexProviderWithAuth client={convex} useAuth={useAuth}>
+      <WidgetSync />
       <ThemeProvider value={theme}>
         <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }}>

@@ -5,6 +5,7 @@ import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 import { z } from "zod";
 import { create } from "zustand";
+import { widgets } from "../../modules/widgets";
 import { env } from "./env";
 
 const WORKOS = "https://api.workos.com/user_management";
@@ -90,6 +91,7 @@ async function refresh() {
 
 async function clear() {
   access = null;
+  await widgets.clear().catch(() => undefined);
   await SecureStore.deleteItemAsync(STORED_KEY);
   useSession.setState({ status: "signedOut" });
 }

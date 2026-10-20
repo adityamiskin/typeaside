@@ -65,6 +65,7 @@ function NoteEditor({
   autoDictate: boolean;
 }) {
   const router = useRouter();
+  const close = () => router.dismissTo("/notes");
   const insets = useSafeAreaInsets();
   const keyboard = useKeyboardHeight();
   const colors = useColors();
@@ -138,18 +139,13 @@ function NoteEditor({
           <>
             {pin}
             {share}
-            <Pressable hitSlop={10} style={styles.trailing} onPress={() => router.back()}>
+            <Pressable hitSlop={10} style={styles.trailing} onPress={close}>
               <Text style={[styles.done, { color: colors.accent }]}>Done</Text>
             </Pressable>
           </>
         ) : (
           <>
-            <IconButton
-              label="Back"
-              ios="chevron.left"
-              android="arrow_back"
-              onPress={() => router.back()}
-            />
+            <IconButton label="Back" ios="chevron.left" android="arrow_back" onPress={close} />
             <View style={styles.trailing} />
             {pin}
             {share}
@@ -191,12 +187,12 @@ function NoteEditor({
           onArchive={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             update({ archived: !draft.archived, pinned: false }, { now: true });
-            router.back();
+            close();
           }}
           onDelete={() =>
             actions.confirmDelete([draft.id], () => {
               discard();
-              router.back();
+              close();
             })
           }
           onDictated={(dictated) =>

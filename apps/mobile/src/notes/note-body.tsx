@@ -32,7 +32,7 @@ export function NoteBody({
   const ink = { color: colors.text };
   const faint = { color: colors.tertiary };
   // Keep dims checked items only to the secondary ink so they stay readable on any note color.
-  const done = [styles.checked, { color: colors.secondary }];
+  const done = [styles.checked, { color: colors.secondary, textDecorationColor: colors.secondary }];
   const [editAt, setEditAt] = useState<number | null>(startEditing ? text.length : null);
   const input = useRef<TextInputInstance>(null);
   const lines = text.split("\n");
