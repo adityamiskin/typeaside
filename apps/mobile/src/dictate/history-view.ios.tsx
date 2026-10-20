@@ -9,13 +9,12 @@ import {
   onTapGesture,
   padding,
 } from "@expo/ui/swift-ui/modifiers";
-import { Stack } from "expo-router";
 import { useEffect, useState } from "react";
 import { PlatformColor, Text as NativeText, View } from "react-native";
-import { groupByDay, takeMeta, takeText, usageText } from "./format";
+import { groupByDay, takeMeta, takeText } from "./format";
 import type { HistoryViewProps } from "./history-view";
 
-export function HistoryView({ takes, onCopy, actions, usage, copied }: HistoryViewProps) {
+export function HistoryView({ takes, onCopy, actions, copied }: HistoryViewProps) {
   const [notice, setNotice] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -25,16 +24,6 @@ export function HistoryView({ takes, onCopy, actions, usage, copied }: HistoryVi
   }, [copied]);
   return (
     <View style={{ flex: 1 }}>
-      <Stack.Screen
-        options={{
-          headerRight: () =>
-            usage ? (
-              <NativeText style={{ color: PlatformColor("secondaryLabel"), fontSize: 15 }}>
-                {usageText(usage)}
-              </NativeText>
-            ) : null,
-        }}
-      />
       <Host style={{ flex: 1 }}>
         {takes.length === 0 ? (
           <VStack

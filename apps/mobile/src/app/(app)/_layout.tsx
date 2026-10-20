@@ -18,25 +18,26 @@ import {
 } from "@expo/ui/jetpack-compose/modifiers";
 import { api } from "@typeaside/backend/convex/_generated/api";
 import { useQuery } from "convex/react";
-import { usePathname, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Drawer } from "expo-router/drawer";
 import { useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usageProgress } from "@/account/account";
 import { usageText } from "@/dictate/format";
 import { icons } from "@/ui/icons";
+import { TabHeader } from "@/ui/tab-header";
 import { seedColor } from "@/ui/theme";
 
 export default function AppLayout() {
   const material = useMaterialColors({ seedColor });
-  const pathname = usePathname();
   const { width } = useWindowDimensions();
   return (
     <Drawer
       screenOptions={{
-        headerShown: false,
+        headerShown: true,
+        header: ({ navigation }) => <TabHeader onMenu={() => navigation.openDrawer()} />,
         drawerType: "front",
-        swipeEnabled: pathname === "/notes",
+        swipeEnabled: true,
         swipeEdgeWidth: 24,
         overlayColor: "#00000066",
         drawerStyle: {
@@ -63,8 +64,8 @@ function NavigationDrawer({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const progress = account && usageProgress(account.usage);
   return (
-    <Host style={{ flex: 1, paddingTop: insets.top }} seedColor={seedColor}>
-      <Column>
+    <Host style={{ flex: 1 }} seedColor={seedColor}>
+      <Column modifiers={[padding(0, insets.top, 0, insets.bottom)]}>
         <Column verticalArrangement={{ spacedBy: 8 }} modifiers={[padding(28, 24, 28, 24)]}>
           <Text style={{ typography: "titleLarge" }}>TypeAside</Text>
           {account && (

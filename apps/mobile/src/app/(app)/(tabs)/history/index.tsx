@@ -1,5 +1,5 @@
 import { api } from "@typeaside/backend/convex/_generated/api";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
@@ -14,7 +14,6 @@ import { transcribe } from "@/lib/recorder";
 
 export default function HistoryScreen() {
   const { takes, update, remove } = useTakes();
-  const account = useQuery(api.viewer.current);
   const saveNote = useMutation(api.notes.save);
   const [copied, setCopied] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -89,15 +88,7 @@ export default function HistoryScreen() {
     ];
   }
 
-  return (
-    <HistoryView
-      takes={takes}
-      copied={copied}
-      onCopy={copy}
-      actions={actions}
-      usage={account?.usage}
-    />
-  );
+  return <HistoryView takes={takes} copied={copied} onCopy={copy} actions={actions} />;
 }
 
 function describe(error: unknown) {

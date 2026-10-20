@@ -11,7 +11,6 @@ import {
 import { foregroundStyle, onSubmit, submitLabel } from "@expo/ui/swift-ui/modifiers";
 import { api } from "@typeaside/backend/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
-import { Stack } from "expo-router";
 import { useState } from "react";
 import { Alert } from "react-native";
 
@@ -37,13 +36,6 @@ export default function DictionaryScreen() {
   }
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: "Dictionary",
-          headerLargeTitle: true,
-        }}
-      />
       <Host style={{ flex: 1 }}>
         <List>
           <Section>

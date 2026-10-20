@@ -34,7 +34,6 @@ import { noteColors as noteColorNames } from "@typeaside/backend/convex/noteColo
 import * as Haptics from "expo-haptics";
 import { useEffect, useState } from "react";
 import { BackHandler, useColorScheme, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { icons } from "@/ui/icons";
 import { seedColor, useColors, useNoteColors } from "@/ui/theme";
 import type { NoteActions } from "./actions";
@@ -44,8 +43,6 @@ const PREVIEW_LINES = 8;
 const PREVIEW_ITEMS = 6;
 
 export type NotesViewProps = {
-  onMenu: () => void;
-  onAccount: () => void;
   notes: Note[];
   empty: EmptyState | undefined;
   archive: boolean;
@@ -58,14 +55,12 @@ export type NotesViewProps = {
 };
 
 export function NotesView(props: NotesViewProps) {
-  const insets = useSafeAreaInsets();
   const colors = useColors();
   const dark = useColorScheme() === "dark";
   return (
     <View
       style={{
         flex: 1,
-        paddingTop: insets.top,
         backgroundColor: dark ? "#000" : colors.background,
       }}
     >
@@ -77,7 +72,6 @@ export function NotesView(props: NotesViewProps) {
 }
 
 function NotesList({
-  onMenu,
   notes,
   empty,
   archive,
@@ -124,9 +118,7 @@ function NotesList({
           >
             <DockedSearchBar onQueryChange={onSearch} modifiers={[weight(1)]}>
               <DockedSearchBar.LeadingIcon>
-                <IconButton onClick={onMenu}>
-                  <Icon source={icons.menu} size={24} contentDescription="Open menu" />
-                </IconButton>
+                <Icon source={icons.search} size={24} />
               </DockedSearchBar.LeadingIcon>
               <DockedSearchBar.Placeholder>
                 <Text>{archive ? "Search archive" : "Search notes"}</Text>

@@ -8,7 +8,6 @@ import {
   IconButton,
   LazyColumn,
   ListItem,
-  Row,
   SnackbarHost,
   type SnackbarHostRef,
   Text,
@@ -24,46 +23,30 @@ import {
 } from "@expo/ui/jetpack-compose/modifiers";
 import { useEffect, useRef, useState } from "react";
 import { useColorScheme, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Account } from "@/account/account";
 import { icons } from "@/ui/icons";
 import { seedColor } from "@/ui/theme";
-import { type Action, groupByDay, takeMeta, takeText, usageText } from "./format";
+import { type Action, groupByDay, takeMeta, takeText } from "./format";
 import type { Take } from "./takes";
 
 export type HistoryViewProps = {
   takes: Take[];
   onCopy: (take: Take) => void;
   actions: (take: Take) => Action[];
-  usage: Account["usage"] | undefined;
   copied: number;
 };
 
-export function HistoryView({ takes, onCopy, actions, usage, copied }: HistoryViewProps) {
+export function HistoryView({ takes, onCopy, actions, copied }: HistoryViewProps) {
   const material = useMaterialColors({ seedColor });
-  const insets = useSafeAreaInsets();
   const dark = useColorScheme() === "dark";
   const snackbar = useRef<SnackbarHostRef>(null);
   useEffect(() => {
     if (copied) void snackbar.current?.showSnackbar({ message: "Copied", duration: "short" });
   }, [copied]);
   return (
-    <View
-      style={{ flex: 1, paddingTop: insets.top, backgroundColor: dark ? "#000" : material.surface }}
-    >
+    <View style={{ flex: 1, backgroundColor: dark ? "#000" : material.surface }}>
       <Host style={{ flex: 1 }} seedColor={seedColor}>
         <Box modifiers={[fillMaxSize()]}>
           <Column modifiers={[fillMaxSize()]}>
-            <Row verticalAlignment="center" modifiers={[fillMaxWidth(), padding(16, 24, 16, 16)]}>
-              <Text style={{ typography: "headlineLarge" }} modifiers={[weight(1)]}>
-                History
-              </Text>
-              {usage && (
-                <Text color={material.onSurfaceVariant} style={{ typography: "labelLarge" }}>
-                  {usageText(usage)}
-                </Text>
-              )}
-            </Row>
             {takes.length === 0 ? (
               <Box
                 contentAlignment="center"
