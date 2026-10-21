@@ -62,32 +62,6 @@ pub(super) const RUNTIME: Option<Asset> = Some(Asset {
 )))]
 pub(super) const RUNTIME: Option<Asset> = None;
 
-pub(super) const PARAKEET_V2: [Asset; 4] = [
-    Asset {
-        name: "decoder_joint-model.int8.onnx",
-        url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85/decoder_joint-model.int8.onnx",
-        sha256: "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3",
-        size: 8998286,
-    },
-    Asset {
-        name: "encoder-model.int8.onnx",
-        url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85/encoder-model.int8.onnx",
-        sha256: "3e0581fda6ab843888b51e56d7ee78b6d5bc3237ec113af1f732d1d5286aa155",
-        size: 652184014,
-    },
-    Asset {
-        name: "nemo128.onnx",
-        url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/nemo128.onnx",
-        sha256: "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f",
-        size: 139764,
-    },
-    Asset {
-        name: "vocab.txt",
-        url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85/vocab.txt",
-        sha256: "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
-        size: 9384,
-    },
-];
 pub(super) const MOONSHINE_BASE: [Asset; 3] = [
     Asset {
         name: "encoder_model_quantized.onnx",

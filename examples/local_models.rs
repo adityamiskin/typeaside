@@ -82,7 +82,7 @@ fn main() -> Result<()> {
     {
         count += 1;
         for (language, path) in [("en", &args[0]), ("fr", &args[1])] {
-            if language != "en" && matches!(model, ModelId::ParakeetV2 | ModelId::MoonshineBase) {
+            if language != "en" && matches!(model, ModelId::MoonshineBase) {
                 continue;
             }
             let samples = wav::read_wav(Path::new(path))?;
