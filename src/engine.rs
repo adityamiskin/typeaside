@@ -899,7 +899,9 @@ fn run(
                             String::new()
                         };
                         context = (start_mode, app, selection);
-                        if config.transcription == crate::config::Source::Local {
+                        if config.transcription == crate::config::Source::Local
+                            || crate::http::past_limit()
+                        {
                             crate::local::prewarm(&config);
                         }
                         crate::http::prewarm(&config);

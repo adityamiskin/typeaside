@@ -100,7 +100,14 @@ impl Overlay {
             Phase::Error(message) => Visual::Error(message),
             Phase::LimitReached { resets_at } => Visual::Upgrade {
                 title: "Weekly limit reached".into(),
-                detail: format!("Resets {}. This recording is saved.", resets(resets_at)),
+                detail: if typeaside::local::AVAILABLE {
+                    format!(
+                        "Resets {}. This recording is saved. Add an on-device model in Settings to keep dictating.",
+                        resets(resets_at)
+                    )
+                } else {
+                    format!("Resets {}. This recording is saved.", resets(resets_at))
+                },
                 used: 1.,
             },
             Phase::Idle if matches!(self.phase, Visual::Listening | Visual::Paused) => {
@@ -424,7 +431,10 @@ impl Render for Overlay {
 
         let scale = self.scale.value;
         let width = self.width.value * scale;
-        let card_height = if matches!(self.phase, Visual::Upgrade { .. }) {
+        // The limit card's detail wraps to a second line.
+        let card_height = if matches!(self.phase, Visual::Upgrade { used, .. } if used >= 1.) {
+            148.
+        } else if matches!(self.phase, Visual::Upgrade { .. }) {
             132.
         } else {
             PILL_HEIGHT

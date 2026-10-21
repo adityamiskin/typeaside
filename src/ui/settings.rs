@@ -1225,6 +1225,13 @@ impl MainWindow {
                 ]);
             }
             models.push(panel(transcription, p));
+        } else if typeaside::local::AVAILABLE {
+            let mut local = vec![
+                Setting::new("On-device models")
+                    .description("Dictate offline and past the weekly limit."),
+            ];
+            local.extend(model_rows);
+            models.push(panel(local, p));
         }
         if c.transcription != Source::Hosted {
             let mut editing = vec![
