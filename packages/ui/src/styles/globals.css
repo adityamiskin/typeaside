@@ -18,6 +18,20 @@
   --success: #3d7d55;
   --destructive: #b4473a;
 }
+:root.dark {
+  color-scheme: dark;
+  --background: #000;
+  --surface: #0e0e10;
+  --foreground: #f2f2f3;
+  --muted-foreground: #9b9da4;
+  --faint: #66686f;
+  --divider: #1f2024;
+  --border: #1f2024;
+  --accent: #f2f2f3;
+  --on-accent: #000;
+  --success: #5fb27f;
+  --destructive: #e0715f;
+}
 :root {
   --card: var(--surface);
   --card-foreground: var(--foreground);

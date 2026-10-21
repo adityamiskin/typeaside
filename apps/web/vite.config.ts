@@ -24,9 +24,9 @@ export default defineConfig(({ mode }) => {
             OnceExit(root, { result }) {
               const file = result.opts.from?.split("?")[0];
               const scope = file?.endsWith("/src/styles/docs.css")
-                ? "html.typeaside-docs"
+                ? "html[data-docs]"
                 : file?.endsWith("/src/index.css")
-                  ? "html:not(.typeaside-docs)"
+                  ? "html:not([data-docs])"
                   : undefined;
               if (!scope) return;
               root.walkRules((rule) => {

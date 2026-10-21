@@ -9,7 +9,7 @@ import {
   SheetClose,
 } from "@typeaside/ui/components/sheet";
 import { useEffect, useState } from "react";
-import { Menu } from "lucide-react";
+import { Menu, Moon, Sun } from "lucide-react";
 import { auth } from "../integrations/auth";
 import { comingSoon, useOS } from "../lib/downloads";
 
@@ -68,38 +68,61 @@ export function Header() {
           <Logo />
           TypeAside
         </a>
-        {navLinks.map((link) => (
-          <a className="link opt" key={link.label} href={link.href}>
-            {link.label}
+        <div className="nav-links">
+          {navLinks.map((link) => (
+            <a className="link" key={link.label} href={link.href}>
+              {link.label}
+            </a>
+          ))}
+        </div>
+        <div className="nav-actions">
+          <a className="link" href={accountLink.href}>
+            {accountLink.label}
           </a>
-        ))}
-        <a className="link" href={accountLink.href}>
-          {accountLink.label}
-        </a>
-        <a className="btn sm" href="/download">
-          Download
-        </a>
-        <Sheet>
-          <SheetTrigger
-            render={
-              <Button variant="ghost" size="icon" className="mobile-menu" aria-label="Open menu" />
-            }
-          >
-            <Menu />
-            {isNotes && <span className="notes-menu-label">Menu</span>}
-          </SheetTrigger>
-          <SheetContent className="menu-panel">
-            <SheetTitle className="logo">TypeAside</SheetTitle>
-            <SheetDescription className="sr-only">Site navigation</SheetDescription>
-            {[...navLinks, { label: "Download", href: "/download" }, accountLink].map((link) => (
-              <SheetClose nativeButton={false} key={link.label} render={<a href={link.href} />}>
-                {link.label}
-              </SheetClose>
-            ))}
-          </SheetContent>
-        </Sheet>
+          <ThemeToggle />
+          <a className="btn sm" href="/download">
+            Download
+          </a>
+          <Sheet>
+            <SheetTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="mobile-menu"
+                  aria-label="Open menu"
+                />
+              }
+            >
+              <Menu />
+              {isNotes && <span className="notes-menu-label">Menu</span>}
+            </SheetTrigger>
+            <SheetContent className="menu-panel">
+              <SheetTitle className="logo">TypeAside</SheetTitle>
+              <SheetDescription className="sr-only">Site navigation</SheetDescription>
+              {[...navLinks, { label: "Download", href: "/download" }, accountLink].map((link) => (
+                <SheetClose nativeButton={false} key={link.label} render={<a href={link.href} />}>
+                  {link.label}
+                </SheetClose>
+              ))}
+              <ThemeToggle />
+            </SheetContent>
+          </Sheet>
+        </div>
       </nav>
     </header>
+  );
+}
+function ThemeToggle() {
+  const toggle = () => {
+    const dark = document.documentElement.classList.toggle("dark");
+    localStorage.setItem("theme", dark ? "dark" : "light");
+  };
+  return (
+    <button type="button" className="theme-toggle" aria-label="Toggle dark mode" onClick={toggle}>
+      <Sun className="sun" />
+      <Moon className="moon" />
+    </button>
   );
 }
 export function DownloadButton() {
