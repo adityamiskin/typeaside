@@ -103,7 +103,7 @@ pub fn run(
                 Ok(output)
             }
             Err(error) if mode == Mode::Dictate && offline(&error) && crate::local::installed() => {
-                let raw = crate::local::transcribe(audio)?;
+                let raw = crate::local::transcribe(config, audio)?;
                 Ok(Output {
                     text: snippets::expand(
                         &cleanup::remove_fillers(&raw, config.language.as_deref()),
@@ -133,12 +133,12 @@ pub fn run(
     let (raw, local) = match config.transcription {
         Source::Local if mode == Mode::Command => anyhow::bail!(LOCAL_COMMAND),
         Source::Local if mode == Mode::Translate => anyhow::bail!(LOCAL_TRANSLATE),
-        Source::Local => (crate::local::transcribe(audio)?, true),
+        Source::Local => (crate::local::transcribe(config, audio)?, true),
         Source::Hosted => unreachable!("hosted requests return above"),
         Source::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),
             Err(error) if mode == Mode::Dictate && offline(&error) && crate::local::installed() => {
-                (crate::local::transcribe(audio)?, true)
+                (crate::local::transcribe(config, audio)?, true)
             }
             Err(error) => return Err(error),
         },

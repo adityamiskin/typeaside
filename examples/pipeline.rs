@@ -372,7 +372,9 @@ fn main() -> Result<()> {
                 cancel.store(true, std::sync::atomic::Ordering::Relaxed);
             });
         }
-        return typeaside::local::download(&cancel, |percent| eprintln!("Downloading {percent}%"));
+        return typeaside::local::download(Default::default(), &cancel, |percent| {
+            eprintln!("Downloading {percent}%")
+        });
     }
     let paths = AppPaths::discover()?;
     if input == "--fixtures" {

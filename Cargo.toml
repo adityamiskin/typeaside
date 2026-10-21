@@ -17,6 +17,8 @@ semver = "1"
 tokio = { version = "1", features = ["rt", "time", "macros"] }
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-24"] }
 ndarray = "0.17"
+rustfft = "6"
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 flate2 = "1"
 tar = "0.4"
 zip = { version = "4", default-features = false, features = ["deflate"] }
