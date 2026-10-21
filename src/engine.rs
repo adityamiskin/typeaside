@@ -547,7 +547,7 @@ fn run(
                     }
                     continue;
                 }
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
                 HotkeyEvent::Interrupt if recorder.is_some() => Command::Cancel,
                 HotkeyEvent::Main(pressed)
                 | HotkeyEvent::Command(pressed)

@@ -46,6 +46,7 @@ pub enum HotkeyEvent {
     Translate(bool),
     Pause(bool),
     Note(bool),
+    Interrupt,
 }
 
 pub struct HotkeyService {
@@ -56,6 +57,7 @@ pub struct HotkeyService {
 struct Combo {
     keys: Vec<Vec<KeyCode>>,
     active: bool,
+    interrupted: bool,
     tap: Option<super::double_tap::DoubleTap>,
     event: fn(bool) -> HotkeyEvent,
 }
@@ -90,6 +92,7 @@ impl Combo {
         Ok(Self {
             keys,
             active: false,
+            interrupted: false,
             tap: double.then(super::double_tap::DoubleTap::default),
             event,
         })
@@ -271,16 +274,52 @@ fn keyboards(combos: &[Combo]) -> Vec<(PathBuf, evdev::Device)> {
         .collect()
 }
 
+fn modifier(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::KEY_LEFTCTRL
+            | KeyCode::KEY_RIGHTCTRL
+            | KeyCode::KEY_LEFTALT
+            | KeyCode::KEY_RIGHTALT
+            | KeyCode::KEY_LEFTSHIFT
+            | KeyCode::KEY_RIGHTSHIFT
+            | KeyCode::KEY_LEFTMETA
+            | KeyCode::KEY_RIGHTMETA
+    )
+}
+
 fn update_combos(combos: &mut [Combo], pressed: &[HashSet<KeyCode>], emit: &impl Fn(HotkeyEvent)) {
+    let down = |key: &KeyCode| pressed.iter().any(|keys| keys.contains(key));
+    let complete = |combo: &Combo| combo.keys.iter().all(|group| group.iter().any(down));
+    let shortcut = pressed.iter().flatten().any(|key| {
+        !modifier(*key)
+            && !combos
+                .iter()
+                .any(|combo| complete(combo) && combo.keys.iter().any(|group| group.contains(key)))
+    });
+    let mut interrupt = false;
     for combo in combos {
         if combo.tap.is_some() {
             continue;
         }
-        let active = combo.keys.iter().all(|group| {
-            group
-                .iter()
-                .any(|key| pressed.iter().any(|keys| keys.contains(key)))
-        });
+        let active = complete(combo);
+        if !active {
+            combo.interrupted = false;
+        } else if shortcut
+            && combo.keys.len() == 1
+            && combo.keys[0].iter().all(|key| modifier(*key))
+            && matches!(
+                (combo.event)(true),
+                HotkeyEvent::Main(_) | HotkeyEvent::Command(_) | HotkeyEvent::Translate(_)
+            )
+        {
+            interrupt |= combo.active && !combo.interrupted;
+            combo.interrupted = true;
+        }
+        // Keep the physical release event, but never restart a canceled hold.
+        if combo.interrupted {
+            continue;
+        }
         if active != combo.active {
             combo.active = active;
             let event = (combo.event)(active);
@@ -288,5 +327,92 @@ fn update_combos(combos: &mut [Combo], pressed: &[HashSet<KeyCode>], emit: &impl
                 emit(event);
             }
         }
+    }
+    if interrupt {
+        emit(HotkeyEvent::Interrupt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    #[test]
+    fn modifier_shortcut_interrupts_once_and_waits_for_release() {
+        let mut combos = [Combo::parse("RIGHTCTRL", HotkeyEvent::Main).unwrap()];
+        let events = RefCell::new(Vec::new());
+        let emit = |event| events.borrow_mut().push(event);
+        let mut pressed = [HashSet::from([KeyCode::KEY_RIGHTCTRL])];
+        update_combos(&mut combos, &pressed, &emit);
+        pressed[0].insert(KeyCode::KEY_C);
+        update_combos(&mut combos, &pressed, &emit);
+        update_combos(&mut combos, &pressed, &emit);
+        pressed[0].remove(&KeyCode::KEY_C);
+        update_combos(&mut combos, &pressed, &emit);
+        assert!(matches!(
+            events.borrow().as_slice(),
+            [HotkeyEvent::Main(true), HotkeyEvent::Interrupt]
+        ));
+        pressed[0].clear();
+        update_combos(&mut combos, &pressed, &emit);
+        pressed[0].insert(KeyCode::KEY_RIGHTCTRL);
+        update_combos(&mut combos, &pressed, &emit);
+        assert!(matches!(
+            events.borrow().as_slice(),
+            [
+                HotkeyEvent::Main(true),
+                HotkeyEvent::Interrupt,
+                HotkeyEvent::Main(false),
+                HotkeyEvent::Main(true)
+            ]
+        ));
+    }
+
+    #[test]
+    fn configured_chord_and_pause_do_not_interrupt_modifier() {
+        let mut combos = [
+            Combo::parse("RIGHTALT", HotkeyEvent::Main).unwrap(),
+            Combo::parse("RIGHTALT+C", HotkeyEvent::Command).unwrap(),
+            Combo::parse("SPACE", HotkeyEvent::Pause).unwrap(),
+        ];
+        let events = RefCell::new(Vec::new());
+        let emit = |event| events.borrow_mut().push(event);
+        let mut pressed = [HashSet::from([KeyCode::KEY_RIGHTALT])];
+        update_combos(&mut combos, &pressed, &emit);
+        for code in [KeyCode::KEY_LEFTSHIFT, KeyCode::KEY_C, KeyCode::KEY_SPACE] {
+            pressed[0].insert(code);
+            update_combos(&mut combos, &pressed, &emit);
+        }
+        assert!(
+            !events
+                .borrow()
+                .iter()
+                .any(|event| matches!(event, HotkeyEvent::Interrupt))
+        );
+        assert!(
+            events
+                .borrow()
+                .iter()
+                .any(|event| matches!(event, HotkeyEvent::Command(true)))
+        );
+        assert!(
+            events
+                .borrow()
+                .iter()
+                .any(|event| matches!(event, HotkeyEvent::Pause(true)))
+        );
+    }
+
+    #[test]
+    fn modifier_pressed_after_shortcut_key_does_not_start() {
+        let mut combos = [Combo::parse("RIGHTCTRL", HotkeyEvent::Main).unwrap()];
+        let events = RefCell::new(Vec::new());
+        let emit = |event| events.borrow_mut().push(event);
+        let mut pressed = [HashSet::from([KeyCode::KEY_C, KeyCode::KEY_RIGHTCTRL])];
+        update_combos(&mut combos, &pressed, &emit);
+        pressed[0].remove(&KeyCode::KEY_C);
+        update_combos(&mut combos, &pressed, &emit);
+        assert!(events.borrow().is_empty());
     }
 }
