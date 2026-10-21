@@ -105,7 +105,10 @@ pub fn run(
             Err(error) if mode == Mode::Dictate && offline(&error) && crate::local::installed() => {
                 let raw = crate::local::transcribe(audio)?;
                 Ok(Output {
-                    text: snippets::expand(&cleanup::remove_fillers(&raw), &config.snippets),
+                    text: snippets::expand(
+                        &cleanup::remove_fillers(&raw, config.language.as_deref()),
+                        &config.snippets,
+                    ),
                     raw,
                     delivery: Delivery::Insert,
                     stt: started.elapsed(),
@@ -150,7 +153,10 @@ pub fn run(
     } else if local {
         Answer {
             delivery: Delivery::Insert,
-            text: snippets::expand(&cleanup::remove_fillers(&raw), &config.snippets),
+            text: snippets::expand(
+                &cleanup::remove_fillers(&raw, config.language.as_deref()),
+                &config.snippets,
+            ),
         }
     } else if mode == Mode::Command {
         cleaning();

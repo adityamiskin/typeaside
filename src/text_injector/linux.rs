@@ -184,6 +184,7 @@ impl TextInjector {
     }
 
     fn combo(&mut self, modifiers: &[KeyCode], key: KeyCode) -> Result<()> {
+        wait_for_modifiers();
         let mut result = Ok(());
         for code in modifiers.iter().chain(std::iter::once(&key)) {
             if let Err(error) = self.device.emit(&[key_event(*code, 1)]) {
@@ -200,6 +201,36 @@ impl TextInjector {
             thread::sleep(Duration::from_millis(1));
         }
         result.context("failed to inject keyboard shortcut")
+    }
+}
+
+fn wait_for_modifiers() {
+    let devices: Vec<_> = crate::hotkeys::keyboards()
+        .map(|(_, device)| device)
+        .collect();
+    let deadline = Instant::now() + Duration::from_millis(400);
+    while devices.iter().any(|device| {
+        // EVIOCGKEY snapshots physical state without consuming hotkey events.
+        device.get_key_state().is_ok_and(|keys| {
+            [
+                KeyCode::KEY_LEFTCTRL,
+                KeyCode::KEY_RIGHTCTRL,
+                KeyCode::KEY_LEFTSHIFT,
+                KeyCode::KEY_RIGHTSHIFT,
+                KeyCode::KEY_LEFTALT,
+                KeyCode::KEY_RIGHTALT,
+                KeyCode::KEY_LEFTMETA,
+                KeyCode::KEY_RIGHTMETA,
+            ]
+            .iter()
+            .any(|key| keys.contains(*key))
+        })
+    }) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        thread::sleep(remaining.min(Duration::from_millis(10)));
     }
 }
 
