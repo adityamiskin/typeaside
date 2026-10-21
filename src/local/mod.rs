@@ -1,8 +1,12 @@
 mod assets;
+mod autoregressive;
+mod catalog;
+mod features;
 mod inference;
+pub use catalog::ModelId;
 
 use anyhow::{Context, Result, ensure};
-use assets::{MODEL, RUNTIME};
+use assets::RUNTIME;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -28,8 +32,8 @@ pub enum Status {
 }
 
 impl Status {
-    pub fn current() -> Self {
-        if installed() {
+    pub fn current(model: ModelId) -> Self {
+        if model.installed() {
             Self::Installed
         } else {
             Self::NotInstalled
@@ -37,10 +41,19 @@ impl Status {
     }
 }
 
-pub fn directory() -> Result<PathBuf> {
-    Ok(crate::paths::AppPaths::discover()?
-        .data_dir
-        .join("models/parakeet-v3"))
+fn models_directory() -> Result<PathBuf> {
+    Ok(crate::paths::AppPaths::discover()?.data_dir.join("models"))
+}
+fn runtime_directory() -> Result<PathBuf> {
+    Ok(models_directory()?.join("runtime"))
+}
+fn runtime_library() -> Result<PathBuf> {
+    let shared = runtime_directory()?.join(library_name());
+    if shared.exists() {
+        return Ok(shared);
+    }
+    // Existing v3 installations keep their runtime until a new download shares it.
+    Ok(ModelId::ParakeetV3.directory()?.join(library_name()))
 }
 
 fn library_name() -> &'static str {
@@ -53,14 +66,20 @@ fn library_name() -> &'static str {
     }
 }
 
-fn inventory(dir: &Path) -> Result<String> {
+fn inventory(model: ModelId, dir: &Path) -> Result<String> {
     let mut entries = Vec::new();
-    for name in MODEL
+    for name in model
+        .assets()
         .iter()
         .map(|asset| asset.name)
         .chain(std::iter::once(library_name()))
     {
-        let metadata = fs::metadata(dir.join(name))?;
+        let path = if name == library_name() {
+            runtime_library()?
+        } else {
+            dir.join(name)
+        };
+        let metadata = fs::metadata(path)?;
         entries.push((
             name,
             metadata.len(),
@@ -74,22 +93,7 @@ fn inventory(dir: &Path) -> Result<String> {
 }
 
 pub fn installed() -> bool {
-    AVAILABLE
-        && directory().is_ok_and(|dir| {
-            fs::read_to_string(dir.join("installed"))
-                .ok()
-                .zip(inventory(&dir).ok())
-                .is_some_and(|(saved, current)| saved == current)
-        })
-}
-
-pub fn download_size_mb() -> u64 {
-    MODEL
-        .iter()
-        .chain(&RUNTIME)
-        .map(|a| a.size)
-        .sum::<u64>()
-        .div_ceil(1_000_000)
+    ModelId::ALL.into_iter().any(ModelId::installed)
 }
 
 fn verify(path: &Path, expected: &str, cancel: &AtomicBool) -> Result<()> {
@@ -111,11 +115,11 @@ fn verify(path: &Path, expected: &str, cancel: &AtomicBool) -> Result<()> {
     Ok(())
 }
 
-pub fn download(cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()> {
+pub fn download(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
-        .block_on(download_async(cancel, progress))
+        .block_on(download_async(model, cancel, progress))
 }
 
 async fn cancelled(cancel: &AtomicBool) {
@@ -124,29 +128,48 @@ async fn cancelled(cancel: &AtomicBool) {
     }
 }
 
-async fn download_async(cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()> {
+async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()> {
     let Some(runtime) = &RUNTIME else {
         anyhow::bail!("On-device transcription is not available on this platform");
     };
-    let dir = directory()?;
+    let dir = model.directory()?;
     fs::create_dir_all(&dir)?;
     let _ = fs::remove_file(dir.join("installed"));
-    let total: u64 = MODEL.iter().chain(&RUNTIME).map(|a| a.size).sum();
+    let total: u64 = model.assets().iter().chain(&RUNTIME).map(|a| a.size).sum();
     let mut completed = 0;
     let mut last = std::time::Instant::now() - Duration::from_secs(1);
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(1800))
         .build()?;
-    for asset in MODEL.iter().chain(&RUNTIME) {
+    for asset in model.assets().iter().chain(&RUNTIME) {
+        let target = if asset.name == runtime.name {
+            runtime_directory()?
+        } else {
+            dir.clone()
+        };
+        fs::create_dir_all(&target)?;
         ensure!(!cancel.load(Ordering::Relaxed), "Download cancelled");
-        let final_path = dir.join(asset.name);
+        let final_path = target.join(asset.name);
+        if asset.name == runtime.name && runtime_library()?.exists() {
+            let shared = runtime_directory()?.join(library_name());
+            if !shared.exists() {
+                let legacy = runtime_library()?;
+                fs::copy(&legacy, &shared)?;
+                // Preserve the inventory recorded by single-model installations.
+                File::options().write(true).open(&shared)?.set_times(
+                    fs::FileTimes::new().set_modified(fs::metadata(legacy)?.modified()?),
+                )?;
+            }
+            completed += asset.size;
+            continue;
+        }
         if verify(&final_path, asset.sha256, cancel).is_ok() {
             completed += asset.size;
             continue;
         }
         ensure!(!cancel.load(Ordering::Relaxed), "Download cancelled");
-        let part = dir.join(format!("{}.part", asset.name));
+        let part = target.join(format!("{}.part", asset.name));
         let mut output = File::create(&part)?;
         let mut response = tokio::select! {
             result = client.get(asset.url).send() => result?.error_for_status()?,
@@ -172,40 +195,44 @@ async fn download_async(cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()
         verify(&part, asset.sha256, cancel)?;
         fs::rename(part, final_path)?;
     }
-    let archive = dir.join(runtime.name);
-    if runtime.name.ends_with(".zip") {
-        let mut zip = zip::ZipArchive::new(File::open(&archive)?)?;
-        for i in 0..zip.len() {
-            let mut entry = zip.by_index(i)?;
-            if Path::new(entry.name())
-                .file_name()
-                .is_some_and(|n| n == library_name())
-            {
-                let mut out = File::create(dir.join(format!("{}.part", library_name())))?;
-                std::io::copy(&mut entry, &mut out)?;
-            }
-        }
-    } else {
-        let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(File::open(&archive)?));
-        for entry in tar.entries()? {
-            let mut entry = entry?;
-            if entry.header().entry_type().is_file()
-                && entry
-                    .path()?
+    let runtime_dir = runtime_directory()?;
+    let archive = runtime_dir.join(runtime.name);
+    if archive.exists() {
+        if runtime.name.ends_with(".zip") {
+            let mut zip = zip::ZipArchive::new(File::open(&archive)?)?;
+            for i in 0..zip.len() {
+                let mut entry = zip.by_index(i)?;
+                if Path::new(entry.name())
                     .file_name()
                     .is_some_and(|n| n == library_name())
-            {
-                entry.unpack(dir.join(format!("{}.part", library_name())))?;
+                {
+                    let mut out =
+                        File::create(runtime_dir.join(format!("{}.part", library_name())))?;
+                    std::io::copy(&mut entry, &mut out)?;
+                }
+            }
+        } else {
+            let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(File::open(&archive)?));
+            for entry in tar.entries()? {
+                let mut entry = entry?;
+                if entry.header().entry_type().is_file()
+                    && entry
+                        .path()?
+                        .file_name()
+                        .is_some_and(|n| n == library_name())
+                {
+                    entry.unpack(runtime_dir.join(format!("{}.part", library_name())))?;
+                }
             }
         }
+        ensure!(!cancel.load(Ordering::Relaxed), "Download cancelled");
+        fs::rename(
+            runtime_dir.join(format!("{}.part", library_name())),
+            runtime_dir.join(library_name()),
+        )?;
+        fs::remove_file(archive)?;
     }
-    ensure!(!cancel.load(Ordering::Relaxed), "Download cancelled");
-    fs::rename(
-        dir.join(format!("{}.part", library_name())),
-        dir.join(library_name()),
-    )?;
-    fs::remove_file(archive)?;
-    fs::write(dir.join("installed.part"), inventory(&dir)?)?;
+    fs::write(dir.join("installed.part"), inventory(model, &dir)?)?;
     fs::rename(dir.join("installed.part"), dir.join("installed"))?;
     progress(100);
     Ok(())
@@ -213,6 +240,8 @@ async fn download_async(cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()
 
 struct Worker {
     child: Child,
+    model: ModelId,
+    language: Option<String>,
     requests: Option<mpsc::Sender<Vec<f32>>>,
     responses: mpsc::Receiver<Result<String, String>>,
     io: Option<std::thread::JoinHandle<()>>,
@@ -228,10 +257,16 @@ impl Drop for Worker {
     }
 }
 impl Worker {
-    fn start() -> Result<Self> {
+    fn start(model: ModelId, language: Option<String>) -> Result<Self> {
         let executable = std::env::current_exe()?;
         let mut child = Command::new(executable)
             .arg("--local-worker")
+            .args(["--local-model", model.key()])
+            .args(
+                language
+                    .iter()
+                    .flat_map(|lang| ["--local-language", lang.as_str()]),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
@@ -273,6 +308,8 @@ impl Worker {
         });
         let worker = Self {
             child,
+            model,
+            language,
             requests: Some(requests),
             responses,
             io: Some(io),
@@ -299,8 +336,8 @@ impl Worker {
 
 type Reply = mpsc::SyncSender<std::result::Result<String, String>>;
 enum Request {
-    Warm,
-    Transcribe(Vec<f32>, Reply),
+    Warm(ModelId, Option<String>),
+    Transcribe(ModelId, Option<String>, Vec<f32>, Reply),
     Unload(mpsc::SyncSender<()>),
 }
 fn sender() -> &'static mpsc::Sender<Request> {
@@ -308,18 +345,26 @@ fn sender() -> &'static mpsc::Sender<Request> {
     SENDER.get_or_init(|| {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut worker = None;
+            let mut worker: Option<Worker> = None;
             loop {
                 match rx.recv_timeout(Duration::from_secs(300)) {
-                    Ok(Request::Warm) => {
-                        if worker.is_none() {
-                            worker = Worker::start().ok();
+                    Ok(Request::Warm(model, language)) => {
+                        if worker
+                            .as_ref()
+                            .is_none_or(|w| w.model != model || w.language != language)
+                        {
+                            drop(worker.take());
+                            worker = Worker::start(model, language).ok();
                         }
                     }
-                    Ok(Request::Transcribe(audio, reply)) => {
+                    Ok(Request::Transcribe(model, language, audio, reply)) => {
                         let result = (|| {
-                            if worker.is_none() {
-                                worker = Some(Worker::start()?);
+                            if worker
+                                .as_ref()
+                                .is_none_or(|w| w.model != model || w.language != language)
+                            {
+                                drop(worker.take());
+                                worker = Some(Worker::start(model, language)?);
                             }
                             worker
                                 .as_mut()
@@ -346,9 +391,9 @@ fn sender() -> &'static mpsc::Sender<Request> {
     })
 }
 
-pub fn prewarm() {
-    if installed() {
-        let _ = sender().send(Request::Warm);
+pub fn prewarm(config: &crate::config::AppConfig) {
+    if let Some(model) = config.local_model.available() {
+        let _ = sender().send(Request::Warm(model, config.language.clone()));
     }
 }
 pub fn unload() {
@@ -357,32 +402,51 @@ pub fn unload() {
         let _ = rx.recv();
     }
 }
-pub fn remove() -> Result<()> {
+pub fn remove(model: ModelId) -> Result<()> {
     unload();
-    let dir = directory()?;
+    let dir = model.directory()?;
     if dir.exists() {
         fs::remove_dir_all(dir)?;
     }
     Ok(())
 }
-pub fn transcribe(audio: &[f32]) -> Result<String> {
-    ensure!(
-        installed(),
-        "Download the on-device model in Settings first"
-    );
+pub fn transcribe(config: &crate::config::AppConfig, audio: &[f32]) -> Result<String> {
+    let model = config
+        .local_model
+        .available()
+        .context("Download an on-device model in Settings first")?;
+    transcribe_model(model, config.language.clone(), audio)
+}
+pub fn transcribe_model(model: ModelId, language: Option<String>, audio: &[f32]) -> Result<String> {
+    ensure!(model.installed(), "Model is not installed");
     let (tx, rx) = mpsc::sync_channel(1);
-    sender().send(Request::Transcribe(audio.to_vec(), tx))?;
+    sender().send(Request::Transcribe(model, language, audio.to_vec(), tx))?;
     rx.recv()?.map_err(anyhow::Error::msg)
 }
 
 pub fn worker_main() -> Result<()> {
-    let dir = directory()?;
+    let option = |flag: &str| std::env::args().skip_while(|arg| arg != flag).nth(1);
+    let model: ModelId = option("--local-model")
+        .map(|key| key.parse())
+        .transpose()?
+        .unwrap_or_default();
+    let language = option("--local-language");
+    let dir = model.directory()?;
     ensure!(
-        installed(),
+        model.installed(),
         "On-device model is missing or has changed; download it again"
     );
-    ort::init_from(dir.join(library_name()))?.commit();
-    let mut model = inference::Model::load(&dir)?;
+    ort::init_from(runtime_library()?)?.commit();
+    let mut model = match model {
+        ModelId::ParakeetV3 | ModelId::ParakeetV2 => {
+            Engine::Parakeet(Box::new(inference::Model::load(&dir)?))
+        }
+        _ => Engine::Autoregressive(Box::new(autoregressive::Model::load(
+            model,
+            &dir,
+            language.as_deref(),
+        )?)),
+    };
     let mut output = std::io::stdout().lock();
     writeln!(
         output,
@@ -411,4 +475,17 @@ pub fn worker_main() -> Result<()> {
         output.flush()?;
     }
     Ok(())
+}
+
+enum Engine {
+    Parakeet(Box<inference::Model>),
+    Autoregressive(Box<autoregressive::Model>),
+}
+impl Engine {
+    fn transcribe(&mut self, samples: Vec<f32>) -> Result<String> {
+        match self {
+            Self::Parakeet(model) => model.transcribe(samples),
+            Self::Autoregressive(model) => model.transcribe(&samples),
+        }
+    }
 }

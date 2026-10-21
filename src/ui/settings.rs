@@ -18,7 +18,7 @@ use std::sync::{
 };
 use typeaside::{
     config::{AppConfig, HistoryRetention, RecordingMode, Source, Theme},
-    local::Status,
+    local::{ModelId, Status},
 };
 
 const HISTORY_RETENTION: [(HistoryRetention, &str); 4] = [
@@ -973,19 +973,22 @@ impl MainWindow {
                 ),
         ]
     }
-    fn download_model(&mut self, cx: &mut Context<Self>) {
+    fn download_model(&mut self, model: ModelId, cx: &mut Context<Self>) {
+        if self.state.read(cx).model_cancel.is_some() {
+            return;
+        }
         let cancel = Arc::new(AtomicBool::new(false));
         let (progress_tx, progress_rx) = async_channel::unbounded();
         let task = cx.background_executor().spawn({
             let cancel = cancel.clone();
             async move {
-                typeaside::local::download(&cancel, move |percent| {
+                typeaside::local::download(model, &cancel, move |percent| {
                     let _ = progress_tx.try_send(percent);
                 })
             }
         });
         self.state.update(cx, |s, cx| {
-            s.model = Status::Downloading(0);
+            s.models[model.index()] = Status::Downloading(0);
             s.model_cancel = Some(cancel);
             cx.notify();
         });
@@ -993,7 +996,7 @@ impl MainWindow {
         cx.spawn(async move |_, cx| {
             while let Ok(percent) = progress_rx.recv().await {
                 state.update(cx, |s, cx| {
-                    s.model = Status::Downloading(percent);
+                    s.models[model.index()] = Status::Downloading(percent);
                     cx.notify();
                 });
             }
@@ -1003,8 +1006,14 @@ impl MainWindow {
                     .model_cancel
                     .take()
                     .is_some_and(|cancel| cancel.load(Ordering::Relaxed));
-                s.model = match result {
-                    Ok(()) => Status::Installed,
+                s.models[model.index()] = match result {
+                    Ok(()) => {
+                        if !s.config.local_model.installed() {
+                            s.config.local_model = model;
+                            s.persist();
+                        }
+                        Status::Installed
+                    }
                     Err(_) if cancelled => Status::NotInstalled,
                     Err(error) => {
                         eprintln!("typeaside model download: {error:#}");
@@ -1023,18 +1032,24 @@ impl MainWindow {
         }
     }
 
-    fn remove_model(&mut self, cx: &mut Context<Self>) {
+    fn remove_model(&mut self, model: ModelId, cx: &mut Context<Self>) {
         let state = self.state.clone();
         let task = cx
             .background_executor()
-            .spawn(async { typeaside::local::remove() });
+            .spawn(async move { typeaside::local::remove(model) });
         cx.spawn(async move |_, cx| {
             let result = task.await;
             state.update(cx, |s, cx| {
                 match result {
                     Ok(()) => {
-                        s.model = Status::NotInstalled;
-                        if s.config.transcription == Source::Local {
+                        s.models[model.index()] = Status::NotInstalled;
+                        if let Some(remaining) = ModelId::ALL
+                            .into_iter()
+                            .find(|m| s.models[m.index()] == Status::Installed)
+                        {
+                            s.config.local_model = remaining;
+                            s.persist();
+                        } else if s.config.transcription == Source::Local {
                             s.config.transcription = if s.account.is_some() {
                                 Source::Hosted
                             } else {
@@ -1069,7 +1084,8 @@ impl MainWindow {
         let c = s.config.clone();
         let testing = s.mic_testing;
         let level = s.level;
-        let model = s.model;
+        let statuses = s.models;
+        let downloading = s.model_cancel.is_some();
         // Account users get transcription and editing handled for them; the knobs sit behind Customize.
         let signed_in = s.account.is_some();
         let theme = segmented(
@@ -1096,59 +1112,92 @@ impl MainWindow {
             cx,
             |this, value, _, cx| this.state.update(cx, |s, _| s.config.mode = value),
         );
-        let (model_text, model_label, model_action): (_, _, fn(&mut Self, &mut Context<Self>)) =
-            match model {
-                Status::NotInstalled => (
-                    format!(
-                        "Parakeet v3, 25 languages, {} MB",
-                        typeaside::local::download_size_mb()
+        let active = if statuses[c.local_model.index()] == Status::Installed {
+            Some(c.local_model)
+        } else {
+            ModelId::ALL
+                .into_iter()
+                .find(|id| statuses[id.index()] == Status::Installed)
+        };
+        let model_rows = ModelId::ALL
+            .into_iter()
+            .map(|model| {
+                let status = statuses[model.index()];
+                let is_active = active == Some(model);
+                let label = match status {
+                    Status::NotInstalled => "Download",
+                    Status::Downloading(_) => "Cancel",
+                    Status::Installed if is_active => "Remove",
+                    Status::Installed => "Use",
+                    Status::Failed => "Retry",
+                };
+                let description = match status {
+                    Status::Downloading(percent) => format!(
+                        "{}, {} MB, {percent}%",
+                        model.description(),
+                        model.size_mb()
                     ),
-                    "Download",
-                    Self::download_model,
-                ),
-                Status::Downloading(percent) => (
-                    format!("Downloading {percent}%"),
-                    "Cancel",
-                    Self::cancel_model,
-                ),
-                Status::Installed => (
-                    "Installed, works offline".into(),
-                    "Remove",
-                    Self::remove_model,
-                ),
-                Status::Failed => (
-                    "Download failed, check your connection".into(),
-                    "Retry",
-                    Self::download_model,
-                ),
-            };
+                    Status::Failed => format!(
+                        "{}, {} MB. Download failed",
+                        model.description(),
+                        model.size_mb()
+                    ),
+                    _ => format!("{}, {} MB", model.description(), model.size_mb()),
+                };
+                Setting::new(if is_active {
+                    format!("● {}", model.label())
+                } else {
+                    model.label().to_owned()
+                })
+                .description(
+                    div()
+                        .when(status == Status::Failed, |text| text.text_color(p.red))
+                        .child(description),
+                )
+                .child(
+                    button(label, false, p)
+                        .id(model.key())
+                        .when(
+                            downloading
+                                && !matches!(status, Status::Downloading(_) | Status::Installed),
+                            |button| button.opacity(0.4),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if this.state.read(cx).is_demo {
+                                return;
+                            }
+                            match status {
+                                Status::Downloading(_) => this.cancel_model(cx),
+                                Status::Installed if is_active => this.remove_model(model, cx),
+                                Status::Installed => {
+                                    cx.background_executor()
+                                        .spawn(async { typeaside::local::unload() })
+                                        .detach();
+                                    this.state.update(cx, |s, cx| {
+                                        s.config.local_model = model;
+                                        s.persist();
+                                        cx.notify();
+                                    });
+                                }
+                                _ if !downloading => this.download_model(model, cx),
+                                _ => {}
+                            }
+                        })),
+                )
+            })
+            .collect::<Vec<_>>();
         let source = segmented(
             [
                 (Source::Hosted, "TypeAside account"),
                 (Source::OwnKey, "Own key"),
             ]
             .into_iter()
-            .chain((model == Status::Installed).then_some((Source::Local, "On device"))),
+            .chain(active.map(|_| (Source::Local, "On device"))),
             c.transcription,
             p,
             cx,
             |this, value, _, cx| this.state.update(cx, |s, _| s.config.transcription = value),
         );
-        let model_row = Setting::new("On-device model")
-            .description(
-                div()
-                    .when(model == Status::Failed, |text| text.text_color(p.red))
-                    .child(model_text),
-            )
-            .child(
-                button(model_label, false, p)
-                    .id("model-action")
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if !this.state.read(cx).is_demo {
-                            model_action(this, cx);
-                        }
-                    })),
-            );
         let own_key = c.transcription == Source::OwnKey;
         let mut models = Vec::new();
         if !signed_in {
@@ -1162,7 +1211,7 @@ impl MainWindow {
                     .child(source),
             ];
             if typeaside::local::AVAILABLE {
-                transcription.push(model_row);
+                transcription.extend(model_rows);
             }
             if own_key {
                 transcription.extend([
