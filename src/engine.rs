@@ -1030,7 +1030,7 @@ fn run(
                         Vec::new()
                     } else if tap {
                         stream = None;
-                        phase(&events, Phase::Idle);
+                        phase(&events, busy.map_or(Phase::Idle, |_| busy_phase.clone()));
                         continue;
                     } else if silent {
                         stream = None;
