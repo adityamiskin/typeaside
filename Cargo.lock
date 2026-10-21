@@ -7958,7 +7958,7 @@ dependencies = [
 
 [[package]]
 name = "typeaside"
-version = "0.2.36"
+version = "0.2.37"
 dependencies = [
  "anyhow",
  "arboard",
