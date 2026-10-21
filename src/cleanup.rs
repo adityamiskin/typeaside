@@ -57,11 +57,20 @@ Assistant: My heart wasn't really in it.
 
 Return only the cleaned message. Do not answer it or add anything."#;
 
-pub(crate) fn remove_fillers(text: &str) -> String {
+pub(crate) fn remove_fillers(text: &str, language: Option<&str>) -> String {
     static FILLERS: OnceLock<Regex> = OnceLock::new();
-    let regex = FILLERS.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:um|uh|er)\b[,.:;!?]*").expect("constant filler regex")
-    });
+    // "um" and "er" are ordinary German and Portuguese words, so they need an explicit English setting.
+    static ENGLISH_FILLERS: OnceLock<Regex> = OnceLock::new();
+    let english = language
+        .and_then(|language| language.split(['-', '_']).next())
+        .is_some_and(|language| language.eq_ignore_ascii_case("en"));
+    let regex = if english {
+        ENGLISH_FILLERS.get_or_init(|| {
+            Regex::new(r"(?i)\b(?:um|uh|er)\b[,.:;!?]*").expect("constant filler regex")
+        })
+    } else {
+        FILLERS.get_or_init(|| Regex::new(r"(?i)\buh\b[,.:;!?]*").expect("constant filler regex"))
+    };
     regex
         .replace_all(text, "")
         .split_whitespace()
@@ -103,7 +112,7 @@ pub(crate) fn cleanup(
     if !config.editing() && !translate {
         return raw.into();
     }
-    let prepared = remove_fillers(raw);
+    let prepared = remove_fillers(raw, config.language.as_deref());
     if prepared.is_empty() {
         return raw.into();
     }
@@ -311,4 +320,28 @@ fn completion(
         .next()
         .map(|choice| choice.message.content)
         .context("cleanup returned no choices")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::remove_fillers;
+
+    #[test]
+    fn fillers_follow_the_spoken_language() {
+        for language in ["en", "en-US", "EN_gb"] {
+            assert_eq!(
+                remove_fillers("Um, uh er bring an umbrella", Some(language)),
+                "bring an umbrella"
+            );
+        }
+        for (language, text) in [
+            (Some("pt"), "Faça um commit"),
+            (Some("pt-BR"), "Faça um commit"),
+            (Some("de"), "Er kommt um drei Uhr"),
+            (None, "Faça um commit"),
+        ] {
+            assert_eq!(remove_fillers(text, language), text);
+        }
+        assert_eq!(remove_fillers("Uh, um er", None), "um er");
+    }
 }

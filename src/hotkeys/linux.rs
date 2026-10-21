@@ -115,7 +115,7 @@ impl HotkeyService {
                 combos.push(Combo::parse(value, event)?);
             }
         }
-        let initial = keyboards(&combos);
+        let initial = hotkey_keyboards(&combos);
         if initial.is_empty() {
             bail!("no readable keyboards under /dev/input");
         }
@@ -219,7 +219,7 @@ impl HotkeyService {
                     update_combos(&mut combos, &pressed, &emit);
                     if plugged {
                         let _ = hotplug.read_events();
-                        for (path, device) in keyboards(&combos) {
+                        for (path, device) in hotkey_keyboards(&combos) {
                             if paths.contains(&path) {
                                 continue;
                             }
@@ -254,19 +254,26 @@ impl Drop for HotkeyService {
     }
 }
 
-fn keyboards(combos: &[Combo]) -> Vec<(PathBuf, evdev::Device)> {
-    evdev::enumerate()
+pub(crate) fn keyboards() -> impl Iterator<Item = (PathBuf, evdev::Device)> {
+    evdev::enumerate().filter(|(_, device)| {
+        device.name() != Some("TypeAside paste keyboard")
+            && device
+                .supported_keys()
+                .is_some_and(|keys| keys.contains(KeyCode::KEY_A))
+    })
+}
+
+fn hotkey_keyboards(combos: &[Combo]) -> Vec<(PathBuf, evdev::Device)> {
+    keyboards()
         .filter(|(_, device)| {
-            device.name() != Some("TypeAside paste keyboard")
-                && device.supported_keys().is_some_and(|keys| {
-                    keys.contains(KeyCode::KEY_A)
-                        && combos.iter().any(|combo| {
-                            combo
-                                .keys
-                                .iter()
-                                .all(|group| group.iter().any(|key| keys.contains(*key)))
-                        })
+            device.supported_keys().is_some_and(|keys| {
+                combos.iter().any(|combo| {
+                    combo
+                        .keys
+                        .iter()
+                        .all(|group| group.iter().any(|key| keys.contains(*key)))
                 })
+            })
         })
         .collect()
 }
