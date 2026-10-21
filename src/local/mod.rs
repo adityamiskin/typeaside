@@ -445,13 +445,19 @@ pub fn worker_main() -> Result<()> {
             "encoder-model.int8.onnx",
             0,
         )?)),
-        // Bark was evaluated with 0.25 s of silence before each utterance; it keeps the first word.
-        ModelId::Bark => Engine::Parakeet(Box::new(inference::Model::load(
-            &dir,
-            inference::Layout::Split,
-            "encoder.int8.onnx",
-            16_000 / 4,
-        )?)),
+        // Each Bark is fed the leading silence it was evaluated with; it keeps the first word.
+        ModelId::BarkClean | ModelId::Bark | ModelId::BarkPlus => {
+            Engine::Parakeet(Box::new(inference::Model::load(
+                &dir,
+                inference::Layout::Split,
+                "encoder.int8.onnx",
+                if model == ModelId::BarkClean {
+                    0
+                } else {
+                    16_000 / 4
+                },
+            )?))
+        }
         ModelId::Cohere => {
             Engine::Cohere(Box::new(cohere::Model::load(&dir, language.as_deref())?))
         }

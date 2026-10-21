@@ -2,14 +2,16 @@
 
 Settings → Dictation lists the available models. Download several, then use **Use** to switch. The dot marks the active model; its action is **Remove**. To remove another installed model, select it first. Only one download runs at a time. Source → On device appears when a model is installed.
 
-| Model key        | Languages                                          | Assets   | Engine                             |
-| ---------------- | -------------------------------------------------- | -------- | ---------------------------------- |
-| `parakeet-v3`    | 25 European languages                              | 671 MB   | Existing int8 TDT                  |
-| `bark-3`         | English                                            | 685 MB   | int8 TDT, split decoder and joiner |
-| `cohere`         | 14, including Arabic, Chinese, Japanese and Korean | 2,128 MB | q4, float32 activations and caches |
-| `whisper-turbo`  | 99                                                 | 574 MB   | whisper.cpp, q5_0 ggml             |
+| Model key       | Languages                                          | Assets   | Engine                             |
+| --------------- | -------------------------------------------------- | -------- | ---------------------------------- |
+| `parakeet-v3`   | 25 European languages                              | 671 MB   | Existing int8 TDT                  |
+| `bark-3-clean`  | English                                            | 685 MB   | int8 TDT, split decoder and joiner |
+| `bark-3`        | English                                            | 685 MB   | int8 TDT, split decoder and joiner |
+| `bark-3-plus`   | English                                            | 685 MB   | int8 TDT, split decoder and joiner |
+| `cohere`        | 14, including Arabic, Chinese, Japanese and Korean | 2,128 MB | q4, float32 activations and caches |
+| `whisper-turbo` | 99                                                 | 574 MB   | whisper.cpp, q5_0 ggml             |
 
-Sizes use decimal MB and exclude the shared ONNX runtime. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 16 catalog entries were checked against downloaded bytes, including Cohere's external weight files.
+Sizes use decimal MB and exclude the shared ONNX runtime. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 35 catalog entries were checked against downloaded bytes, including Cohere's external weight files.
 
 Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Cohere processes long audio in chunks of up to 25 seconds, cut at quiet points; whisper.cpp windows long audio itself.
 
@@ -70,6 +72,6 @@ Unverified: macOS/Windows runtime execution, other supported languages, long-rec
 
 The decoder/cache handling, from its Moonshine and Cohere engines, and the Cohere feature-extractor structure were adapted from [voxtype](https://github.com/peteonrails/voxtype), commit `dc499ad47444ba6ea80d8750aa3581c23120821c`, MIT, Copyright 2025 Peter Jackson. The license is retained in `licenses/voxtype-MIT.txt` and ported files carry credit. The Cohere port corrects framing, Slaney filter normalization and per-feature variance to match the upstream Hugging Face processor. Whisper runs on [whisper.cpp](https://github.com/ggml-org/whisper.cpp) through `whisper-rs`, built for a portable x86 baseline (AVX2, FMA, F16C) via `.cargo/config.toml`, with Metal on macOS.
 
-Underdog Bark 3.0 is by Conway Research ([ConwayResearch/Underdog-Bark-3.0](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0)), derived from NVIDIA's parakeet-tdt-0.6b-v3 and Moondream's parakeet-ultra, CC-BY-4.0. TypeAside downloads velddev's unofficial int8 ONNX conversion ([velddev/Underdog-Bark-3.0-sherpa-onnx](https://huggingface.co/velddev/Underdog-Bark-3.0-sherpa-onnx)) and runs it with v3's `nemo128.onnx` preprocessor and 0.25 s of leading silence, as it was evaluated. The NOTICE is retained in `licenses/underdog-bark-3.0-NOTICE.txt`. Its output matches the sherpa-onnx reference runtime on our fixtures; like that reference, it often omits capitals and punctuation.
+The Underdog Bark 3.0 family is by Conway Research ([Standard](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0), [Clean](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0-Clean), [Plus](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0-Plus)), derived from NVIDIA's parakeet-tdt-0.6b-v3 and Moondream's parakeet-ultra, CC-BY-4.0. Clean drops fillers and false starts; Standard and Plus keep every word, and Plus makes fewer mistakes. Each was converted to int8 sherpa-onnx from its `model.bark` at the pinned Hugging Face revision, with the converter that produced velddev's [Standard conversion](https://huggingface.co/velddev/Underdog-Bark-3.0-sherpa-onnx) (Standard's int8 encoder is byte-identical). The encoder's weights are split into three external data files of at most 212 MB, served from `typeaside.app/models` (R2), since no upstream host publishes Clean or Plus as ONNX. All three reuse v3's `nemo128.onnx` preprocessor and get the leading silence they were evaluated with: 0.25 s for Standard and Plus, none for Clean. NOTICE files are retained in `licenses/underdog-bark-3.0*-NOTICE.txt`. Standard often omits capitals and punctuation; Clean and Plus usually include them.
 
 Implemented by Codex GPT-6.1-Sol via T3 Code.
