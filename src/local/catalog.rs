@@ -9,21 +9,14 @@ pub enum ModelId {
     #[default]
     ParakeetV3,
     Cohere,
-    MoonshineBase,
     WhisperTurbo,
 }
 impl ModelId {
-    pub const ALL: [Self; 4] = [
-        Self::ParakeetV3,
-        Self::Cohere,
-        Self::MoonshineBase,
-        Self::WhisperTurbo,
-    ];
+    pub const ALL: [Self; 3] = [Self::ParakeetV3, Self::Cohere, Self::WhisperTurbo];
     pub fn key(self) -> &'static str {
         match self {
             Self::ParakeetV3 => "parakeet-v3",
             Self::Cohere => "cohere",
-            Self::MoonshineBase => "moonshine-base",
             Self::WhisperTurbo => "whisper-turbo",
         }
     }
@@ -31,7 +24,6 @@ impl ModelId {
         match self {
             Self::ParakeetV3 => "Parakeet v3",
             Self::Cohere => "Cohere Transcribe",
-            Self::MoonshineBase => "Moonshine Base",
             Self::WhisperTurbo => "Whisper large-v3-turbo",
         }
     }
@@ -39,7 +31,6 @@ impl ModelId {
         match self {
             Self::ParakeetV3 => "25 European languages",
             Self::Cohere => "14 languages incl. CJK, select spoken language",
-            Self::MoonshineBase => "English only, small and fast",
             Self::WhisperTurbo => "99 languages",
         }
     }
@@ -51,7 +42,6 @@ impl ModelId {
         match self {
             Self::ParakeetV3 => &PARAKEET_V3,
             Self::Cohere => &COHERE,
-            Self::MoonshineBase => &MOONSHINE_BASE,
             Self::WhisperTurbo => &WHISPER_TURBO,
         }
     }
