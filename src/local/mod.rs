@@ -438,9 +438,7 @@ pub fn worker_main() -> Result<()> {
     );
     ort::init_from(runtime_library()?)?.commit();
     let mut model = match model {
-        ModelId::ParakeetV3 | ModelId::ParakeetV2 => {
-            Engine::Parakeet(Box::new(inference::Model::load(&dir)?))
-        }
+        ModelId::ParakeetV3 => Engine::Parakeet(Box::new(inference::Model::load(&dir)?)),
         _ => Engine::Autoregressive(Box::new(autoregressive::Model::load(
             model,
             &dir,

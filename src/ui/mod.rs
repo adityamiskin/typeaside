@@ -34,7 +34,7 @@ pub struct AppState {
     /// Nudges settings sync; bounded so bursts collapse into one pending wake.
     sync: async_channel::Sender<()>,
     sync_focus_at: Option<std::time::Instant>,
-    models: [typeaside::local::Status; 5],
+    models: [typeaside::local::Status; typeaside::local::ModelId::ALL.len()],
     model_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     update: Option<typeaside::update::Release>,
     update_status: update::Toast,

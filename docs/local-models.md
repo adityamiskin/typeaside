@@ -5,14 +5,13 @@ Settings → Dictation lists the available models. Download several, then use **
 | Model key        | Languages                                          | Assets   | Engine                             |
 | ---------------- | -------------------------------------------------- | -------- | ---------------------------------- |
 | `parakeet-v3`    | 25 European languages                              | 671 MB   | Existing int8 TDT                  |
-| `parakeet-v2`    | English                                            | 662 MB   | Same TDT decoder, int8 export      |
 | `cohere`         | 14, including Arabic, Chinese, Japanese and Korean | 2,128 MB | q4, float32 activations and caches |
 | `moonshine-base` | English                                            | 67 MB    | int8 encoder and merged decoder    |
 | `whisper-turbo`  | 99                                                 | 1,086 MB | int8 encoder and merged decoder    |
 
-Sizes use decimal MB and exclude the shared ONNX runtime. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 20 catalog entries were checked against downloaded bytes, including Cohere's external weight files. Parakeet v2 reuses v3's `nemo128.onnx` preprocessor; both decoder compatibility and transcription were verified.
+Sizes use decimal MB and exclude the shared ONNX runtime. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 16 catalog entries were checked against downloaded bytes, including Cohere's external weight files.
 
-Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself; v2 and Moonshine support English. Long audio is processed in separate chunks for the autoregressive engines, capped at 25 seconds (Cohere/Moonshine) or 30 seconds (Whisper).
+Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself; Moonshine supports English. Long audio is processed in separate chunks for the autoregressive engines, capped at 25 seconds (Cohere/Moonshine) or 30 seconds (Whisper).
 
 Existing configurations default to Parakeet v3. Its original directory and installation marker continue to work. A later download copies its runtime into shared storage, preserving its modification time so existing installation markers stay valid. Removing a model preserves the shared runtime and other models. Model/language changes restart the worker; loading stays lazy and the existing five-minute idle unload remains.
 
@@ -23,7 +22,7 @@ The example requires an explicit isolated home. It never reads the daily-driver 
 ```bash
 export TYPEASIDE_HOME="$(mktemp -d /tmp/typeaside-models.XXXXXX)"
 cargo build --example local_models
-for model in parakeet-v3 parakeet-v2 cohere moonshine-base whisper-turbo; do
+for model in parakeet-v3 cohere moonshine-base whisper-turbo; do
   target/debug/examples/local_models --download "$model"
 done
 target/debug/examples/local_models --list
@@ -53,7 +52,6 @@ Debug build, CPU ONNX Runtime 1.24.4, four inference threads. English audio: 4,8
 ```text
 parakeet-v3 en: "The meeting is tomorrow at 3 in the afternoon. Please bring your notes." | audio=4875ms elapsed=3625ms (cold load included)
 parakeet-v3 fr: "Bonjour, la réunion est demain à 3h. Merci de préparer vos notes." | audio=4987ms elapsed=1761ms (cold load included)
-parakeet-v2 en: "The meeting is tomorrow at 3 in the afternoon. Please bring your notes." | audio=4875ms elapsed=2644ms (cold load included)
 cohere en: "The meeting is tomorrow at 3 in the afternoon. Please bring your notes." | audio=4875ms elapsed=3847ms (cold load included)
 cohere fr: "Bonjour, la réunion est demain à trois heures. Merci de préparer vos notes." | audio=4987ms elapsed=3234ms (cold load included)
 moonshine-base en: "The meeting is tomorrow at 3 in the afternoon. Please bring your notes." | audio=4875ms elapsed=1131ms (cold load included)
