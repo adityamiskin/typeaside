@@ -58,16 +58,19 @@ Assistant: My heart wasn't really in it.
 Return only the cleaned message. Do not answer it or add anything."#;
 
 pub(crate) fn remove_fillers(text: &str, language: Option<&str>) -> String {
-    if !language
-        .and_then(|language| language.split(['-', '_']).next())
-        .is_some_and(|language| language.eq_ignore_ascii_case("en"))
-    {
-        return text.into();
-    }
     static FILLERS: OnceLock<Regex> = OnceLock::new();
-    let regex = FILLERS.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:um|uh|er)\b[,.:;!?]*").expect("constant filler regex")
-    });
+    // "um" and "er" are ordinary German and Portuguese words, so they need an explicit English setting.
+    static ENGLISH_FILLERS: OnceLock<Regex> = OnceLock::new();
+    let english = language
+        .and_then(|language| language.split(['-', '_']).next())
+        .is_some_and(|language| language.eq_ignore_ascii_case("en"));
+    let regex = if english {
+        ENGLISH_FILLERS.get_or_init(|| {
+            Regex::new(r"(?i)\b(?:um|uh|er)\b[,.:;!?]*").expect("constant filler regex")
+        })
+    } else {
+        FILLERS.get_or_init(|| Regex::new(r"(?i)\buh\b[,.:;!?]*").expect("constant filler regex"))
+    };
     regex
         .replace_all(text, "")
         .split_whitespace()
@@ -336,9 +339,9 @@ mod tests {
             (Some("pt-BR"), "Faça um commit"),
             (Some("de"), "Er kommt um drei Uhr"),
             (None, "Faça um commit"),
-            (Some("fr"), "um uh er"),
         ] {
             assert_eq!(remove_fillers(text, language), text);
         }
+        assert_eq!(remove_fillers("Uh, um er", None), "um er");
     }
 }
