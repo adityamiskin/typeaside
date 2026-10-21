@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub(super) struct Asset {
     pub name: &'static str,
     pub url: &'static str,
@@ -62,6 +63,34 @@ pub(super) const RUNTIME: Option<Asset> = Some(Asset {
 )))]
 pub(super) const RUNTIME: Option<Asset> = None;
 
+// Bark 3.0 is fine-tuned from Parakeet v3 and keeps its preprocessor, so it reuses v3's.
+pub(super) const BARK_3: [Asset; 5] = [
+    Asset {
+        name: "encoder.int8.onnx",
+        url: "https://huggingface.co/velddev/Underdog-Bark-3.0-sherpa-onnx/resolve/f438275bc431c58010eadb982dd0f8693ff4364f/encoder.int8.onnx",
+        sha256: "d7e8f38d29aa486777eb7d505f2c7f35a0d5914760d622ed328e009cf18b9429",
+        size: 630748293,
+    },
+    Asset {
+        name: "decoder.int8.onnx",
+        url: "https://huggingface.co/velddev/Underdog-Bark-3.0-sherpa-onnx/resolve/f438275bc431c58010eadb982dd0f8693ff4364f/decoder.int8.onnx",
+        sha256: "89a081f0cf1500ec64e8a45f24f0bc10d1224aa334191e7f7e6f3226365b06b8",
+        size: 47658545,
+    },
+    Asset {
+        name: "joiner.int8.onnx",
+        url: "https://huggingface.co/velddev/Underdog-Bark-3.0-sherpa-onnx/resolve/f438275bc431c58010eadb982dd0f8693ff4364f/joiner.int8.onnx",
+        sha256: "b8fe34824c5d2ec077489e4b4f66907cb47a971e1d34fe96915e9e5427df3c89",
+        size: 6123465,
+    },
+    Asset {
+        name: "tokens.txt",
+        url: "https://huggingface.co/velddev/Underdog-Bark-3.0-sherpa-onnx/resolve/f438275bc431c58010eadb982dd0f8693ff4364f/tokens.txt",
+        sha256: "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+        size: 93939,
+    },
+    PARAKEET_V3[2],
+];
 pub(super) const COHERE: [Asset; 5] = [
     Asset {
         name: "encoder_model_q4.onnx",

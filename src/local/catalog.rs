@@ -8,14 +8,21 @@ use std::{fs, path::PathBuf, str::FromStr};
 pub enum ModelId {
     #[default]
     ParakeetV3,
+    Bark,
     Cohere,
     WhisperTurbo,
 }
 impl ModelId {
-    pub const ALL: [Self; 3] = [Self::ParakeetV3, Self::Cohere, Self::WhisperTurbo];
+    pub const ALL: [Self; 4] = [
+        Self::ParakeetV3,
+        Self::Bark,
+        Self::Cohere,
+        Self::WhisperTurbo,
+    ];
     pub fn key(self) -> &'static str {
         match self {
             Self::ParakeetV3 => "parakeet-v3",
+            Self::Bark => "bark-3",
             Self::Cohere => "cohere",
             Self::WhisperTurbo => "whisper-turbo",
         }
@@ -23,6 +30,7 @@ impl ModelId {
     pub fn label(self) -> &'static str {
         match self {
             Self::ParakeetV3 => "Parakeet v3",
+            Self::Bark => "Underdog Bark 3.0",
             Self::Cohere => "Cohere Transcribe",
             Self::WhisperTurbo => "Whisper large-v3-turbo",
         }
@@ -30,6 +38,7 @@ impl ModelId {
     pub fn description(self) -> &'static str {
         match self {
             Self::ParakeetV3 => "25 European languages",
+            Self::Bark => "English only, best on meetings, little punctuation",
             Self::Cohere => "14 languages incl. CJK, select spoken language",
             Self::WhisperTurbo => "99 languages",
         }
@@ -41,6 +50,7 @@ impl ModelId {
         use super::assets::*;
         match self {
             Self::ParakeetV3 => &PARAKEET_V3,
+            Self::Bark => &BARK_3,
             Self::Cohere => &COHERE,
             Self::WhisperTurbo => &WHISPER_TURBO,
         }

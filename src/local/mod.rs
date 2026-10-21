@@ -439,7 +439,19 @@ pub fn worker_main() -> Result<()> {
     );
     ort::init_from(runtime_library()?)?.commit();
     let mut model = match model {
-        ModelId::ParakeetV3 => Engine::Parakeet(Box::new(inference::Model::load(&dir)?)),
+        ModelId::ParakeetV3 => Engine::Parakeet(Box::new(inference::Model::load(
+            &dir,
+            inference::Layout::Joint,
+            "encoder-model.int8.onnx",
+            0,
+        )?)),
+        // Bark was evaluated with 0.25 s of silence before each utterance; it keeps the first word.
+        ModelId::Bark => Engine::Parakeet(Box::new(inference::Model::load(
+            &dir,
+            inference::Layout::Split,
+            "encoder.int8.onnx",
+            16_000 / 4,
+        )?)),
         ModelId::Cohere => {
             Engine::Cohere(Box::new(cohere::Model::load(&dir, language.as_deref())?))
         }
