@@ -62,26 +62,6 @@ pub(super) const RUNTIME: Option<Asset> = Some(Asset {
 )))]
 pub(super) const RUNTIME: Option<Asset> = None;
 
-pub(super) const MOONSHINE_BASE: [Asset; 3] = [
-    Asset {
-        name: "encoder_model_quantized.onnx",
-        url: "https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/encoder_model_quantized.onnx",
-        sha256: "1dd9ab0a7f987113d30affcba5a068d11c8f90fa0223caa3e491ade431ad9751",
-        size: 20513063,
-    },
-    Asset {
-        name: "decoder_model_merged_quantized.onnx",
-        url: "https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/decoder_model_merged_quantized.onnx",
-        sha256: "cc9f3cd6698a369c6008b41aa60aa3fb3322e7f03c9bdf19d8e6b7200afca4f3",
-        size: 42498870,
-    },
-    Asset {
-        name: "tokenizer.json",
-        url: "https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer.json",
-        sha256: "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f",
-        size: 3761754,
-    },
-];
 pub(super) const COHERE: [Asset; 5] = [
     Asset {
         name: "encoder_model_q4.onnx",

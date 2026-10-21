@@ -260,6 +260,14 @@ pub enum Source {
     OwnKey,
 }
 
+fn known_or_default<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<crate::local::ModelId, D::Error> {
+    Ok(String::deserialize(deserializer)?
+        .parse()
+        .unwrap_or_default())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -267,6 +275,8 @@ pub struct AppConfig {
     pub mode: RecordingMode,
     pub input_devices: Vec<String>,
     pub transcription: Source,
+    // A removed model falls back to the default instead of invalidating the whole config.
+    #[serde(deserialize_with = "known_or_default")]
     pub local_model: crate::local::ModelId,
     pub stt: Endpoint,
     pub language: Option<String>,

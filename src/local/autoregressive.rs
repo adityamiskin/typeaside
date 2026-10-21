@@ -15,7 +15,7 @@ pub(super) struct Model {
     encoder: Session,
     decoder: Session,
     tokenizer: Tokenizer,
-    features: Option<Features>,
+    features: Features,
     prefix: Vec<i64>,
     eos: i64,
     suppress: Vec<usize>,
@@ -31,7 +31,6 @@ impl Model {
                 .commit_from_file(dir.join(name))?)
         };
         let cohere = id == ModelId::Cohere;
-        let whisper = id == ModelId::WhisperTurbo;
         let (enc, dec) = if cohere {
             ("encoder_model_q4.onnx", "decoder_model_merged_q4.onnx")
         } else {
@@ -61,7 +60,7 @@ impl Model {
                 "Cohere does not support language {lang}; choose a language in Settings"
             );
             (vec![4, token(&format!("<|{lang}|>"))?, 5, 8, 11, 13], 3)
-        } else if whisper {
+        } else {
             let config: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(dir.join("generation_config.json"))?)?;
             languages = config["lang_to_id"]
@@ -82,8 +81,6 @@ impl Model {
                 vec![50258]
             };
             (prefix, 50257)
-        } else {
-            (vec![1], 2)
         };
         let decoder = session(dec)?;
         let caches = decoder
@@ -112,7 +109,7 @@ impl Model {
             encoder: session(enc)?,
             decoder,
             tokenizer,
-            features: (cohere || whisper).then(|| Features::new(cohere)),
+            features: Features::new(cohere),
             prefix,
             eos,
             suppress,
@@ -144,11 +141,7 @@ impl Model {
     fn chunk(&mut self, samples: &[f32]) -> Result<String> {
         let cohere = self.id == ModelId::Cohere;
         let whisper = self.id == ModelId::WhisperTurbo;
-        let audio = if let Some(features) = &self.features {
-            Tensor::from_array(features.extract(samples))?
-        } else {
-            Tensor::from_array(([1, samples.len()], samples.to_vec()))?
-        };
+        let audio = Tensor::from_array(self.features.extract(samples))?;
         let mut encoded = self.encoder.run(inputs![audio])?;
         let hidden = encoded
             .remove("last_hidden_state")
@@ -165,16 +158,7 @@ impl Model {
         }
         let mut tokens = self.prefix.clone();
         let mut generated = Vec::new();
-        let max = ((samples.len() / 16000 + 1) * 10).clamp(
-            32,
-            if whisper {
-                448
-            } else if cohere {
-                1024
-            } else {
-                512
-            },
-        );
+        let max = ((samples.len() / 16000 + 1) * 10).clamp(32, if whisper { 448 } else { 1024 });
         let mut next_input = tokens.clone();
         for step in 0..max {
             let mut inputs: Vec<(Cow<'_, str>, SessionInputValue<'_>)> = vec![
@@ -247,7 +231,7 @@ impl Model {
                 break;
             }
             for (name, _) in &self.caches {
-                // Merged Moonshine/Whisper graphs emit empty cross-attention caches after step zero.
+                // Merged Whisper graphs emit empty cross-attention caches after step zero.
                 if !cohere && step > 0 && name.contains(".encoder.") {
                     continue;
                 }
@@ -294,7 +278,7 @@ fn quiet_cut(samples: &[f32], max: usize) -> usize {
         .map_or(max, |at| at + FRAME / 2)
 }
 
-/// Moonshine returns nothing when speech follows about a second of quiet, so drop quiet edges.
+/// Autoregressive decoders can return nothing or hallucinate across long quiet stretches, so drop quiet edges.
 fn trim_quiet(samples: &[f32]) -> &[f32] {
     const PAD: usize = 16000 / 5;
     let frames: Vec<f32> = samples.chunks(FRAME).map(energy).collect();
