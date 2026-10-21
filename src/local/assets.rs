@@ -94,29 +94,9 @@ pub(super) const COHERE: [Asset; 5] = [
         size: 1152395,
     },
 ];
-pub(super) const WHISPER_TURBO: [Asset; 4] = [
-    Asset {
-        name: "encoder_model_quantized.onnx",
-        url: "https://huggingface.co/onnx-community/whisper-large-v3-turbo-ONNX/resolve/f2d0148f21bb07751a7e6e9a4377e1ae7146607f/onnx/encoder_model_quantized.onnx",
-        sha256: "d2f853dc3254fdc0079f55dd4433ea716ac98ec5574d3b475f288f2a77cebba9",
-        size: 644822195,
-    },
-    Asset {
-        name: "decoder_model_merged_quantized.onnx",
-        url: "https://huggingface.co/onnx-community/whisper-large-v3-turbo-ONNX/resolve/f2d0148f21bb07751a7e6e9a4377e1ae7146607f/onnx/decoder_model_merged_quantized.onnx",
-        sha256: "fc6cd2499a13239dc650d0e633e6f49f775c254614a1ddaaec551581493445a5",
-        size: 438133085,
-    },
-    Asset {
-        name: "tokenizer.json",
-        url: "https://huggingface.co/onnx-community/whisper-large-v3-turbo-ONNX/resolve/f2d0148f21bb07751a7e6e9a4377e1ae7146607f/tokenizer.json",
-        sha256: "b3c8202bbf06d8ee4232c5984baa563784ac4737e2e7fdc42fa180200d3cfcdb",
-        size: 2480645,
-    },
-    Asset {
-        name: "generation_config.json",
-        url: "https://huggingface.co/onnx-community/whisper-large-v3-turbo-ONNX/resolve/f2d0148f21bb07751a7e6e9a4377e1ae7146607f/generation_config.json",
-        sha256: "8568ddf83476167b4607014956b87142763fa6923e71259a606734beb39bdfc8",
-        size: 3797,
-    },
-];
+pub(super) const WHISPER_TURBO: [Asset; 1] = [Asset {
+    name: "ggml-large-v3-turbo-q5_0.bin",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin",
+    sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    size: 574041195,
+}];

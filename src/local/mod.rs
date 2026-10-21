@@ -1,8 +1,9 @@
 mod assets;
-mod autoregressive;
 mod catalog;
+mod cohere;
 mod features;
 mod inference;
+mod whisper;
 pub use catalog::ModelId;
 
 use anyhow::{Context, Result, ensure};
@@ -439,9 +440,11 @@ pub fn worker_main() -> Result<()> {
     ort::init_from(runtime_library()?)?.commit();
     let mut model = match model {
         ModelId::ParakeetV3 => Engine::Parakeet(Box::new(inference::Model::load(&dir)?)),
-        _ => Engine::Autoregressive(Box::new(autoregressive::Model::load(
-            model,
-            &dir,
+        ModelId::Cohere => {
+            Engine::Cohere(Box::new(cohere::Model::load(&dir, language.as_deref())?))
+        }
+        ModelId::WhisperTurbo => Engine::Whisper(Box::new(whisper::Model::load(
+            &dir.join(assets::WHISPER_TURBO[0].name),
             language.as_deref(),
         )?)),
     };
@@ -477,13 +480,15 @@ pub fn worker_main() -> Result<()> {
 
 enum Engine {
     Parakeet(Box<inference::Model>),
-    Autoregressive(Box<autoregressive::Model>),
+    Cohere(Box<cohere::Model>),
+    Whisper(Box<whisper::Model>),
 }
 impl Engine {
     fn transcribe(&mut self, samples: Vec<f32>) -> Result<String> {
         match self {
             Self::Parakeet(model) => model.transcribe(samples),
-            Self::Autoregressive(model) => model.transcribe(&samples),
+            Self::Cohere(model) => model.transcribe(&samples),
+            Self::Whisper(model) => model.transcribe(&samples),
         }
     }
 }

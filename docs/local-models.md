@@ -6,11 +6,11 @@ Settings → Dictation lists the available models. Download several, then use **
 | ---------------- | -------------------------------------------------- | -------- | ---------------------------------- |
 | `parakeet-v3`    | 25 European languages                              | 671 MB   | Existing int8 TDT                  |
 | `cohere`         | 14, including Arabic, Chinese, Japanese and Korean | 2,128 MB | q4, float32 activations and caches |
-| `whisper-turbo`  | 99                                                 | 1,086 MB | int8 encoder and merged decoder    |
+| `whisper-turbo`  | 99                                                 | 574 MB   | whisper.cpp, q5_0 ggml             |
 
 Sizes use decimal MB and exclude the shared ONNX runtime. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 16 catalog entries were checked against downloaded bytes, including Cohere's external weight files.
 
-Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Long audio is processed in separate chunks for the autoregressive engines, capped at 25 seconds (Cohere) or 30 seconds (Whisper).
+Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Cohere processes long audio in chunks of up to 25 seconds, cut at quiet points; whisper.cpp windows long audio itself.
 
 Existing configurations default to Parakeet v3. Its original directory and installation marker continue to work. A later download copies its runtime into shared storage, preserving its modification time so existing installation markers stay valid. Removing a model preserves the shared runtime and other models. Model/language changes restart the worker; loading stays lazy and the existing five-minute idle unload remains.
 
@@ -53,11 +53,9 @@ parakeet-v3 en: "The meeting is tomorrow at 3 in the afternoon. Please bring you
 parakeet-v3 fr: "Bonjour, la réunion est demain à 3h. Merci de préparer vos notes." | audio=4987ms elapsed=1761ms (cold load included)
 cohere en: "The meeting is tomorrow at 3 in the afternoon. Please bring your notes." | audio=4875ms elapsed=3847ms (cold load included)
 cohere fr: "Bonjour, la réunion est demain à trois heures. Merci de préparer vos notes." | audio=4987ms elapsed=3234ms (cold load included)
-whisper-turbo en: "The meeting is tomorrow at 3 in the afternoon. Please bring your notes." | audio=4875ms elapsed=9382ms (cold load included)
-whisper-turbo fr: "Bonjour, la réunion est demain à 3h. Merci de préparer vos notes." | audio=4987ms elapsed=6967ms (cold load included)
 ```
 
-Whisper's Auto mode also returned the same English and French text (7,096 ms and 7,471 ms). A simulated legacy v3 runtime layout remained installed before and after installing another model migrated the runtime. Cancellation after 500 ms returned `Download cancelled` and left all models uninstalled in a separate fresh home.
+A simulated legacy v3 runtime layout remained installed before and after installing another model migrated the runtime. Cancellation after 500 ms returned `Download cancelled` and left all models uninstalled in a separate fresh home.
 
 Checks: `cargo build`, `cargo clippy`, `cargo test`, `bun run build`, and `bun run check` passed. Cargo currently discovers zero tests; the transcription example supplies the exercised runtime verification. `bun run codegen` could not run because this checkout has no `CONVEX_DEPLOYMENT`. No backend functions changed and no deployment was configured. No E2E suite ran.
 
@@ -69,6 +67,6 @@ Unverified: macOS/Windows runtime execution, other supported languages, long-rec
 
 ## Attribution
 
-The decoder/cache handling, from its Moonshine and Cohere engines, and the Cohere feature-extractor structure were adapted from [voxtype](https://github.com/peteonrails/voxtype), commit `dc499ad47444ba6ea80d8750aa3581c23120821c`, MIT, Copyright 2025 Peter Jackson. The license is retained in `licenses/voxtype-MIT.txt` and ported files carry credit. The Cohere port corrects framing, Slaney filter normalization and per-feature variance to match the upstream Hugging Face processor. Whisper's ONNX loop uses its export's generation config, suppression tokens, cache positions and no-timestamp transcription prefix.
+The decoder/cache handling, from its Moonshine and Cohere engines, and the Cohere feature-extractor structure were adapted from [voxtype](https://github.com/peteonrails/voxtype), commit `dc499ad47444ba6ea80d8750aa3581c23120821c`, MIT, Copyright 2025 Peter Jackson. The license is retained in `licenses/voxtype-MIT.txt` and ported files carry credit. The Cohere port corrects framing, Slaney filter normalization and per-feature variance to match the upstream Hugging Face processor. Whisper runs on [whisper.cpp](https://github.com/ggml-org/whisper.cpp) through `whisper-rs`, built for a portable x86 baseline (AVX2, FMA, F16C) via `.cargo/config.toml`, with Metal on macOS.
 
 Implemented by Codex GPT-6.1-Sol via T3 Code.
