@@ -109,9 +109,16 @@ pub fn me() -> Result<Option<Account>> {
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Ok(None);
     }
-    Ok(Some(response.error_for_status()?.json().context(
-        "Could not read your TypeAside account. Update the app and try again.",
-    )?))
+    let account: Account = response
+        .error_for_status()?
+        .json()
+        .context("Could not read your TypeAside account. Update the app and try again.")?;
+    crate::http::set_limited_until(if account.at_limit() {
+        account.usage.resets_at
+    } else {
+        0
+    });
+    Ok(Some(account))
 }
 pub fn sign_in(cancel: &AtomicBool) -> Result<Account> {
     let listener = TcpListener::bind("127.0.0.1:0")?;

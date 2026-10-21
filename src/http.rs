@@ -1,6 +1,23 @@
 use crate::{config::AppConfig, credentials::endpoint_key};
 use reqwest::blocking::Client;
-use std::{sync::OnceLock, time::Duration};
+use std::{
+    sync::{
+        OnceLock,
+        atomic::{AtomicI64, Ordering},
+    },
+    time::Duration,
+};
+
+/// Unix milliseconds of the last weekly-limit reset the server reported.
+static LIMITED_UNTIL: AtomicI64 = AtomicI64::new(0);
+
+pub(crate) fn set_limited_until(resets_at: i64) {
+    LIMITED_UNTIL.store(resets_at, Ordering::Relaxed);
+}
+
+pub(crate) fn past_limit() -> bool {
+    chrono::Utc::now().timestamp_millis() < LIMITED_UNTIL.load(Ordering::Relaxed)
+}
 
 pub(crate) fn client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
@@ -83,6 +100,7 @@ pub(crate) fn hosted_error(status: u16, body: &serde_json::Value) -> HostedError
     let message = match status {
         402 if body["error"]["type"] == "limit" => {
             if let Some(resets_at) = body["error"]["resets_at"].as_i64() {
+                set_limited_until(resets_at);
                 return HostedError::Limit { resets_at };
             }
             "Invalid hosted limit response".into()

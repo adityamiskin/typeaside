@@ -32,11 +32,31 @@ pub struct Output {
     pub usage: Option<crate::account::Usage>,
 }
 
-fn offline(error: &anyhow::Error) -> bool {
+/// Unreachable providers, or a hosted account past its weekly limit, can still dictate on-device.
+fn local_fallback(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause
             .downcast_ref::<reqwest::Error>()
             .is_some_and(|e| e.status().is_none() && (e.is_connect() || e.is_timeout()))
+            || matches!(
+                cause.downcast_ref::<crate::http::HostedError>(),
+                Some(crate::http::HostedError::Limit { .. })
+            )
+    })
+}
+
+fn local_dictation(config: &AppConfig, audio: &[f32], started: Instant) -> Result<Output> {
+    let raw = crate::local::transcribe(config, audio)?;
+    Ok(Output {
+        text: snippets::expand(
+            &cleanup::remove_fillers(&raw, config.language.as_deref()),
+            &config.snippets,
+        ),
+        raw,
+        delivery: Delivery::Insert,
+        stt: started.elapsed(),
+        llm: Duration::ZERO,
+        usage: None,
     })
 }
 
@@ -53,6 +73,13 @@ pub fn run(
     cleaning: impl FnOnce(),
 ) -> Result<Output> {
     let started = Instant::now();
+    if config.transcription == Source::Hosted
+        && mode == Mode::Dictate
+        && crate::http::past_limit()
+        && crate::local::installed()
+    {
+        return local_dictation(config, audio, started);
+    }
     if config.transcription == Source::Hosted {
         cleaning();
         let streaming = stream.is_some();
@@ -102,19 +129,10 @@ pub fn run(
                 }
                 Ok(output)
             }
-            Err(error) if mode == Mode::Dictate && offline(&error) && crate::local::installed() => {
-                let raw = crate::local::transcribe(config, audio)?;
-                Ok(Output {
-                    text: snippets::expand(
-                        &cleanup::remove_fillers(&raw, config.language.as_deref()),
-                        &config.snippets,
-                    ),
-                    raw,
-                    delivery: Delivery::Insert,
-                    stt: started.elapsed(),
-                    llm: Duration::ZERO,
-                    usage: None,
-                })
+            Err(error)
+                if mode == Mode::Dictate && local_fallback(&error) && crate::local::installed() =>
+            {
+                local_dictation(config, audio, started)
             }
             result => result,
         };
@@ -137,7 +155,9 @@ pub fn run(
         Source::Hosted => unreachable!("hosted requests return above"),
         Source::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),
-            Err(error) if mode == Mode::Dictate && offline(&error) && crate::local::installed() => {
+            Err(error)
+                if mode == Mode::Dictate && local_fallback(&error) && crate::local::installed() =>
+            {
                 (crate::local::transcribe(config, audio)?, true)
             }
             Err(error) => return Err(error),
