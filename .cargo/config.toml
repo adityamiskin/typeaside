@@ -1,3 +1,12 @@
 # A clean Windows install lacks the Visual C++ runtime, so link it into the exe.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# ggml otherwise compiles whisper.cpp for the build machine's CPU, so releases would crash on
+# older ones. AVX2/FMA/F16C covers x86 CPUs from 2013 on; ARM builds ignore these.
+[env]
+GGML_NATIVE = "OFF"
+GGML_AVX = "ON"
+GGML_AVX2 = "ON"
+GGML_FMA = "ON"
+GGML_F16C = "ON"
