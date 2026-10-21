@@ -20,10 +20,9 @@ export const Route = createFileRoute("/docs")({
 function Documentation() {
   const { tree } = useFumadocsLoader(Route.useLoaderData());
   return (
-    <RootProvider theme={{ enabled: false }} search={{ options: { api: "/api/docs-search" } }}>
+    <RootProvider search={{ options: { api: "/api/docs-search" } }}>
       <DocsLayout
         tree={tree}
-        themeSwitch={{ enabled: false }}
         nav={{
           title: (
             <span className="docs-logo">

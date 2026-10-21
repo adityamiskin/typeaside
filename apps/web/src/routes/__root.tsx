@@ -19,6 +19,7 @@ export interface RouterAppContext {
   convexClient: ConvexReactClient;
   convexQueryClient: ConvexQueryClient;
 }
+const themeScript = `try{const t=localStorage.getItem("theme");if(t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch{}`;
 export const Route = createRootRouteWithContext<RouterAppContext>()({
   beforeLoad: async ({ context }) => {
     const session = await auth.getSession();
@@ -31,7 +32,8 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "TypeAside" },
-      { name: "theme-color", content: "#f9f9f8" },
+      { name: "theme-color", content: "#f9f9f8", media: "(prefers-color-scheme: light)" },
+      { name: "theme-color", content: "#000000", media: "(prefers-color-scheme: dark)" },
       { property: "og:type", content: "website" },
       { property: "og:site_name", content: "TypeAside" },
       { property: "og:image", content: `${siteUrl}/og.png` },
@@ -53,6 +55,8 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
         crossOrigin: "anonymous" as const,
       })),
     ],
+    // Runs before first paint so a dark preference never flashes the light theme.
+    scripts: [{ children: themeScript }],
   }),
   component: RootDocument,
 });
@@ -62,7 +66,7 @@ function RootDocument() {
       state.location.pathname === "/docs" || state.location.pathname.startsWith("/docs/"),
   });
   return (
-    <html lang="en" className={isDocs ? "typeaside-docs" : undefined}>
+    <html lang="en" data-docs={isDocs || undefined} suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
