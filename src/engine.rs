@@ -12,6 +12,7 @@ use crate::{config::AppConfig, pipeline::Delivery};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::VecDeque,
     fs::OpenOptions,
     io::{BufRead, BufReader, Write},
     path::PathBuf,
@@ -329,12 +330,41 @@ fn discard_failed(paths: &AppPaths, at: SystemTime) -> Result<()> {
 enum Message {
     Command(Command),
     Hotkey(u64, HotkeyEvent),
+    Recorded(Recorded),
     Cleaning(u64),
     Finished(
         u64,
         Result<(Dictation, Delivery, Option<crate::account::Usage>)>,
     ),
     Shutdown,
+}
+
+struct Recorded {
+    captured_at: Instant,
+    audio: Arc<[f32]>,
+    context: (Mode, Option<FocusedApp>, String),
+    names: Option<mpsc::Receiver<Vec<String>>>,
+    caret: Option<(String, String)>,
+    stream: Option<crate::stream::Session>,
+    retrying: Option<SystemTime>,
+}
+
+#[derive(Default)]
+struct PendingDictations {
+    recordings: VecDeque<Recorded>,
+    finished: Option<Message>,
+}
+
+impl PendingDictations {
+    fn next(&mut self, busy: bool, recording: bool, held: bool) -> Option<Message> {
+        if !recording && !held && self.finished.is_some() {
+            self.finished.take()
+        } else if !busy {
+            self.recordings.pop_front().map(Message::Recorded)
+        } else {
+            None
+        }
+    }
 }
 
 fn phase(events: &async_channel::Sender<Event>, phase: Phase) {
@@ -386,6 +416,10 @@ fn run(
     let mut stream = None;
     let mut generation = 0u64;
     let mut busy = None;
+    let mut pending = PendingDictations::default();
+    let mut busy_phase = Phase::Transcribing;
+    let mut busy_captured_at = Instant::now();
+    let mut busy_context = (Mode::Dictate, None, String::new());
     let mut pending_audio: Option<Arc<[f32]>> = None;
     let mut retrying = None;
     let mut pending_reload = None;
@@ -398,6 +432,7 @@ fn run(
     let mut last_paste: Option<(Option<FocusedApp>, Instant, char)> = None;
     let mut start_mode = Mode::Dictate;
     let mut held = None;
+    let mut held_modes = Vec::new();
     let mut monitor: Option<(AudioRecorder, Option<Instant>)> = None;
     let mut effects = None;
     let mut restoring = Vec::new();
@@ -439,7 +474,11 @@ fn run(
                 }
             }
         }
-        let message = if let Some(next) =
+        let message = if let Some(message) =
+            pending.next(busy.is_some(), recorder.is_some(), !held_modes.is_empty())
+        {
+            message
+        } else if let Some(next) =
             idle_reload(&mut pending_reload, recorder.is_some(), busy.is_some())
         {
             Message::Command(Command::Reload(next))
@@ -518,6 +557,13 @@ fn run(
                         HotkeyEvent::Translate(_) => Mode::Translate,
                         _ => Mode::Dictate,
                     };
+                    if pressed {
+                        if !held_modes.contains(&mode) {
+                            held_modes.push(mode);
+                        }
+                    } else {
+                        held_modes.retain(|held| *held != mode);
+                    }
                     if !pressed && held == Some(mode) {
                         held = None;
                     }
@@ -557,14 +603,96 @@ fn run(
                 _ => continue,
             },
             Message::Hotkey(_, _) => continue,
+            Message::Recorded(recorded) => {
+                let Recorded {
+                    captured_at,
+                    audio,
+                    context,
+                    names,
+                    caret,
+                    stream,
+                    retrying: retry,
+                } = recorded;
+                busy_captured_at = captured_at;
+                busy_context = context;
+                around = caret;
+                retrying = retry;
+                pending_audio = Some(audio.clone());
+                generation = generation.wrapping_add(1);
+                let id = generation;
+                busy = Some(id);
+                busy_phase = Phase::Transcribing;
+                if recorder.is_none() {
+                    phase(&events, Phase::Transcribing);
+                }
+                let pipeline_config = config.clone();
+                let pipeline_tx = tx.clone();
+                let (mode, app, selection) = busy_context.clone();
+                let caret = around.clone();
+                let spawned = thread::Builder::new()
+                    .name("typeaside-transcription".into())
+                    .spawn(move || {
+                        let tx = pipeline_tx;
+                        let result =
+                            (|| -> Result<(Dictation, Delivery, Option<crate::account::Usage>)> {
+                                let started = Instant::now();
+                                let names = names
+                                    .and_then(|names| names.try_recv().ok())
+                                    .unwrap_or_default();
+                                let output = crate::pipeline::run(
+                                    &pipeline_config,
+                                    &audio,
+                                    app.as_ref(),
+                                    mode,
+                                    &selection,
+                                    &names,
+                                    caret.as_ref(),
+                                    stream,
+                                    || {
+                                        let _ = tx.send(Message::Cleaning(id));
+                                    },
+                                )?;
+                                Ok((
+                                    Dictation {
+                                        at: SystemTime::now(),
+                                        raw: output.raw,
+                                        cleaned: output.text,
+                                        app_id: app.and_then(|app| app.id),
+                                        audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX))
+                                            as u32,
+                                        latency_ms: started
+                                            .elapsed()
+                                            .as_millis()
+                                            .min(u128::from(u32::MAX))
+                                            as u32,
+                                        mode,
+                                    },
+                                    output.delivery,
+                                    output.usage,
+                                ))
+                            })();
+                        let _ = tx.send(Message::Finished(id, result));
+                    });
+                if let Err(error) = spawned {
+                    let _ = tx.send(Message::Finished(id, Err(error.into())));
+                }
+                continue;
+            }
             Message::Cleaning(id) => {
                 if busy == Some(id) {
-                    phase(&events, Phase::Cleaning);
+                    busy_phase = Phase::Cleaning;
+                    if recorder.is_none() {
+                        phase(&events, busy_phase.clone());
+                    }
                 }
                 continue;
             }
             Message::Finished(id, result) => {
                 if busy != Some(id) {
+                    continue;
+                }
+                if recorder.is_some() || !held_modes.is_empty() {
+                    pending.finished = Some(Message::Finished(id, result));
                     continue;
                 }
                 busy = None;
@@ -615,7 +743,7 @@ fn run(
                                     let _ = events
                                         .try_send(Event::Failed(failed_recordings(&paths, None)));
                                 } else if delivery == Delivery::Reply
-                                    || (delivery == Delivery::Open && !context.2.is_empty())
+                                    || (delivery == Delivery::Open && !busy_context.2.is_empty())
                                 {
                                     reply_visible = true;
                                     let _ = events.try_send(Event::Reply {
@@ -629,14 +757,22 @@ fn run(
                                     // Without caret access, assume the caret still follows the last paste in this window.
                                     let (before, after) = match around.take() {
                                         Some((before, after)) => {
-                                            (before.chars().last(), after.chars().next())
+                                            // An older queued dictation may have pasted since this caret snapshot.
+                                            let before = last_paste
+                                                .as_ref()
+                                                .filter(|(app, at, _)| {
+                                                    *app == busy_context.1 && *at > busy_captured_at
+                                                })
+                                                .map(|(.., last)| *last)
+                                                .or_else(|| before.chars().last());
+                                            (before, after.chars().next())
                                         }
                                         None => (
                                             last_paste
                                                 .as_ref()
                                                 .filter(|(app, at, _)| {
                                                     !config.auto_submit
-                                                        && *app == context.1
+                                                        && *app == busy_context.1
                                                         && at.elapsed() < Duration::from_secs(300)
                                                 })
                                                 .map(|(.., last)| *last),
@@ -653,9 +789,9 @@ fn run(
                                         &events,
                                     );
                                     last_paste = if delivered {
-                                        text.chars()
-                                            .last()
-                                            .map(|last| (context.1.clone(), Instant::now(), last))
+                                        text.chars().last().map(|last| {
+                                            (busy_context.1.clone(), Instant::now(), last)
+                                        })
                                     } else {
                                         None
                                     };
@@ -680,7 +816,7 @@ fn run(
                                 });
                         let mut recording_saved = retrying.is_some();
                         if retrying.is_none()
-                            && (context.0 == Mode::Dictate || limit.is_some())
+                            && (busy_context.0 == Mode::Dictate || limit.is_some())
                             && let Some(audio) = audio
                         {
                             let saved = save_failed(&paths, &audio);
@@ -710,7 +846,7 @@ fn run(
             }
         };
         match command {
-            Command::Start if recorder.is_none() && busy.is_none() => {
+            Command::Start if recorder.is_none() => {
                 reply_visible = false;
                 let _ = events.try_send(Event::DismissReply);
                 watch = None;
@@ -790,6 +926,8 @@ fn run(
                 monitor = None;
                 watch = None;
                 retrying = None;
+                busy_context = (Mode::File, None, String::new());
+                busy_phase = Phase::Transcribing;
                 generation = generation.wrapping_add(1);
                 let id = generation;
                 busy = Some(id);
@@ -833,15 +971,18 @@ fn run(
                     let _ = tx.send(Message::Finished(id, Err(error.into())));
                 }
             }
-            Command::Stop | Command::RetryFailed(_) if busy.is_none() => {
+            Command::Stop | Command::RetryFailed(_)
+                if matches!(command, Command::Stop)
+                    || (busy.is_none() && pending.recordings.is_empty()) =>
+            {
                 if recorder.is_some() && matches!(command, Command::RetryFailed(_)) {
                     continue;
                 }
-                retrying = match command {
+                let recording_retry = match command {
                     Command::RetryFailed(at) => Some(at),
                     _ => None,
                 };
-                let audio = if let Some(at) = retrying {
+                let audio = if let Some(at) = recording_retry {
                     watch = None;
                     let loaded = failed_path(&paths, at)
                         .and_then(|path| Ok(std::fs::read(path)?))
@@ -850,8 +991,10 @@ fn run(
                     match loaded {
                         Ok(audio) => {
                             context = (Mode::Dictate, None, String::new());
-                            let _ =
-                                events.try_send(Event::Failed(failed_recordings(&paths, retrying)));
+                            let _ = events.try_send(Event::Failed(failed_recordings(
+                                &paths,
+                                recording_retry,
+                            )));
                             audio
                         }
                         Err(error) => {
@@ -900,82 +1043,35 @@ fn run(
                         audio
                     }
                 };
-                let audio: Arc<[f32]> = audio.into();
-                pending_audio = Some(audio.clone());
-                generation = generation.wrapping_add(1);
-                let id = generation;
-                busy = Some(id);
+                pending.recordings.push_back(Recorded {
+                    captured_at: Instant::now(),
+                    audio: audio.into(),
+                    context: context.clone(),
+                    names: if recording_retry.is_some() {
+                        None
+                    } else {
+                        screen_names.take()
+                    },
+                    caret: cursor.take().and_then(|rx| rx.try_recv().ok()).flatten(),
+                    stream: stream.take(),
+                    retrying: recording_retry,
+                });
                 phase(&events, Phase::Transcribing);
-                let pipeline_config = config.clone();
-                let names = if retrying.is_some() {
-                    None
-                } else {
-                    screen_names.take()
-                };
-                let pipeline_tx = tx.clone();
-                let (mode, app, selection) = context.clone();
-                around = cursor.take().and_then(|rx| rx.try_recv().ok()).flatten();
-                let caret = around.clone();
-                let stream = stream.take();
-                let spawned = thread::Builder::new()
-                    .name("typeaside-transcription".into())
-                    .spawn(move || {
-                        let tx = pipeline_tx;
-                        let result =
-                            (|| -> Result<(Dictation, Delivery, Option<crate::account::Usage>)> {
-                                let started = Instant::now();
-                                let names = names
-                                    .and_then(|names| names.try_recv().ok())
-                                    .unwrap_or_default();
-                                let output = crate::pipeline::run(
-                                    &pipeline_config,
-                                    &audio,
-                                    app.as_ref(),
-                                    mode,
-                                    &selection,
-                                    &names,
-                                    caret.as_ref(),
-                                    stream,
-                                    || {
-                                        let _ = tx.send(Message::Cleaning(id));
-                                    },
-                                )?;
-                                Ok((
-                                    Dictation {
-                                        at: SystemTime::now(),
-                                        raw: output.raw,
-                                        cleaned: output.text,
-                                        app_id: app.and_then(|app| app.id),
-                                        audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX))
-                                            as u32,
-                                        latency_ms: started
-                                            .elapsed()
-                                            .as_millis()
-                                            .min(u128::from(u32::MAX))
-                                            as u32,
-                                        mode,
-                                    },
-                                    output.delivery,
-                                    output.usage,
-                                ))
-                            })();
-                        let _ = tx.send(Message::Finished(id, result));
-                    });
-                if let Err(error) = spawned {
-                    let _ = tx.send(Message::Finished(id, Err(error.into())));
-                }
             }
             Command::Cancel => {
                 if reply_visible {
                     reply_visible = false;
                     let _ = events.try_send(Event::DismissReply);
                 }
-                recorder = None;
+                let recording = recorder.take().is_some();
                 stream = None;
                 monitor = None;
                 stop_effects(&mut effects, &mut restoring);
-                busy = None;
-                pending_audio = None;
+                if !recording {
+                    busy = None;
+                    pending_audio = None;
+                    pending = PendingDictations::default();
+                }
                 let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
                 phase(&events, Phase::Idle);
             }
@@ -1005,6 +1101,8 @@ fn run(
                 monitor = None;
                 drop(hotkeys.take());
                 epoch = epoch.wrapping_add(1);
+                held = None;
+                held_modes.clear();
                 config = *next;
                 if !config.auto_learn {
                     watch = None;
@@ -1060,6 +1158,9 @@ fn run(
             | Command::DiscardFailed(_)
             | Command::MicTest(true)
             | Command::MicPreview => {}
+        }
+        if recorder.is_none() && busy.is_some() {
+            phase(&events, busy_phase.clone());
         }
     }
     drop(recorder);
@@ -1144,5 +1245,45 @@ fn deliver(
             }
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    fn recorded(sample: f32) -> Recorded {
+        Recorded {
+            captured_at: Instant::now(),
+            audio: vec![sample].into(),
+            context: (Mode::Dictate, None, String::new()),
+            names: None,
+            caret: None,
+            stream: None,
+            retrying: None,
+        }
+    }
+
+    #[test]
+    fn delivers_after_release_before_processing_queued_recordings() {
+        let mut pending = PendingDictations::default();
+        pending.recordings.push_back(recorded(1.));
+        pending.recordings.push_back(recorded(2.));
+        pending.finished = Some(Message::Finished(7, Err(anyhow::anyhow!("test result"))));
+        assert!(pending.next(true, true, true).is_none());
+        assert!(pending.next(true, false, true).is_none());
+        assert!(pending.next(true, true, false).is_none());
+        assert!(matches!(
+            pending.next(true, false, false),
+            Some(Message::Finished(7, _))
+        ));
+        for sample in [1., 2.] {
+            let Some(Message::Recorded(recorded)) = pending.next(false, false, false) else {
+                panic!("queued recording missing");
+            };
+            assert_eq!(recorded.audio.as_ref(), &[sample]);
+            assert!(pending.next(true, false, false).is_none());
+        }
+        assert!(pending.next(false, false, false).is_none());
     }
 }
