@@ -61,6 +61,23 @@ impl Volume {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn bluetooth_output() -> bool {
+    Command::new("timeout")
+        .args(["0.5s", "wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"])
+        .stderr(Stdio::null())
+        .output()
+        .is_ok_and(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).contains("bluez_output.")
+        })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn bluetooth_output() -> bool {
+    false
+}
+
 pub(crate) struct ListeningEffects {
     stop: mpsc::Sender<()>,
     thread: JoinHandle<()>,
@@ -77,7 +94,10 @@ impl ListeningEffects {
             .spawn(move || {
                 static SERIAL: Mutex<()> = Mutex::new(());
                 let _serial = SERIAL.lock().unwrap_or_else(|poison| poison.into_inner());
-                // One stream for both cues, so the stop cue does not reopen the device.
+                // Playback during Bluetooth's A2DP/HFP switch can stall capture. Even
+                // silent playback keeps multipoint headphones on this device.
+                let sounds = sounds && !bluetooth_output();
+                // Keep the codec awake between cues on wired/internal outputs.
                 let player = sounds.then(cues::Player::open).and_then(Result::ok);
                 if let Some(player) = &player {
                     player.play(Cue::Start);
