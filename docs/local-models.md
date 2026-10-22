@@ -13,9 +13,9 @@ Settings → Dictation lists the available models. Download several, then use **
 
 Sizes use decimal MB and exclude the shared ONNX runtime. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 35 catalog entries were checked against downloaded bytes, including Cohere's external weight files.
 
-Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Cohere processes long audio in chunks of up to 25 seconds, cut at quiet points; whisper.cpp windows long audio itself.
+Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Every local model gets the same preprocessing from [Silero VAD](https://github.com/snakers4/silero-vad) v6.2.3 (MIT, `licenses/silero-vad-MIT.txt`), installed into the shared runtime directory with any model and pinned to its upstream commit, byte size and SHA-256. The worker trims non-speech edges, keeping 200 ms of padding so the engine's release tail and optional pre-roll still reach the model, and returns an empty transcript when it finds no speech. That replaces the energy gate's "No speech detected" for local dictation, since the VAD hears quiet speech the gate rejects. Recordings longer than 25 s are split at the longest pause in the 10 s before each boundary, or at the least speech-like frame when there is none, and chunks without speech are skipped. Whisper decodes with timestamps so whisper.cpp keeps seeking within a chunk instead of stopping after its first segments. Hosted transcription is unchanged: the VAD only ships with local models.
 
-Existing configurations default to Parakeet v3. Its original directory and installation marker continue to work. A later download copies its runtime into shared storage, preserving its modification time so existing installation markers stay valid. Removing a model preserves the shared runtime and other models. When Source is On device, the selected model loads in the background at launch and after a model or language change. **Unload when idle** (5 min, 30 min, Never) frees the worker after that long unused. The default, 30 min, keeps a working session warm while returning the roughly 1.3 GB a loaded Parakeet v3 worker holds on 8 to 16 GB laptops. Switching Source away unloads it. No warm-up inference runs: the first transcription after loading measured the same as later ones.
+Existing configurations default to Parakeet v3. The ONNX runtime and VAD live in shared storage and count toward each model's installation marker, so models installed before the VAD shipped show as not installed until downloaded again, which fetches only the 2.3 MB VAD. Removing a model preserves the shared runtime and other models. When Source is On device, the selected model loads in the background at launch and after a model or language change. **Unload when idle** (5 min, 30 min, Never) frees the worker after that long unused. The default, 30 min, keeps a working session warm while returning the roughly 1.3 GB a loaded Parakeet v3 worker holds on 8 to 16 GB laptops. Switching Source away unloads it. No warm-up inference runs: the first transcription after loading measured the same as later ones.
 
 ## Repeatable verification
 
@@ -78,6 +78,26 @@ Warm medians per clip, ms (WER):
 
 Parakeet's French errors are "de ma toine" for "demain à trois", and "nôtes"/"eaux" for "notes" once 100 ms is cut. Whisper pads every window to 30 s, so short clips cost as much as long ones on CPU, and on `long-en` it transcribed only two of the eight repeated sentences. The final-word check still passes there, so it measures release truncation, not completeness.
 
+### Silero VAD before/after
+
+Same machine, release build, `--bench` with `iterations` lowered to 2, models `parakeet-v3` and `whisper-turbo`. Before is `238e16d`; after adds the VAD and turns on Whisper timestamps.
+
+| Model           | Median RTF    | Mean WER      | `long-en` WER | `medium-fr` WER | Final word kept at 0/100/200 ms cut |
+| --------------- | ------------- | ------------- | ------------- | --------------- | ----------------------------------- |
+| `parakeet-v3`   | 0.034 → 0.059 | 0.096 → 0.096 | 0.00 → 0.00   | 0.31 → 0.31     | 4/3/3 → 4/3/3 of 4                  |
+| `whisper-turbo` | 1.227 → 1.130 | 0.278 → 0.259 | 0.77 → 0.77   | 0.15 → 0.08     | 4/4/4 → 4/4/4 of 4                  |
+
+The Parakeet RTF gap is run-to-run noise: two interleaved Parakeet-only reruns with 5 iterations measured 0.038 and 0.033 before, 0.034 and 0.045 after. The VAD itself took 14 ms on 4.9 s and 148 ms on 52 s of audio. `long-en` was split into two chunks at a 750 ms gap, yet Whisper still returns two of its eight sentences. Its sentences are sample-identical, so this clip does not separate Whisper's handling of repetition from long audio.
+
+A 52.3 s clip of eight different English fixtures with 0.8 to 3 s of digital silence between them, and the same clip under pink noise at amplitude 0.003, measure long audio with varied speech. Sentences kept out of 8, cold load included:
+
+| Model           | Clean before | Clean after | Noisy before | Noisy after |
+| --------------- | ------------ | ----------- | ------------ | ----------- |
+| `parakeet-v3`   | 8 (5.7 s)    | 8 (5.0 s)   | 2 (3.0 s)    | 7 (5.5 s)   |
+| `whisper-turbo` | 5 (43.0 s)   | 8 (68.7 s)  | 5 (47.9 s)   | 8 (82.2 s)  |
+
+VAD chunks alone left Whisper at 5 of 8. It dropped sentences inside a 23 s chunk until `no_timestamps` was removed, which lets whisper.cpp seek per segment; that costs more encoder passes on CPU. The first cut, searching only the last 3 s before the 25 s boundary, missed a 3 s pause and split "Open source slash config.rs", which Parakeet then lost; searching the last 10 s fixed it. On 6 s of digital silence, Whisper returned "Sous-titrage Société Radio-Canada" before and the VAD now returns no speech in 15 ms. Parakeet returned nothing on silence or noise either way.
+
 ## Verification on Linux x86_64
 
 Debug build, CPU ONNX Runtime 1.24.4, four inference threads. English audio: 4,875 ms; French audio: 4,987 ms. These are single-run timings, including model loading, not a comparative accuracy benchmark.
@@ -89,7 +109,7 @@ cohere en: "The meeting is tomorrow at 3 in the afternoon. Please bring your not
 cohere fr: "Bonjour, la réunion est demain à trois heures. Merci de préparer vos notes." | audio=4987ms elapsed=3234ms (cold load included)
 ```
 
-A simulated legacy v3 runtime layout remained installed before and after installing another model migrated the runtime. Cancellation after 500 ms returned `Download cancelled` and left all models uninstalled in a separate fresh home.
+Cancellation after 500 ms returned `Download cancelled` and left all models uninstalled in a separate fresh home.
 
 Checks: `cargo build`, `cargo clippy`, `cargo test`, `bun run build`, and `bun run check` passed. Cargo currently discovers zero tests; the transcription example supplies the exercised runtime verification. `bun run codegen` could not run because this checkout has no `CONVEX_DEPLOYMENT`. No backend functions changed and no deployment was configured. No E2E suite ran.
 
@@ -97,7 +117,7 @@ The real GPUI app was launched with `--demo`, `TYPEASIDE_HOME=/tmp/typeaside-mod
 
 ![On-device model settings in the real app](assets/local-models-settings.png)
 
-Unverified: macOS/Windows runtime execution, other supported languages, long-recording accuracy across chunk boundaries, and live UI download/selection/removal interactions.
+Unverified: macOS/Windows runtime execution, other supported languages, VAD chunking on real (non-synthetic) long recordings, and live UI download/selection/removal interactions.
 
 ## Attribution
 

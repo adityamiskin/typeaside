@@ -69,19 +69,6 @@ impl Model {
         })
     }
     pub fn transcribe(&mut self, samples: &[f32]) -> Result<String> {
-        let mut parts = Vec::new();
-        let mut rest = samples;
-        while !rest.is_empty() {
-            let cut = quiet_cut(rest, 25 * 16000);
-            let speech = trim_quiet(&rest[..cut]);
-            if !speech.is_empty() {
-                parts.push(self.chunk(speech)?);
-            }
-            rest = &rest[cut..];
-        }
-        Ok(parts.join(" "))
-    }
-    fn chunk(&mut self, samples: &[f32]) -> Result<String> {
         let audio = Tensor::from_array(self.features.extract(samples))?;
         let mut encoded = self.encoder.run(inputs![audio])?;
         let hidden = encoded
@@ -161,59 +148,5 @@ impl Model {
             .map_err(anyhow::Error::msg)?
             .trim()
             .to_owned())
-    }
-}
-
-const FRAME: usize = 160;
-
-fn energy(frame: &[f32]) -> f32 {
-    frame.iter().map(|x| x * x).sum::<f32>() / frame.len() as f32
-}
-
-/// Fixed-length cuts split words, so end each chunk at the quietest 10 ms in its last 3 s.
-fn quiet_cut(samples: &[f32], max: usize) -> usize {
-    if samples.len() <= max {
-        return samples.len();
-    }
-    ((max - 3 * 16000)..max)
-        .step_by(FRAME)
-        .min_by(|&a, &b| energy(&samples[a..a + FRAME]).total_cmp(&energy(&samples[b..b + FRAME])))
-        .map_or(max, |at| at + FRAME / 2)
-}
-
-/// Autoregressive decoders can return nothing or hallucinate across long quiet stretches, so drop quiet edges.
-fn trim_quiet(samples: &[f32]) -> &[f32] {
-    const PAD: usize = 16000 / 5;
-    let frames: Vec<f32> = samples.chunks(FRAME).map(energy).collect();
-    let peak = frames.iter().copied().fold(0., f32::max);
-    let loud = |e: &f32| *e > peak * 0.01;
-    let (Some(first), Some(last)) = (frames.iter().position(loud), frames.iter().rposition(loud))
-    else {
-        return &[];
-    };
-    let start = (first * FRAME).saturating_sub(PAD);
-    let end = ((last + 1) * FRAME + PAD).min(samples.len());
-    &samples[start..end]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{quiet_cut, trim_quiet};
-
-    #[test]
-    fn long_audio_is_cut_in_the_quietest_gap() {
-        let mut samples = vec![0.5; 40 * 16000];
-        samples[23 * 16000..23 * 16000 + 1600].fill(0.);
-        let cut = quiet_cut(&samples, 25 * 16000);
-        assert!((23 * 16000..23 * 16000 + 1600).contains(&cut));
-        assert_eq!(quiet_cut(&samples[..1000], 25 * 16000), 1000);
-    }
-
-    #[test]
-    fn quiet_edges_are_trimmed_with_padding() {
-        let mut samples = vec![0.001; 3 * 16000];
-        samples[16000..32000].fill(0.3);
-        assert_eq!(trim_quiet(&samples).len(), 16000 + 2 * 3200);
-        assert!(trim_quiet(&[0.; 1600]).is_empty());
     }
 }

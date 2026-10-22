@@ -1289,7 +1289,8 @@ fn run(
                         stream = None;
                         phase(&events, busy.map_or(Phase::Idle, |_| busy_phase.clone()));
                         continue;
-                    } else if silent {
+                    } else if silent && config.transcription != crate::config::Source::Local {
+                        // The local worker's VAD hears quiet speech this energy gate rejects.
                         stream = None;
                         report_error(&events, "No speech detected");
                         if config.sounds {

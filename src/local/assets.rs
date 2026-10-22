@@ -237,3 +237,10 @@ pub(super) const WHISPER_TURBO: [Asset; 1] = [Asset {
     sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
     size: 574041195,
 }];
+
+pub(super) const SILERO_VAD: Asset = Asset {
+    name: "silero-vad-6.2.3.onnx",
+    url: "https://raw.githubusercontent.com/snakers4/silero-vad/5cd7945676eb32225748052e2e6a0580e4686a08/src/silero_vad/data/silero_vad.onnx",
+    sha256: "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
+    size: 2327524,
+};
