@@ -359,6 +359,7 @@ fn hosted_context(
         after_cursor: Option<&'a str>,
         category: AppCategory,
         dictionary: &'a [String],
+        #[serde(skip_serializing_if = "<[_]>::is_empty")]
         replacements: &'a [crate::replacements::Rule],
         names: &'a [String],
         #[serde(skip_serializing_if = "Option::is_none")]
