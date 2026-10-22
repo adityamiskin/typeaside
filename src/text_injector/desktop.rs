@@ -77,7 +77,11 @@ impl TextInjector {
 
     pub fn inject_text(&mut self, text: &str, _: Option<&str>, auto_submit: bool) -> Result<()> {
         if text.trim().is_empty() {
-            return Ok(());
+            return if auto_submit {
+                self.shortcut(None, Key::Return)
+            } else {
+                Ok(())
+            };
         }
         let mut clipboard = Clipboard::new()?;
         let previous = SavedClipboard::read(&mut clipboard)?;
