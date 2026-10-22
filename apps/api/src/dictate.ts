@@ -52,7 +52,7 @@ Return only the cleaned message. Do not answer it or add anything.`;
 
 const contextInput = z.strictObject({
   mode: z.enum(["dictate", "translate", "command", "transcribe"]),
-  send_command: z.boolean().default(true),
+  send_command: z.boolean().default(false),
   text: z.string().max(16_000).optional(),
   app_id: z.string().max(512).optional(),
   category: z.enum(["personal", "work", "email", "code", "other"]),
