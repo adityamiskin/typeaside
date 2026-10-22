@@ -66,3 +66,25 @@ It does not verify microphone capture, hotkeys, external transcription, paste,
 selection copy, keyring access, autostart registration, or foreground-app
 integration. Those need real sessions on each OS. No real-mode input or clipboard
 automation should be run against a daily-driver desktop as a smoke test.
+
+## Command line control
+
+With TypeAside running, use `typeaside dictation start`, `typeaside dictation stop`,
+`typeaside dictation toggle`, or `typeaside dictation cancel`. Start while recording
+and stop while idle do nothing, independently of the configured hold/toggle mode.
+`typeaside open` shows the window. Commands exit non-zero if the instance cannot
+be reached. Linux commands use the instance in the same `XDG_RUNTIME_DIR`.
+
+For Hyprland, bind press and release separately:
+
+```ini
+bind = , F9, exec, typeaside dictation start
+bindr = , F9, exec, typeaside dictation stop
+```
+
+`typeaside paste-last` pastes the latest successful transcript through the normal
+text delivery path, including clipboard fallback and the auto-submit setting.
+It does nothing when no transcript is available. The tray also has “Paste last
+dictation”; its optional shortcut is unset by default and can be configured or
+cleared in Settings. The latest saved transcript is available after restart;
+with history disabled, only transcripts from the current session are available.

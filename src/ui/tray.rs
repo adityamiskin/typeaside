@@ -8,3 +8,10 @@ mod desktop;
 pub use desktop::*;
 
 const ICON_RGBA: &[u8; 32 * 32 * 4] = include_bytes!("../../assets/icons/typeaside-tray.rgba");
+
+pub enum Action {
+    Open,
+    PasteAvailable,
+    Command(super::instance::Command),
+    Quit,
+}

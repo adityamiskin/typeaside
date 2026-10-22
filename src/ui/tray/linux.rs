@@ -1,12 +1,10 @@
 use ksni::blocking::{Handle, TrayMethods};
 use ksni::{Tray, menu::StandardItem};
 
-pub enum Action {
-    Open,
-    Quit,
-}
+use super::Action;
 struct TypeAsideTray {
     sender: async_channel::Sender<Action>,
+    paste_available: bool,
 }
 
 impl Tray for TypeAsideTray {
@@ -44,6 +42,17 @@ impl Tray for TypeAsideTray {
             }
             .into(),
             StandardItem {
+                label: "Paste last dictation".into(),
+                enabled: self.paste_available,
+                activate: Box::new(|this: &mut Self| {
+                    let _ = this
+                        .sender
+                        .try_send(Action::Command(crate::ui::instance::Command::PasteLast));
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
                 label: "Quit".into(),
                 activate: Box::new(|this: &mut Self| {
                     let _ = this.sender.try_send(Action::Quit);
@@ -59,7 +68,20 @@ pub struct TrayHandle {
     _handle: Handle<TypeAsideTray>,
 }
 
-pub fn spawn(sender: async_channel::Sender<Action>) -> anyhow::Result<TrayHandle> {
-    let handle = TypeAsideTray { sender }.spawn()?;
+impl TrayHandle {
+    pub fn enable_paste(&self) {
+        self._handle.update(|tray| tray.paste_available = true);
+    }
+}
+
+pub fn spawn(
+    sender: async_channel::Sender<Action>,
+    paste_available: bool,
+) -> anyhow::Result<TrayHandle> {
+    let handle = TypeAsideTray {
+        sender,
+        paste_available,
+    }
+    .spawn()?;
     Ok(TrayHandle { _handle: handle })
 }

@@ -7,8 +7,6 @@ use std::io::ErrorKind;
 #[cfg(target_os = "macos")]
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use std::io::Write;
-
 /// Becomes the running instance, or asks the one already running to show its window.
 pub enum Claim {
     Primary(Option<UnixListener>),
@@ -16,28 +14,9 @@ pub enum Claim {
 }
 
 pub fn claim(name: &str, show: bool) -> Claim {
-    #[cfg(target_os = "macos")]
-    let path = {
-        use std::os::unix::fs::DirBuilderExt;
-        let Some(dirs) = directories::ProjectDirs::from("", "", "typeaside") else {
-            return Claim::Primary(None);
-        };
-        if std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dirs.data_local_dir())
-            .is_err()
-        {
-            return Claim::Primary(None);
-        }
-        dirs.data_local_dir().join(name)
+    let Ok(path) = address(name) else {
+        return Claim::Primary(None);
     };
-    #[cfg(target_os = "windows")]
-    // Pipe names are machine-wide, so scope them to the user.
-    let path = format!(
-        "typeaside-{}-{name}",
-        std::env::var("USERNAME").unwrap_or_default()
-    );
     #[cfg(target_os = "macos")]
     let connected = UnixStream::connect(&path);
     #[cfg(target_os = "windows")]
@@ -48,7 +27,7 @@ pub fn claim(name: &str, show: bool) -> Claim {
     match connected {
         Ok(mut stream) => {
             if show {
-                let _ = stream.write_all(b"open");
+                let _ = super::send_command(&mut stream, super::Command::Open);
             }
             Claim::Handed
         }
@@ -70,17 +49,51 @@ pub fn claim(name: &str, show: bool) -> Claim {
     }
 }
 
-pub fn serve(listener: UnixListener, open: async_channel::Sender<crate::ui::tray::Action>) {
+#[cfg(target_os = "macos")]
+fn address(name: &str) -> std::io::Result<std::path::PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let paths = typeaside::paths::AppPaths::discover().map_err(std::io::Error::other)?;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&paths.data_dir)?;
+    Ok(paths.data_dir.join(name))
+}
+
+#[cfg(target_os = "windows")]
+fn address(name: &str) -> std::io::Result<String> {
+    Ok(format!(
+        "typeaside-{}-{name}",
+        std::env::var("USERNAME").unwrap_or_default()
+    ))
+}
+
+pub fn send(name: &str, command: super::Command) -> std::io::Result<()> {
+    let path = address(name)?;
+    #[cfg(target_os = "macos")]
+    let mut stream = UnixStream::connect(path)?;
+    #[cfg(target_os = "windows")]
+    let mut stream = UnixStream::connect(path.to_ns_name::<GenericNamespaced>()?)?;
+    #[cfg(target_os = "macos")]
+    {
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+        stream.set_write_timeout(Some(std::time::Duration::from_secs(2)))?;
+    }
+    super::send_command(&mut stream, command)
+}
+
+pub fn serve(listener: UnixListener, actions: async_channel::Sender<crate::ui::tray::Action>) {
     let _ = std::thread::Builder::new()
         .name("typeaside-instance".into())
         .spawn(move || {
             for mut stream in listener.incoming().flatten() {
-                let mut request = [0; 4];
-                if std::io::Read::read_exact(&mut stream, &mut request).is_ok()
-                    && open.try_send(crate::ui::tray::Action::Open).is_err()
+                #[cfg(target_os = "macos")]
                 {
-                    return;
+                    let timeout = Some(std::time::Duration::from_secs(2));
+                    let _ = stream.set_read_timeout(timeout);
+                    let _ = stream.set_write_timeout(timeout);
                 }
+                super::receive_command(&mut stream, &actions);
             }
         });
 }

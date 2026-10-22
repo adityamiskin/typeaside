@@ -1,5 +1,5 @@
 use std::{
-    io::{ErrorKind, Write},
+    io::ErrorKind,
     os::unix::net::{UnixListener, UnixStream},
     path::PathBuf,
 };
@@ -18,7 +18,7 @@ pub fn claim(name: &str, show: bool) -> Claim {
     match UnixStream::connect(&path) {
         Ok(mut stream) => {
             if show {
-                let _ = stream.write_all(b"open");
+                let _ = super::send_command(&mut stream, super::Command::Open);
             }
             Claim::Handed
         }
@@ -31,17 +31,24 @@ pub fn claim(name: &str, show: bool) -> Claim {
     }
 }
 
-pub fn serve(listener: UnixListener, open: async_channel::Sender<crate::ui::tray::Action>) {
+pub fn send(name: &str, command: super::Command) -> std::io::Result<()> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .ok_or_else(|| std::io::Error::other("XDG_RUNTIME_DIR is not set"))?;
+    let mut stream = UnixStream::connect(PathBuf::from(dir).join(name))?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+    stream.set_write_timeout(Some(std::time::Duration::from_secs(2)))?;
+    super::send_command(&mut stream, command)
+}
+
+pub fn serve(listener: UnixListener, actions: async_channel::Sender<crate::ui::tray::Action>) {
     let _ = std::thread::Builder::new()
         .name("typeaside-instance".into())
         .spawn(move || {
             for mut stream in listener.incoming().flatten() {
-                let mut request = [0; 4];
-                if std::io::Read::read_exact(&mut stream, &mut request).is_ok()
-                    && open.try_send(crate::ui::tray::Action::Open).is_err()
-                {
-                    return;
-                }
+                let timeout = Some(std::time::Duration::from_secs(2));
+                let _ = stream.set_read_timeout(timeout);
+                let _ = stream.set_write_timeout(timeout);
+                super::receive_command(&mut stream, &actions);
             }
         });
 }
