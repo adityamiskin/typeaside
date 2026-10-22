@@ -47,6 +47,37 @@ ffmpeg -i /tmp/local-en.wav -ar 16000 -ac 1 tests/fixtures/local-models-en.wav
 ffmpeg -i /tmp/local-fr.wav -ar 16000 -ac 1 tests/fixtures/local-models-fr.wav
 ```
 
+## Benchmark
+
+`--bench MANIFEST OUT.jsonl` builds each clip in `tests/fixtures/local-models-bench.json` from the two fixtures (trimmed, repeated with silence gaps) and, per model and clip, runs one cold load plus `iterations` warm runs. Each run writes a JSONL record with `audio_ms`, `phase`, `elapsed_ms`, `rtf` and `wer`. WER is word Levenshtein distance over lowercase words with punctuation removed, so `3` for "three" counts as an error. Release replay trims the clip to its last non-silent sample, then cuts 0, 100 and 200 ms more, and records whether the reference's final word is still the transcript's final word. A summary record per model gives warm median RTF, p95 warm latency, mean warm WER and release survival.
+
+Clips: `short-en` 2.9 s, `medium-en` 10.3 s, `medium-fr` 10.5 s, `long-en` 44.3 s.
+
+```bash
+export TYPEASIDE_HOME="$(mktemp -d -p ~/.cache)"
+cargo build --release --example local_models
+for model in parakeet-v3 whisper-turbo; do
+  target/release/examples/local_models --download "$model"
+done
+target/release/examples/local_models --bench tests/fixtures/local-models-bench.json "$TYPEASIDE_HOME/bench.jsonl"
+```
+
+Linux x86_64, AMD Ryzen 9 8945HS (16 threads), release build, CPU only, 5 warm iterations:
+
+| Model           | Median RTF | p95 ms | Mean WER | Median cold ms | Final word kept at 0/100/200 ms cut |
+| --------------- | ---------- | ------ | -------- | -------------- | ----------------------------------- |
+| `parakeet-v3`   | 0.040      | 2,319  | 0.096    | 2,295          | 4/3/3 of 4                          |
+| `whisper-turbo` | 1.223      | 24,195 | 0.278    | 16,058         | 4/4/4 of 4                          |
+
+Warm medians per clip, ms (WER):
+
+| Model           | short-en      | medium-en     | medium-fr     | long-en       |
+| --------------- | ------------- | ------------- | ------------- | ------------- |
+| `parakeet-v3`   | 114 (0.00)    | 353 (0.08)    | 400 (0.31)    | 2,259 (0.00)  |
+| `whisper-turbo` | 15,276 (0.11) | 12,861 (0.08) | 11,836 (0.15) | 23,737 (0.77) |
+
+Parakeet's French errors are "de ma toine" for "demain à trois", and "nôtes"/"eaux" for "notes" once 100 ms is cut. Whisper pads every window to 30 s, so short clips cost as much as long ones on CPU, and on `long-en` it transcribed only two of the eight repeated sentences. The final-word check still passes there, so it measures release truncation, not completeness.
+
 ## Verification on Linux x86_64
 
 Debug build, CPU ONNX Runtime 1.24.4, four inference threads. English audio: 4,875 ms; French audio: 4,987 ms. These are single-run timings, including model loading, not a comparative accuracy benchmark.

@@ -1,0 +1,53 @@
+{
+  "models": ["parakeet-v3", "whisper-turbo"],
+  "iterations": 5,
+  "clips": [
+    {
+      "name": "short-en",
+      "language": "en",
+      "parts": [
+        {
+          "wav": "local-models-en.wav",
+          "end_ms": 2860,
+          "text": "The meeting is tomorrow at three in the afternoon."
+        }
+      ]
+    },
+    {
+      "name": "medium-en",
+      "language": "en",
+      "repeat": 2,
+      "gap_ms": 500,
+      "parts": [
+        {
+          "wav": "local-models-en.wav",
+          "text": "The meeting is tomorrow at three in the afternoon. Please bring your notes."
+        }
+      ]
+    },
+    {
+      "name": "medium-fr",
+      "language": "fr",
+      "repeat": 2,
+      "gap_ms": 500,
+      "parts": [
+        {
+          "wav": "local-models-fr.wav",
+          "text": "Bonjour, la réunion est demain à trois heures. Merci de préparer vos notes."
+        }
+      ]
+    },
+    {
+      "name": "long-en",
+      "language": "en",
+      "repeat": 8,
+      "gap_ms": 750,
+      "parts": [
+        {
+          "wav": "local-models-en.wav",
+          "text": "The meeting is tomorrow at three in the afternoon. Please bring your notes."
+        }
+      ]
+    }
+  ]
+}

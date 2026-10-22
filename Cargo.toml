@@ -70,6 +70,10 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalizati
 [build-dependencies]
 winresource = "0.1"
 
+[[example]]
+name = "local_models"
+test = true
+
 [patch.crates-io]
 gpui-pre = { path = "vendor/gpui-pre" }
 gpui-pre-linux = { path = "vendor/gpui-pre-linux" }
