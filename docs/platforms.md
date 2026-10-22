@@ -55,6 +55,17 @@ restores only those still physically held. Self-injected events are excluded
 from hotkey detection. Windows input injection follows the OS integrity boundary;
 an unelevated TypeAside cannot paste into an elevated application.
 
+Before pasting, a 65 ms accessibility probe (macOS AX, Windows UIA, Linux AT-SPI)
+classifies the focused element. A focused button, checkbox, menu item, slider or
+scrollbar skips the paste and leaves the transcript on the clipboard. Anything
+else, including terminals, games and apps without accessibility, pastes as
+before. When a focused text field's value was readable, it is read again after
+the paste window; if the same field is unchanged, the transcript stays on the
+clipboard instead of being restored over. Auto-submit skips that check. On
+Linux the probe only trusts a single AT-SPI active window whose title matches
+the Hyprland or niri focused window, because Wayland Chromium keeps stale active
+states.
+
 ## Verification
 
 `.github/workflows/ci.yml` builds, tests and runs Clippy with warnings denied on
