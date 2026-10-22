@@ -26,6 +26,12 @@ ONNX Parakeet v3 stays: its GGUF conversion (`handy-computer/parakeet-tdt-0.6b-v
 
 Building needs CMake, the Vulkan headers and loader, `glslc` and SPIRV-Headers on Linux and Windows (Arch: `vulkan-headers spirv-headers shaderc vulkan-icd-loader`; Ubuntu 24.04: `libvulkan-dev glslc spirv-headers`; Windows: the LunarG SDK plus `vcpkg install spirv-headers`). The binary links the Vulkan loader; Windows delay-loads it so the app starts without one, but on such a machine the worker cannot load GGUF models.
 
+### Streaming while the shortcut is held
+
+With Source On device, every capture opens a stream to the worker and the recorder feeds it 160 ms blocks, pre-roll first, then everything through the 200 ms release tail. Only a model that advertises streaming on a GPU streams: today `parakeet-unified-en` on Vulkan or Metal, buffered with its default 5.6 s left context, 1.04 s chunk and 1.04 s right context. A CPU stream would re-encode every overlapping window, so CPU workers and other models ignore the audio and transcribe the whole clip after release as before. Streams skip the VAD.
+
+Release finalizes the stream immediately, so it ends before a later capture opens its own. The whole clip is transcribed offline, through the VAD, when the stream fails, returns no text, or finalize runs past 1.5 s (the worker cancels it). A tap, Escape or discarded capture abandons the stream. Loading such a model also runs a 1 s silent stream; if that fails the model stays offline-only. Each dictation logs `typeaside local: stream=… finish=… ms` with `TYPEASIDE_TRACE=1`.
+
 ## Repeatable verification
 
 The example requires an explicit isolated home. It never reads the daily-driver config or model directory. Its child workers inherit that home. It asserts that a pre-selection config still selects v3, transcribes the fixed clips with every installed model, prints cold-load-inclusive timings, and exercises switching models/languages within one parent process.
@@ -137,6 +143,18 @@ Warm medians per clip, ms:
 Unified English's errors are all "3" for "three". Whisper GGUF scored the same per-clip WER as whisper-rs, including two of eight sentences on `long-en`. On the 52.3 s varied clip from the VAD section, clean and under pink noise, both GGUF models kept 8 of 8 sentences; cold-load-inclusive Whisper took 6.0 s on the iGPU and 33.6 s on the CPU (whisper-rs: 68.7 s), Unified English 1.5 s and 2.9 s.
 
 The silent warm-up at load matters on the dGPU: the first Whisper transcription after loading took 1,012 ms without it and 232 ms with it (later runs 255 to 261 ms). On the iGPU the first run matched later ones either way. Mesa and NVIDIA keep their compiled shaders in the user's cache; the very first load on a machine took 4.1 s on the 780M and 11.7 s on the RTX 4060.
+
+### Streaming release-to-text
+
+`--stream-bench MANIFEST OUT.jsonl [SPEED]` replays each clip into a live stream in 160 ms blocks at SPEED times real time, releases, and times the text against a warm offline run of the same clip. Each iteration first abandons a 1 s stream, as a tap does. Real time (SPEED 1), `parakeet-unified-en`, 3 iterations, medians in ms:
+
+| Device | `medium-en` 10.3 s stream | offline | `long-en` 44.3 s stream | offline | Used the stream | WER stream / offline |
+| ------ | ------------------------- | ------- | ----------------------- | ------- | --------------- | -------------------- |
+| iGPU   | 191                       | 249     | 192                     | 840     | 6 of 6          | 0.08 / 0.08          |
+| dGPU   | 161                       | 160     | 151                     | 543     | 6 of 6          | 0.08 / 0.08          |
+| CPU    | 397                       | 372     | 1,604                   | 1,606   | 0 of 6          | 0.08 / 0.08          |
+
+Release-to-text no longer grows with the recording on a GPU; at 10 s the offline run is already short, so streaming only helps the iGPU. On the CPU the stream is declined and the offline fallback adds nothing measurable. Feeding a stream should also keep the dGPU awake while recording, so a streamed dictation would not pay its idle wake-up at release; that was not measured. Whisper, which cannot stream, declined in 0 ms at release and fell back. HEX's 8 s warm-up stream loaded in 3,013 ms on the iGPU against 503 ms for 1 s, with the same first-dictation latency (short-en 139 against 126 ms), so the warm-up is 1 s. The finalize-deadline fallback was not triggered in these runs.
 
 ## Verification on Linux x86_64
 

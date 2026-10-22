@@ -80,6 +80,18 @@ enum Record<'a> {
         release_survived: [usize; RELEASE_CUTS_MS.len()],
         clips: usize,
     },
+    Stream {
+        model: &'a str,
+        clip: &'a str,
+        audio_ms: usize,
+        speed: f64,
+        release_ms: f64,
+        streamed: bool,
+        offline_ms: f64,
+        wer: f64,
+        offline_wer: f64,
+        transcript: &'a str,
+    },
 }
 
 impl ClipSpec {
@@ -109,7 +121,7 @@ impl ClipSpec {
     }
 }
 
-pub fn run(manifest: &Path, output: &Path) -> Result<()> {
+fn load(manifest: &Path) -> Result<(Vec<ModelId>, usize, Vec<Clip>)> {
     let Manifest {
         models,
         iterations,
@@ -120,12 +132,90 @@ pub fn run(manifest: &Path, output: &Path) -> Result<()> {
         .into_iter()
         .map(|clip| clip.build(dir))
         .collect::<Result<Vec<_>>>()?;
+    Ok((models, iterations, clips))
+}
+
+fn emitter(output: &Path) -> Result<impl FnMut(&Record) -> Result<()>> {
     let mut out = BufWriter::new(File::create(output)?);
-    let mut emit = |record: &Record| -> Result<()> {
+    Ok(move |record: &Record| -> Result<()> {
         serde_json::to_writer(&mut out, record)?;
         writeln!(out)?;
+        out.flush()?;
         Ok(())
-    };
+    })
+}
+
+/// Feeds each clip in real-time blocks, as the recorder does, then releases and times the text.
+/// Each iteration first abandons a one-second stream, as a tap does.
+pub fn stream(manifest: &Path, output: &Path, speed: f64) -> Result<()> {
+    let (models, iterations, clips) = load(manifest)?;
+    let mut emit = emitter(output)?;
+    println!("model                 clip       stream_ms  offline_ms  streamed  wer   offline_wer");
+    for model in models {
+        ensure!(model.installed(), "{} is not installed", model.key());
+        for clip in &clips {
+            let config: typeaside::config::AppConfig = serde_json::from_value(serde_json::json!({
+                "transcription": "local",
+                "local_model": model,
+                "language": clip.language,
+            }))?;
+            local::transcribe_model(model, clip.language.clone(), &clip.samples)?;
+            let audio_ms = clip.samples.len() / SAMPLES_PER_MS;
+            for _ in 0..iterations {
+                let offline_start = Instant::now();
+                let offline = local::transcribe_model(model, clip.language.clone(), &clip.samples)?;
+                let offline_ms = offline_start.elapsed().as_secs_f64() * 1000.;
+                // A tap abandons its stream; the next one must not inherit its audio.
+                let tap = local::Stream::start(&config).context("no installed model")?;
+                tap.audio()
+                    .send(&clip.samples[..clip.samples.len().min(16_000)]);
+                drop(tap);
+                let stream = local::Stream::start(&config).context("no installed model")?;
+                let sink = stream.audio();
+                let recording = Instant::now();
+                let mut sent = 0;
+                for block in clip.samples.chunks(sink.block) {
+                    sent += block.len();
+                    std::thread::sleep(
+                        std::time::Duration::from_secs_f64(sent as f64 / 16_000. / speed)
+                            .saturating_sub(recording.elapsed()),
+                    );
+                    sink.send(block);
+                }
+                let released = Instant::now();
+                let (transcript, streamed) = local::finish(&config, &clip.samples, Some(stream))?;
+                let release_ms = released.elapsed().as_secs_f64() * 1000.;
+                let (wer, offline_wer) = (
+                    wer(&clip.reference, &transcript),
+                    wer(&clip.reference, &offline),
+                );
+                println!(
+                    "{:<21} {:<10} {release_ms:>9.0}  {offline_ms:>10.0}  {streamed:>8}  {wer:.2}  {offline_wer:.2}",
+                    model.key(),
+                    clip.name
+                );
+                emit(&Record::Stream {
+                    model: model.key(),
+                    clip: &clip.name,
+                    audio_ms,
+                    speed,
+                    release_ms,
+                    streamed,
+                    offline_ms,
+                    wer,
+                    offline_wer,
+                    transcript: &transcript,
+                })?;
+            }
+        }
+        local::unload();
+    }
+    Ok(())
+}
+
+pub fn run(manifest: &Path, output: &Path) -> Result<()> {
+    let (models, iterations, clips) = load(manifest)?;
+    let mut emit = emitter(output)?;
     println!("model         warm  median_rtf  p95_ms  mean_wer  cold_ms  final_word@0/100/200ms");
     for model in models {
         ensure!(model.installed(), "{} is not installed", model.key());
@@ -205,7 +295,6 @@ pub fn run(manifest: &Path, output: &Path) -> Result<()> {
             clips: clips.len(),
         })?;
     }
-    out.flush()?;
     Ok(())
 }
 

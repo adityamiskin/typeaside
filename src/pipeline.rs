@@ -109,9 +109,14 @@ pub fn run(
     selection: &str,
     names: &[String],
     caret: Option<&(String, String)>,
-    stream: Option<crate::stream::Session>,
+    stream: Option<crate::stream::Streaming>,
     cleaning: impl FnOnce(),
 ) -> Result<Output> {
+    let (hosted_stream, local_stream) = match stream {
+        Some(crate::stream::Streaming::Hosted(session)) => (Some(session), None),
+        Some(crate::stream::Streaming::Local(stream)) => (None, Some(stream)),
+        None => (None, None),
+    };
     let started = Instant::now();
     if config.transcription == Source::Hosted
         && mode == Mode::Dictate
@@ -122,9 +127,9 @@ pub fn run(
     }
     if config.transcription == Source::Hosted {
         cleaning();
-        let streaming = stream.is_some();
+        let streaming = hosted_stream.is_some();
         let streamed = if !audio.is_empty() {
-            stream.and_then(|stream| {
+            hosted_stream.and_then(|stream| {
                 let context =
                     match hosted_context(config, app, mode, selection, names, caret, false) {
                         Ok(context) => context,
@@ -191,7 +196,7 @@ pub fn run(
     let (raw, local) = match config.transcription {
         Source::Local if mode == Mode::Command => anyhow::bail!(LOCAL_COMMAND),
         Source::Local if mode == Mode::Translate => anyhow::bail!(LOCAL_TRANSLATE),
-        Source::Local => (crate::local::transcribe(config, audio)?, true),
+        Source::Local => (crate::local::finish(config, audio, local_stream)?.0, true),
         Source::Hosted => unreachable!("hosted requests return above"),
         Source::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),

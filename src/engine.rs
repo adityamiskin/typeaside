@@ -497,7 +497,7 @@ struct Recorded {
     context: (Mode, Option<FocusedApp>, String),
     names: Option<mpsc::Receiver<Vec<String>>>,
     caret: Option<(String, String)>,
-    stream: Option<crate::stream::Session>,
+    stream: Option<crate::stream::Streaming>,
     retrying: Option<SystemTime>,
 }
 
@@ -1079,15 +1079,21 @@ fn run(
                     }
                 }
                 monitor = None;
-                stream = (config.transcription == crate::config::Source::Hosted)
-                    .then(crate::stream::Session::start)
-                    .and_then(Result::ok);
+                stream = match config.transcription {
+                    crate::config::Source::Hosted => crate::stream::Session::start()
+                        .ok()
+                        .map(crate::stream::Streaming::Hosted),
+                    crate::config::Source::Local => {
+                        crate::local::Stream::start(&config).map(crate::stream::Streaming::Local)
+                    }
+                    crate::config::Source::OwnKey => None,
+                };
                 let capture = ready
                     .take()
                     .filter(|capture| capture.take_error().is_none())
                     .and_then(|capture| {
                         capture
-                            .begin(stream.as_ref().map(crate::stream::Session::audio))
+                            .begin(stream.as_ref().map(crate::stream::Streaming::audio))
                             .ok()
                             .map(|()| capture)
                     })
@@ -1301,6 +1307,9 @@ fn run(
                         audio
                     }
                 };
+                if let Some(crate::stream::Streaming::Local(stream)) = &mut stream {
+                    stream.release();
+                }
                 pending.recordings.push_back(Recorded {
                     captured_at: Instant::now(),
                     audio: audio.into(),
