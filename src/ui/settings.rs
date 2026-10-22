@@ -63,6 +63,7 @@ pub(super) enum Toggle {
     Sounds,
     Duck,
     Submit,
+    SendCommand,
     AutoLearn,
     ScreenContext,
     Login,
@@ -759,6 +760,7 @@ impl MainWindow {
                             Toggle::Sounds => s.config.sounds = !on,
                             Toggle::Duck => s.config.duck_media = !on,
                             Toggle::Submit => s.config.auto_submit = !on,
+                            Toggle::SendCommand => s.config.send_command = !on,
                             Toggle::AutoLearn => s.config.auto_learn = !on,
                             Toggle::ScreenContext => s.config.screen_context = !on,
                             Toggle::ShareUsage => {
@@ -1329,6 +1331,9 @@ impl MainWindow {
                 Setting::new("Press Enter after paste")
                     .description("Send chat messages right away.")
                     .child(self.toggle("submit", c.auto_submit, Toggle::Submit, cx)),
+                Setting::new("Say send to press Enter")
+                    .description("End dictation with send. Say send alone for Enter only.")
+                    .child(self.toggle("send-command", c.send_command, Toggle::SendCommand, cx)),
                 Setting::new("Use names on screen")
                     .description("Pass visible names to transcription for this dictation.")
                     .child(self.toggle(

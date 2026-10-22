@@ -202,7 +202,11 @@ impl TextInjector {
         auto_submit: bool,
     ) -> Result<()> {
         if text.trim().is_empty() {
-            return Ok(());
+            return if auto_submit {
+                self.combo(&[], KeyCode::KEY_ENTER)
+            } else {
+                Ok(())
+            };
         }
         let previous = save_clipboard()?;
         let result = (|| {

@@ -752,7 +752,9 @@ fn run(
                 let audio = pending_audio.take();
                 let mut usage = None;
                 match result {
-                    Ok((dictation, _, _)) if dictation.cleaned.is_empty() => {
+                    Ok((dictation, delivery, _))
+                        if dictation.cleaned.is_empty() && delivery != Delivery::Submit =>
+                    {
                         if let Some(at) = retrying {
                             if let Err(error) = discard_failed(&paths, at) {
                                 report_error(&events, error);
@@ -825,7 +827,8 @@ fn run(
                                             last_paste
                                                 .as_ref()
                                                 .filter(|(app, at, _)| {
-                                                    !config.auto_submit
+                                                    !(config.auto_submit
+                                                        || delivery == Delivery::Submit)
                                                         && *app == busy_context.1
                                                         && at.elapsed() < Duration::from_secs(300)
                                                 })
@@ -840,6 +843,7 @@ fn run(
                                         &text,
                                         dictation.app_id.as_deref(),
                                         &config,
+                                        config.auto_submit || delivery == Delivery::Submit,
                                         &events,
                                     );
                                     last_paste = if delivered {
@@ -1206,6 +1210,7 @@ fn run(
                         text,
                         focused_app().and_then(|app| app.id).as_deref(),
                         &config,
+                        config.auto_submit,
                         &events,
                     );
                 }
@@ -1217,6 +1222,7 @@ fn run(
                     &text,
                     focused_app().and_then(|app| app.id).as_deref(),
                     &config,
+                    config.auto_submit,
                     &events,
                 );
             }
@@ -1272,6 +1278,9 @@ fn stop_effects(
 
 /// Consecutive dictations would otherwise run together ("first.Second").
 fn spaced(text: &str, before: Option<char>, after: Option<char>) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
     let lead = before.is_some_and(|c| !c.is_whitespace() && !"([{“‘/@#".contains(c))
         && text.starts_with(char::is_alphanumeric);
     let trail = after.is_some_and(char::is_alphanumeric) && !text.ends_with(char::is_whitespace);
@@ -1288,6 +1297,7 @@ fn deliver(
     text: &str,
     app_id: Option<&str>,
     config: &AppConfig,
+    submit: bool,
     events: &async_channel::Sender<Event>,
 ) -> bool {
     use crate::text_injector::{Delivery, deliver_text};
@@ -1308,10 +1318,10 @@ fn deliver(
         };
     }
     // Auto-submit sends the text before anyone can edit it.
-    let pending = (config.auto_learn && !config.auto_submit)
+    let pending = (config.auto_learn && !submit)
         .then(|| crate::learn::watch(text.to_owned(), events.clone()))
         .flatten();
-    match deliver_text(injector, text, app_id, config.auto_submit) {
+    match deliver_text(injector, text, app_id, submit) {
         Ok(Delivery::Pasted) => {
             *watch = pending;
             true
