@@ -282,6 +282,7 @@ pub struct AppConfig {
     pub language: Option<String>,
     pub cleanup: Cleanup,
     pub dictionary: Vec<String>,
+    pub replacements: Vec<crate::replacements::Rule>,
     /// Words the user removed; corrections never suggest them again.
     pub removed_words: Vec<String>,
     pub settings_sync: Option<crate::settings_sync::SyncState>,
@@ -327,6 +328,7 @@ impl Default for AppConfig {
             language: None,
             cleanup: Cleanup::default(),
             dictionary: Vec::new(),
+            replacements: Vec::new(),
             removed_words: Vec::new(),
             settings_sync: None,
             usage_notice_week: None,

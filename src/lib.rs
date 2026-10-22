@@ -10,6 +10,7 @@ pub mod engine;
 pub mod hotkeys;
 pub mod learn;
 pub mod paths;
+pub mod replacements;
 pub mod text_injector;
 pub mod transcribe;
 

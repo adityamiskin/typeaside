@@ -49,6 +49,8 @@ pub struct MainWindow {
     pub state: Entity<AppState>,
     pub settings: SettingsInputs,
     pub word_input: Entity<InputState>,
+    pub replacement_trigger: Entity<InputState>,
+    pub replacement_text: Entity<InputState>,
     pub search_input: Entity<InputState>,
     pub note_composer: Entity<gpui_kit::component::input::TextareaState>,
     pub note_search: Entity<InputState>,
@@ -116,6 +118,16 @@ impl MainWindow {
             }
         })
         .detach();
+        let replacement_trigger = cx.new(|cx| InputState::new(window, cx).placeholder("Find"));
+        let replacement_text = cx.new(|cx| InputState::new(window, cx).placeholder("Replace with"));
+        for input in [&replacement_trigger, &replacement_text] {
+            cx.subscribe_in(input, window, |this, _, event, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.add_replacement(window, cx);
+                }
+            })
+            .detach();
+        }
         cx.subscribe(&search_input, |this, input, event, cx| {
             if matches!(event, InputEvent::Change) {
                 let search = input.read(cx).value().to_string();
@@ -160,6 +172,8 @@ impl MainWindow {
             state: state.clone(),
             settings,
             word_input,
+            replacement_trigger,
+            replacement_text,
             search_input,
             note_composer: cx.new(|cx| {
                 gpui_kit::component::input::TextareaState::new(window, cx)

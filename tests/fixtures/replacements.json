@@ -1,0 +1,11 @@
+[
+  {"name":"longest at each position","rules":[["new","short"],["new york","city"],["york office","later"]],"input":"NEW YORK office, new.","expected":"city office, short."},
+  {"name":"Unicode casing and punctuation","rules":[["élodie","Élodie"],["σ","sigma"],["k","Kelvin"],["aditya","Aditya"]],"input":"(ÉLODIE), ς Σ σ; K k; aditya!","expected":"(Élodie), sigma sigma sigma; Kelvin Kelvin; Aditya!"},
+  {"name":"whole words in spaced scripts","rules":[["cat","dog"]],"input":"cat scatter écat caté cat_ cat1 cat́ 猫cat猫","expected":"dog scatter écat caté cat_ cat1 cat́ 猫dog猫"},
+  {"name":"spaceless scripts match inside text","rules":[["東京","京都"],["タイプ","Type"]],"input":"東京都 猫東京に行きます。タイプアサイド","expected":"京都都 猫京都に行きます。Typeアサイド"},
+  {"name":"literal patterns and output","rules":[["c++","$1\\tools"],["a.b","literal"]],"input":"c++ (C++), a.b axb xc++ c++x","expected":"$1\\tools ($1\\tools), literal axb xc++ $1\\toolsx"},
+  {"name":"one pass including self triggers","rules":[["type aside","TypeAside type aside"],["TypeAside","other"],["other","final"]],"input":"type aside TypeAside other","expected":"TypeAside type aside other final"},
+  {"name":"empty trigger and duplicate precedence","rules":[["","bad"],["  ","bad"],[" cat ","first"],["CAT","second"],["erase",""]],"input":"cat erase!","expected":"first !"},
+  {"name":"phrase whitespace is literal","rules":[["hello world","greeting"]],"input":"hello world; hello  world; hello\nworld","expected":"greeting; hello  world; hello\nworld"},
+  {"name":"adjacent matches and combining marks","rules":[["a","A"],["b","B"],["é","E"]],"input":"a,b a b é é aé éa","expected":"A,B A B E é aé éa"}
+]
