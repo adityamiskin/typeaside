@@ -3,11 +3,12 @@ mod catalog;
 mod cohere;
 mod features;
 mod inference;
+mod vad;
 mod whisper;
 pub use catalog::ModelId;
 
 use anyhow::{Context, Result, ensure};
-use assets::RUNTIME;
+use assets::{RUNTIME, SILERO_VAD};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -49,12 +50,7 @@ fn runtime_directory() -> Result<PathBuf> {
     Ok(models_directory()?.join("runtime"))
 }
 fn runtime_library() -> Result<PathBuf> {
-    let shared = runtime_directory()?.join(library_name());
-    if shared.exists() {
-        return Ok(shared);
-    }
-    // Existing v3 installations keep their runtime until a new download shares it.
-    Ok(ModelId::ParakeetV3.directory()?.join(library_name()))
+    Ok(runtime_directory()?.join(library_name()))
 }
 
 fn library_name() -> &'static str {
@@ -73,10 +69,10 @@ fn inventory(model: ModelId, dir: &Path) -> Result<String> {
         .assets()
         .iter()
         .map(|asset| asset.name)
-        .chain(std::iter::once(library_name()))
+        .chain([library_name(), SILERO_VAD.name])
     {
-        let path = if name == library_name() {
-            runtime_library()?
+        let path = if name == library_name() || name == SILERO_VAD.name {
+            runtime_directory()?.join(name)
         } else {
             dir.join(name)
         };
@@ -136,15 +132,21 @@ async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u
     let dir = model.directory()?;
     fs::create_dir_all(&dir)?;
     let _ = fs::remove_file(dir.join("installed"));
-    let total: u64 = model.assets().iter().chain(&RUNTIME).map(|a| a.size).sum();
+    let total: u64 = model
+        .assets()
+        .iter()
+        .chain([&SILERO_VAD])
+        .chain(&RUNTIME)
+        .map(|a| a.size)
+        .sum();
     let mut completed = 0;
     let mut last = std::time::Instant::now() - Duration::from_secs(1);
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(1800))
         .build()?;
-    for asset in model.assets().iter().chain(&RUNTIME) {
-        let target = if asset.name == runtime.name {
+    for asset in model.assets().iter().chain([&SILERO_VAD]).chain(&RUNTIME) {
+        let target = if asset.name == runtime.name || asset.name == SILERO_VAD.name {
             runtime_directory()?
         } else {
             dir.clone()
@@ -153,15 +155,6 @@ async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u
         ensure!(!cancel.load(Ordering::Relaxed), "Download cancelled");
         let final_path = target.join(asset.name);
         if asset.name == runtime.name && runtime_library()?.exists() {
-            let shared = runtime_directory()?.join(library_name());
-            if !shared.exists() {
-                let legacy = runtime_library()?;
-                fs::copy(&legacy, &shared)?;
-                // Preserve the inventory recorded by single-model installations.
-                File::options().write(true).open(&shared)?.set_times(
-                    fs::FileTimes::new().set_modified(fs::metadata(legacy)?.modified()?),
-                )?;
-            }
             completed += asset.size;
             continue;
         }
@@ -491,6 +484,7 @@ pub fn worker_main() -> Result<()> {
             language.as_deref(),
         )?)),
     };
+    let mut vad = vad::Vad::load(&runtime_directory()?.join(SILERO_VAD.name))?;
     let mut output = std::io::stdout().lock();
     writeln!(
         output,
@@ -514,7 +508,28 @@ pub fn worker_main() -> Result<()> {
             .iter()
             .map(|b| f32::from_le_bytes(*b))
             .collect();
-        let result = model.transcribe(samples).map_err(|e| e.to_string());
+        // No speech yields no chunks and an empty transcript, which the engine discards quietly.
+        let result = (|| -> Result<String> {
+            let started = std::time::Instant::now();
+            let chunks = vad.chunks(&samples)?;
+            if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+                eprintln!(
+                    "typeaside: VAD samples={} chunks={chunks:?} elapsed={} ms",
+                    samples.len(),
+                    started.elapsed().as_millis()
+                );
+            }
+            let mut parts = Vec::new();
+            for chunk in chunks {
+                let text = model.transcribe(samples[chunk].to_vec())?;
+                let text = text.trim();
+                if !text.is_empty() {
+                    parts.push(text.to_owned());
+                }
+            }
+            Ok(parts.join(" "))
+        })()
+        .map_err(|e| e.to_string());
         writeln!(output, "{}", serde_json::to_string(&result)?)?;
         output.flush()?;
     }

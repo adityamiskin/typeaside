@@ -28,7 +28,6 @@ impl Model {
         params.set_n_threads(
             std::thread::available_parallelism().map_or(4, |n| n.get().min(8)) as i32,
         );
-        params.set_no_timestamps(true);
         params.set_suppress_nst(true);
         params.set_print_special(false);
         params.set_print_progress(false);
