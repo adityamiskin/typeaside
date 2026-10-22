@@ -5,19 +5,55 @@ use anyhow::{Context, Result, anyhow, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig};
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
 pub struct AudioRecorder {
-    stream: Stream,
+    stream: Option<Stream>,
     buffer: Arc<Mutex<Vec<f32>>>,
     level: Arc<AtomicU32>,
     paused: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
     sample_rate: u32,
-    realtime: Option<Arc<Mutex<Realtime>>>,
+    realtime: Arc<Mutex<Option<Realtime>>>,
+    ready: Arc<Mutex<Option<Ready>>>,
+    device_id: String,
+}
+
+const RING_SAMPLES: usize = 16_000;
+const PRE_ROLL_SAMPLES: usize = 7_200;
+
+#[derive(Default)]
+struct PreRoll {
+    samples: VecDeque<f32>,
+}
+
+impl PreRoll {
+    fn extend(&mut self, samples: impl IntoIterator<Item = f32>) {
+        for sample in samples {
+            if self.samples.len() == RING_SAMPLES {
+                self.samples.pop_front();
+            }
+            self.samples.push_back(sample);
+        }
+    }
+
+    fn take(&mut self) -> Vec<f32> {
+        let skip = self.samples.len().saturating_sub(PRE_ROLL_SAMPLES);
+        self.samples.drain(..skip);
+        self.samples.drain(..).collect()
+    }
+}
+
+#[derive(Default)]
+struct Ready {
+    ring: PreRoll,
+    pending: Vec<f32>,
+    preroll: Vec<f32>,
+    recording: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -71,6 +107,18 @@ impl AudioRecorder {
         retain: bool,
         sink: Option<crate::stream::AudioSink>,
     ) -> Result<Self> {
+        let (device, external) = Self::devices(config)?;
+        if let Some(external) = external
+            && let Ok(description) = external.description()
+            && let Ok(recorder) = Self::open_device(&external, retain, sink.clone())
+        {
+            eprintln!("typeaside: lid closed, using {}", description.name());
+            return Ok(recorder);
+        }
+        Self::open_device(&device, retain, sink)
+    }
+
+    fn devices(config: &AppConfig) -> Result<(cpal::Device, Option<cpal::Device>)> {
         let host = cpal::default_host();
         let devices: Vec<_> = host
             .input_devices()?
@@ -86,15 +134,11 @@ impl AudioRecorder {
             .map(|(_, device)| device.clone())
             .or_else(|| host.default_input_device())
             .context("no input device available")?;
-        if selected.is_none()
-            && let Some(external) = lid::external_input(&host, &device)
-            && let Ok(description) = external.description()
-            && let Ok(recorder) = Self::open_device(&external, retain, sink.clone())
-        {
-            eprintln!("typeaside: lid closed, using {}", description.name());
-            return Ok(recorder);
-        }
-        Self::open_device(&device, retain, sink)
+        let external = selected
+            .is_none()
+            .then(|| lid::external_input(&host, &device))
+            .flatten();
+        Ok((device, external))
     }
 
     fn open_device(
@@ -104,13 +148,12 @@ impl AudioRecorder {
     ) -> Result<Self> {
         let supported = device.default_input_config()?;
         let stream_config = supported.config();
-        let realtime = sink.map(|sink| {
-            Arc::new(Mutex::new(Realtime {
-                sink,
-                emitted: 0,
-                pending: Vec::new(),
-            }))
-        });
+        let realtime = Arc::new(Mutex::new(sink.map(|sink| Realtime {
+            sink,
+            emitted: 0,
+            pending: Vec::new(),
+        })));
+        let ready = Arc::new(Mutex::new(None));
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let level = Arc::new(AtomicU32::new(0));
         let paused = Arc::new(AtomicBool::new(false));
@@ -126,6 +169,7 @@ impl AudioRecorder {
                     error.clone(),
                     retain,
                     realtime.clone(),
+                    ready.clone(),
                 )
             };
         }
@@ -146,14 +190,76 @@ impl AudioRecorder {
         }?;
         stream.play()?;
         Ok(Self {
-            stream,
+            stream: Some(stream),
             buffer,
             level,
             paused,
             error,
             sample_rate: stream_config.sample_rate,
             realtime,
+            ready,
+            device_id: device_id(device),
         })
+    }
+
+    pub(crate) fn ready(config: &AppConfig) -> Result<Self> {
+        let recorder = Self::open(config, true, None)?;
+        *recorder
+            .ready
+            .lock()
+            .map_err(|_| anyhow!("audio buffer poisoned"))? = Some(Ready::default());
+        Ok(recorder)
+    }
+
+    pub(crate) fn matches_device(&self, config: &AppConfig) -> bool {
+        Self::devices(config)
+            .map(|(device, external)| device_id(&external.unwrap_or(device)))
+            .is_ok_and(|id| id == self.device_id)
+    }
+
+    pub(crate) fn begin(&self, sink: Option<crate::stream::AudioSink>) -> Result<()> {
+        let mut buffer = self
+            .buffer
+            .lock()
+            .map_err(|_| anyhow!("audio buffer poisoned"))?;
+        let mut state = self
+            .ready
+            .lock()
+            .map_err(|_| anyhow!("audio buffer poisoned"))?;
+        let ready = state.as_mut().context("microphone not ready")?;
+        buffer.clear();
+        ready.preroll = ready.ring.take();
+        ready.pending.clear();
+        ready.recording = true;
+        let mut realtime = self
+            .realtime
+            .lock()
+            .map_err(|_| anyhow!("audio buffer poisoned"))?;
+        *realtime = sink.map(|sink| {
+            for chunk in ready.preroll.chunks(1600) {
+                sink.send(chunk);
+            }
+            Realtime {
+                sink,
+                emitted: 0,
+                pending: Vec::new(),
+            }
+        });
+        if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|v| v == "1") {
+            eprintln!(
+                "typeaside: pre-roll prepended samples={}",
+                ready.preroll.len()
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn preroll_samples(&self) -> usize {
+        self.ready
+            .lock()
+            .ok()
+            .and_then(|state| state.as_ref().map(|ready| ready.preroll.len()))
+            .unwrap_or(0)
     }
 
     pub(crate) fn take_error(&self) -> Option<String> {
@@ -184,27 +290,46 @@ impl AudioRecorder {
         })
     }
 
-    pub fn stop(self) -> Result<Vec<f32>> {
-        drop(self.stream);
-        if let Some(error) = self
-            .error
-            .lock()
-            .map_err(|_| anyhow!("audio error lock poisoned"))?
-            .take()
-        {
+    pub fn stop(mut self, keep_ready: bool) -> Result<(Vec<f32>, Option<Self>)> {
+        let keep_ready = keep_ready && self.ready.lock().is_ok_and(|state| state.is_some());
+        if !keep_ready {
+            self.stream = None;
+        }
+        self.paused.store(false, Ordering::Relaxed);
+        if let Some(error) = self.take_error() {
             bail!("audio capture failed: {error}");
         }
-        let data = self
-            .buffer
-            .lock()
-            .map_err(|_| anyhow!("audio buffer poisoned"))?;
-        if let Some(realtime) = self.realtime
-            && let Ok(mut realtime) = realtime.lock()
-        {
-            realtime.push(&data, self.sample_rate, true);
-        }
-        Ok(resample(&data, self.sample_rate))
+        let audio = {
+            let mut data = self
+                .buffer
+                .lock()
+                .map_err(|_| anyhow!("audio buffer poisoned"))?;
+            let mut state = self
+                .ready
+                .lock()
+                .map_err(|_| anyhow!("audio buffer poisoned"))?;
+            let mut realtime = self
+                .realtime
+                .lock()
+                .map_err(|_| anyhow!("audio buffer poisoned"))?;
+            if let Some(mut realtime) = realtime.take() {
+                realtime.push(&data, self.sample_rate, true);
+            }
+            let mut audio = state
+                .as_mut()
+                .map(std::mem::take)
+                .unwrap_or_default()
+                .preroll;
+            audio.extend(resample(&data, self.sample_rate));
+            data.clear();
+            audio
+        };
+        Ok((audio, keep_ready.then_some(self)))
     }
+}
+
+fn device_id(device: &cpal::Device) -> String {
+    device.id().map(|id| id.to_string()).unwrap_or_default()
 }
 
 fn remaining_samples(length: usize, rate: u32) -> usize {
@@ -220,7 +345,8 @@ fn capture<T: SizedSample + Sample>(
     paused: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
     retain: bool,
-    realtime: Option<Arc<Mutex<Realtime>>>,
+    realtime: Arc<Mutex<Option<Realtime>>>,
+    ready: Arc<Mutex<Option<Ready>>>,
 ) -> Result<Stream>
 where
     f32: FromSample<T>,
@@ -238,7 +364,12 @@ where
                     level.store(0, Ordering::Relaxed);
                     return;
                 }
-                for frame in samples.chunks_exact(channels).take(if retain {
+                let mut state = match ready.lock() {
+                    Ok(state) => state,
+                    Err(_) => return,
+                };
+                let idle = state.as_ref().is_some_and(|ready| !ready.recording);
+                for frame in samples.chunks_exact(channels).take(if retain && !idle {
                     remaining_samples(buffer.len(), rate)
                 } else {
                     usize::MAX
@@ -253,13 +384,23 @@ where
                     } else {
                         0.0
                     };
-                    if retain {
+                    if idle {
+                        if let Some(ready) = state.as_mut() {
+                            ready.pending.push(mono);
+                        }
+                    } else if retain {
                         buffer.push(mono);
                     }
                     power += smoothing * (mono * mono - power);
                 }
-                if let Some(realtime) = &realtime
-                    && let Ok(mut realtime) = realtime.lock()
+                if idle && let Some(ready) = state.as_mut() {
+                    let block = rate as usize / 100;
+                    let length = ready.pending.len() / block * block;
+                    ready.ring.extend(resample(&ready.pending[..length], rate));
+                    ready.pending.drain(..length);
+                }
+                if let Ok(mut realtime) = realtime.lock()
+                    && let Some(realtime) = realtime.as_mut()
                 {
                     realtime.push(&buffer, rate, false);
                 }
@@ -331,6 +472,20 @@ impl Realtime {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ready_ring_keeps_only_latest_second_and_prepends_latest_450ms() {
+        let mut ring = super::PreRoll::default();
+        ring.extend((0..20_000).map(|i| i as f32));
+        assert_eq!(ring.samples.len(), 16_000);
+        let clip = ring.take();
+        assert_eq!(clip.len(), 7200);
+        assert_eq!(clip[0], 12_800.);
+        assert_eq!(clip[7199], 19_999.);
+        assert!(ring.take().is_empty());
+        ring.extend([1., 2., 3.]);
+        assert_eq!(ring.take(), [1., 2., 3.]);
+    }
+
     #[test]
     fn resampling_preserves_release_tail_sample_count() {
         for rate in [16_000, 44_100, 48_000] {
