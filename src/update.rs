@@ -1,4 +1,5 @@
 use crate::account;
+
 use anyhow::{Context, Result, ensure};
 use minisign_verify::{PublicKey, Signature};
 use serde::Deserialize;
@@ -15,6 +16,14 @@ use std::{
 
 #[cfg(unix)]
 use std::process::Stdio;
+
+#[cfg(test)]
+mod tests;
+
+const MANIFEST_LIMIT: u64 = 64 * 1024;
+const SIGNATURE_LIMIT: u64 = 8 * 1024;
+const INSTALLER_LIMIT: u64 = 512 * 1024 * 1024;
+const RELEASE_KEY: &str = include_str!("../packaging/minisign.pub");
 
 #[derive(Clone, Debug)]
 pub enum InstallKind {
@@ -156,15 +165,75 @@ fn parse_manifest(
     }))
 }
 
-pub fn check() -> Result<Option<Release>> {
-    let body = crate::http::client()
-        .get(format!("{}/releases/latest.json", account::web_url()))
-        .timeout(Duration::from_secs(5))
+fn verified_manifest(
+    body: &[u8],
+    signature: &str,
+    key: &str,
+    current: &str,
+    file: Option<&'static str>,
+) -> Result<Option<Release>> {
+    verify_signature(&mut &*body, signature, key)?;
+    parse_manifest(std::str::from_utf8(body)?, current, file)
+}
+
+fn copy_capped(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    limit: u64,
+    mut progress: impl FnMut(u64),
+) -> Result<()> {
+    let mut received = 0u64;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = reader.read(&mut buffer).context("Download interrupted")?;
+        if count == 0 {
+            return Ok(());
+        }
+        received += count as u64;
+        ensure!(
+            received <= limit,
+            "Download exceeds size limit ({limit} bytes)"
+        );
+        writer
+            .write_all(&buffer[..count])
+            .context("Cannot save download")?;
+        progress(received);
+    }
+}
+
+fn read_capped(reader: &mut impl Read, limit: u64) -> Result<Vec<u8>> {
+    let mut body = Vec::new();
+    copy_capped(reader, &mut body, limit, |_| {})?;
+    Ok(body)
+}
+
+fn download_body(url: &str, limit: u64) -> Result<Vec<u8>> {
+    let mut response = crate::http::client()
+        .get(url)
+        .timeout(Duration::from_secs(15))
         .send()?
-        .error_for_status()?
-        .text()?;
-    parse_manifest(
-        &body,
+        .error_for_status()?;
+    read_capped(&mut response, limit)
+}
+
+fn check_at(
+    base: &str,
+    key: &str,
+    current: &str,
+    file: Option<&'static str>,
+) -> Result<Option<Release>> {
+    let body = download_body(&format!("{base}/releases/latest.json"), MANIFEST_LIMIT)?;
+    let signature = download_body(
+        &format!("{base}/releases/latest.json.minisig"),
+        SIGNATURE_LIMIT,
+    )?;
+    verified_manifest(&body, std::str::from_utf8(&signature)?, key, current, file)
+}
+
+pub fn check() -> Result<Option<Release>> {
+    check_at(
+        &account::web_url(),
+        RELEASE_KEY,
         env!("CARGO_PKG_VERSION"),
         InstallKind::detected().file(),
     )
@@ -187,9 +256,8 @@ fn verify_sha256(reader: &mut impl Read, expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn verify_signature(reader: &mut impl Read, signature: &str) -> Result<()> {
-    let key = PublicKey::decode(include_str!("../packaging/minisign.pub"))
-        .context("Invalid embedded release key")?;
+fn verify_signature(reader: &mut impl Read, signature: &str, key: &str) -> Result<()> {
+    let key = PublicKey::decode(key).context("Invalid embedded release key")?;
     let signature = Signature::decode(signature).context("Invalid release signature")?;
     let mut verifier = key
         .verify_stream(&signature)
@@ -251,19 +319,9 @@ pub fn install(release: &Release, mut progress: impl FnMut(Progress)) -> Result<
         .context("Download failed")?;
     let total = response.content_length();
     let mut output = File::create(&installer).context("Cannot save download")?;
-    let mut received = 0u64;
     let mut previous = 0;
     progress(Progress::Downloading(0));
-    let mut buffer = [0; 64 * 1024];
-    loop {
-        let count = response.read(&mut buffer).context("Download interrupted")?;
-        if count == 0 {
-            break;
-        }
-        output
-            .write_all(&buffer[..count])
-            .context("Cannot save download")?;
-        received += count as u64;
+    copy_capped(&mut response, &mut output, INSTALLER_LIMIT, |received| {
         let percent = total
             .filter(|n| *n > 0)
             .map_or(0, |n| (received.saturating_mul(100) / n).min(99) as u8);
@@ -271,51 +329,30 @@ pub fn install(release: &Release, mut progress: impl FnMut(Progress)) -> Result<
             progress(Progress::Downloading(percent));
             previous = percent;
         }
-    }
+    })?;
     output.sync_all()?;
     drop(output);
     verify_sha256(&mut File::open(&installer)?, &artifact.sha256)?;
-    let mut signature = String::new();
-    crate::http::client()
-        .get(format!(
+    let signature = download_body(
+        &format!(
             "{}/releases/v{}/{}.minisig",
             account::web_url(),
             release.version,
             artifact.file
-        ))
-        .timeout(Duration::from_secs(15))
-        .send()
-        .context("Cannot download release signature")?
-        .error_for_status()
-        .context("Cannot download release signature")?
-        .take(8192)
-        .read_to_string(&mut signature)?;
-    verify_signature(&mut File::open(&installer)?, &signature)?;
+        ),
+        SIGNATURE_LIMIT,
+    )?;
+    verify_signature(
+        &mut File::open(&installer)?,
+        std::str::from_utf8(&signature)?,
+        RELEASE_KEY,
+    )?;
     progress(Progress::Downloading(100));
     progress(Progress::Installing);
     match kind {
         #[cfg(target_os = "linux")]
         InstallKind::AppImage(destination) => {
-            use std::os::unix::fs::PermissionsExt;
-            let mut name = destination.as_os_str().to_os_string();
-            name.push(".new");
-            let staged = PathBuf::from(name);
-            let mut target = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&staged)
-                .context("Cannot stage AppImage")?;
-            let result = (|| -> Result<()> {
-                std::io::copy(&mut File::open(&installer)?, &mut target)?;
-                target.set_permissions(fs::Permissions::from_mode(0o755))?;
-                target.sync_all()?;
-                fs::rename(&staged, destination)?;
-                Ok(())
-            })();
-            if result.is_err() {
-                let _ = fs::remove_file(&staged);
-            }
-            result.context("Cannot replace AppImage")?;
+            replace_appimage(&installer, destination, &release.version)?;
             relaunch(destination, None)?;
         }
         #[cfg(target_os = "linux")]
@@ -353,6 +390,86 @@ pub fn install(release: &Release, mut progress: impl FnMut(Progress)) -> Result<
         }
         InstallKind::Managed => anyhow::bail!("Update with your package manager"),
     }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn check_version_output(output: &[u8], expected: &str) -> Result<()> {
+    ensure!(
+        std::str::from_utf8(output)?.trim() == expected,
+        "Staged AppImage version mismatch"
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_appimage(
+    staged: &Path,
+    output: &Path,
+    expected: &str,
+    timeout: Duration,
+) -> Result<()> {
+    let mut child = Command::new(staged)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(File::create(output)?)
+        .stderr(Stdio::null())
+        .spawn()
+        .context("Could not run staged AppImage")?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() < timeout => {
+                std::thread::sleep(Duration::from_millis(25))
+            }
+            result => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return match result {
+                    Err(error) => Err(error.into()),
+                    _ => anyhow::bail!("Staged AppImage version check timed out"),
+                };
+            }
+        }
+    };
+    ensure!(status.success(), "Staged AppImage version check failed");
+    check_version_output(&read_capped(&mut File::open(output)?, 128)?, expected)
+}
+
+#[cfg(target_os = "linux")]
+fn replace_appimage(installer: &Path, destination: &Path, expected: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let staging = TemporaryDirectory::new(
+        destination
+            .parent()
+            .context("AppImage has no parent directory")?,
+    )?;
+    let staged = staging.0.join("TypeAside.AppImage");
+    fs::copy(installer, &staged)?;
+    let target = File::open(&staged)?;
+    target.set_permissions(fs::Permissions::from_mode(0o755))?;
+    target.sync_all()?;
+    validate_appimage(
+        &staged,
+        &staging.0.join("version"),
+        expected,
+        Duration::from_secs(10),
+    )?;
+    let backup = staging.0.join("previous");
+    fs::hard_link(destination, &backup)
+        .or_else(|_| fs::copy(destination, &backup).map(drop))
+        .context("Cannot preserve previous AppImage")?;
+    let mut previous = destination.as_os_str().to_os_string();
+    previous.push(".previous");
+    fs::rename(&backup, PathBuf::from(previous))?;
+    fs::rename(&staged, destination).context("Cannot replace AppImage")?;
+    File::open(
+        destination
+            .parent()
+            .context("AppImage has no parent directory")?,
+    )?
+    .sync_all()?;
     Ok(())
 }
 

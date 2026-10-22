@@ -33,4 +33,6 @@ for name in files:
 manifest = {"version": os.environ["VERSION"], "files": checksums}
 Path("dist/latest.json").write_text(json.dumps(manifest) + "\n")
 MANIFEST
+packaging/sign.sh dist/latest.json
+bunx wrangler@4 r2 object put typeaside-releases/latest.json.minisig --file dist/latest.json.minisig --content-type text/plain --remote
 bunx wrangler@4 r2 object put typeaside-releases/latest.json --file dist/latest.json --content-type application/json --remote

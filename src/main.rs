@@ -2,6 +2,10 @@ mod ui;
 
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["--version"] {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     if matches!(
         args.first().map(String::as_str),
         Some("dictation" | "paste-last" | "open")
@@ -46,7 +50,7 @@ fn main() {
         .any(|arg| !matches!(arg.as_str(), "--demo" | "--hidden"))
     {
         eprintln!(
-            "typeaside: unknown command or option; use dictation start|stop|toggle|cancel, paste-last, open, --demo, or --hidden"
+            "typeaside: unknown command or option; use dictation start|stop|toggle|cancel, paste-last, open, --version, --demo, or --hidden"
         );
         std::process::exit(1);
     }
