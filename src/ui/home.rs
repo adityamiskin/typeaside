@@ -201,7 +201,7 @@ impl MainWindow {
                 return;
             };
             item.cleaned.clone()
-        } else {
+        } else if failed_at.is_some() {
             if !state
                 .failed
                 .iter()
@@ -210,6 +210,8 @@ impl MainWindow {
                 return;
             }
             "Recording didn't transcribe".into()
+        } else {
+            "All saved transcripts will be deleted.".into()
         };
         let main = cx.entity().downgrade();
         window.open_dialog(cx, move |dialog, window, cx| {
@@ -218,8 +220,10 @@ impl MainWindow {
             dialog
                 .title(if timestamp.is_some() {
                     "Delete this transcript?"
-                } else {
+                } else if failed_at.is_some() {
                     "Discard this recording?"
+                } else {
+                    "Clear all history?"
                 })
                 .w(px(380.))
                 .margin_top((window.viewport_size().height / 2. - px(90.)).max(px(16.)))
@@ -252,8 +256,10 @@ impl MainWindow {
                             Button::new("confirm-removal")
                                 .label(if timestamp.is_some() {
                                     "Delete"
-                                } else {
+                                } else if failed_at.is_some() {
                                     "Discard"
+                                } else {
+                                    "Clear all"
                                 })
                                 .danger()
                                 .on_click(move |_, window, cx| {
@@ -278,6 +284,24 @@ impl MainWindow {
                                                 cx.notify();
                                             });
                                             this.show_toast("Discarded", cx);
+                                        } else {
+                                            this.state.update(cx, |s, cx| {
+                                                if !s.is_demo
+                                                    && let Err(error) =
+                                                        typeaside::engine::delete_history(
+                                                            &s.paths, None,
+                                                        )
+                                                {
+                                                    s.save_error = Some(format!(
+                                                        "Could not clear history: {error}"
+                                                    ));
+                                                    cx.notify();
+                                                    return;
+                                                }
+                                                s.history.clear();
+                                                s.expanded = None;
+                                                cx.notify();
+                                            });
                                         }
                                     });
                                     window.close_dialog(cx);
@@ -472,6 +496,8 @@ impl MainWindow {
             div()
                 .flex()
                 .pt(px(12.))
+                .items_center()
+                .justify_between()
                 .child(
                     div().flex().bg(p.hover).rounded(px(8.)).p(px(3.)).children(
                         [
@@ -505,6 +531,16 @@ impl MainWindow {
                         }),
                     ),
                 )
+                .when(!state.history.is_empty(), |row| {
+                    row.child(
+                        Button::new("clear-history")
+                            .ghost()
+                            .label("Clear all")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_removal(None, None, window, cx);
+                            })),
+                    )
+                })
                 .into_any_element(),
         );
         let mut previous = None;

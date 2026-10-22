@@ -22,7 +22,7 @@ use typeaside::{
 };
 
 const HISTORY_RETENTION: [(HistoryRetention, &str); 4] = [
-    (HistoryRetention::Forever, "Forever"),
+    (HistoryRetention::Forever, "Until full"),
     (HistoryRetention::Month, "30 days"),
     (HistoryRetention::Week, "7 days"),
     (HistoryRetention::Off, "Off"),
