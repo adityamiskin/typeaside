@@ -2,9 +2,9 @@ mod assets;
 mod catalog;
 mod cohere;
 mod features;
+mod gguf;
 mod inference;
 mod vad;
-mod whisper;
 pub use catalog::ModelId;
 
 use anyhow::{Context, Result, ensure};
@@ -479,10 +479,13 @@ pub fn worker_main() -> Result<()> {
         ModelId::Cohere => {
             Engine::Cohere(Box::new(cohere::Model::load(&dir, language.as_deref())?))
         }
-        ModelId::WhisperTurbo => Engine::Whisper(Box::new(whisper::Model::load(
-            &dir.join(assets::WHISPER_TURBO[0].name),
-            language.as_deref(),
-        )?)),
+        ModelId::WhisperTurbo | ModelId::ParakeetUnifiedEn => {
+            let model = gguf::Model::load(&dir.join(model.assets()[0].name), language.as_deref())?;
+            if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+                eprintln!("typeaside local: device {}", model.device());
+            }
+            Engine::Gguf(Box::new(model))
+        }
     };
     let mut vad = vad::Vad::load(&runtime_directory()?.join(SILERO_VAD.name))?;
     let mut output = std::io::stdout().lock();
@@ -539,14 +542,14 @@ pub fn worker_main() -> Result<()> {
 enum Engine {
     Parakeet(Box<inference::Model>),
     Cohere(Box<cohere::Model>),
-    Whisper(Box<whisper::Model>),
+    Gguf(Box<gguf::Model>),
 }
 impl Engine {
     fn transcribe(&mut self, samples: Vec<f32>) -> Result<String> {
         match self {
             Self::Parakeet(model) => model.transcribe(samples),
             Self::Cohere(model) => model.transcribe(&samples),
-            Self::Whisper(model) => model.transcribe(&samples),
+            Self::Gguf(model) => model.transcribe(&samples),
         }
     }
 }

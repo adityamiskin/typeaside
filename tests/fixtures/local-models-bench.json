@@ -1,5 +1,5 @@
 {
-  "models": ["parakeet-v3", "whisper-turbo"],
+  "models": ["parakeet-v3", "parakeet-unified-en", "whisper-turbo"],
   "iterations": 5,
   "clips": [
     {

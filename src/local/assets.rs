@@ -231,11 +231,17 @@ pub(super) const COHERE: [Asset; 5] = [
         size: 1152395,
     },
 ];
+pub(super) const PARAKEET_UNIFIED_EN: [Asset; 1] = [Asset {
+    name: "parakeet-unified-en-0.6b-Q8_0.gguf",
+    url: "https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf/resolve/7e948f21b7bdbac698d3318db9d350f1096f3b6c/parakeet-unified-en-0.6b-Q8_0.gguf",
+    sha256: "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+    size: 731357568,
+}];
 pub(super) const WHISPER_TURBO: [Asset; 1] = [Asset {
-    name: "ggml-large-v3-turbo-q5_0.bin",
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin",
-    sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
-    size: 574041195,
+    name: "whisper-large-v3-turbo-Q5_K_M.gguf",
+    url: "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/18ada752005f5fddef499256f9a458d0b37a203a/whisper-large-v3-turbo-Q5_K_M.gguf",
+    sha256: "06fc9923c09fb3ae878ea12c34d1be3ed18fad039ab14b4b045c7b6c40af56b2",
+    size: 619628096,
 }];
 
 pub(super) const SILERO_VAD: Asset = Asset {
