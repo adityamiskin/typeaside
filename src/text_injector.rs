@@ -26,6 +26,8 @@ mod windows;
 #[cfg(target_os = "macos")]
 pub(crate) use desktop::INJECTED_EVENT_TAG;
 
+mod verification;
+
 pub enum Delivery {
     Pasted,
     Copied,
@@ -48,11 +50,11 @@ pub fn deliver_text(
             injector.inject_text(text, app_id, auto_submit)
         })();
         match pasted {
-            Ok(()) => {
+            Ok(delivery) => {
                 if std::env::var("TYPEASIDE_TRACE").as_deref() == Ok("1") {
                     eprintln!("typeaside: inject={}ms", started.elapsed().as_millis());
                 }
-                return Ok(Delivery::Pasted);
+                return Ok(delivery);
             }
             Err(error) => eprintln!("typeaside: paste failed: {error:#}"),
         }

@@ -1,3 +1,7 @@
+use super::{
+    Delivery,
+    verification::{self, Editability},
+};
 use anyhow::{Context, Result, bail};
 use atspi::{
     Role, State,
@@ -39,9 +43,11 @@ pub fn has_focused_window() -> bool {
 
 /// Unknown focus stays `None`; compositors can establish that no window has focus.
 fn focused_window() -> Option<Option<super::FocusedApp>> {
-    hyprland_focused_window()
-        .or_else(niri_focused_window)
-        .or_else(|| atspi_focused_app().map(Some))
+    compositor_focused_window().or_else(|| atspi_focused_app().map(Some))
+}
+
+pub(super) fn compositor_focused_window() -> Option<Option<super::FocusedApp>> {
+    hyprland_focused_window().or_else(niri_focused_window)
 }
 
 fn hyprland_focused_window() -> Option<Option<super::FocusedApp>> {
@@ -200,43 +206,45 @@ impl TextInjector {
         text: &str,
         app_id: Option<&str>,
         auto_submit: bool,
-    ) -> Result<()> {
+    ) -> Result<Delivery> {
         if text.trim().is_empty() {
-            return if auto_submit {
-                self.combo(&[], KeyCode::KEY_ENTER)
-            } else {
-                Ok(())
-            };
-        }
-        let previous = save_clipboard()?;
-        let result = (|| {
-            set_clipboard(text)?;
-            let deadline = Instant::now() + Duration::from_millis(350);
-            loop {
-                if read_clipboard().is_ok_and(|value| value.as_deref() == Some(text)) {
-                    break;
-                }
-                if Instant::now() >= deadline {
-                    bail!("clipboard did not publish transcript");
-                }
-                thread::sleep(Duration::from_millis(10));
-            }
-            let mut modifiers = vec![KeyCode::KEY_LEFTCTRL];
-            if app_id.is_some_and(is_terminal) {
-                modifiers.push(KeyCode::KEY_LEFTSHIFT);
-            }
-            self.combo(&modifiers, KeyCode::KEY_V)?;
             if auto_submit {
-                thread::sleep(Duration::from_millis(20));
                 self.combo(&[], KeyCode::KEY_ENTER)?;
             }
-            Ok(())
-        })();
-        let Some(previous) = previous else {
-            return result;
-        };
+            return Ok(Delivery::Pasted);
+        }
+        let before = verification::capture();
+        if before.editability == Editability::NotEditable {
+            set_clipboard(text)?;
+            return Ok(Delivery::Copied);
+        }
+        let previous = save_clipboard()?;
+        set_clipboard(text)?;
+        let deadline = Instant::now() + Duration::from_millis(350);
+        while !read_clipboard().is_ok_and(|value| value.as_deref() == Some(text)) {
+            if Instant::now() >= deadline {
+                bail!("clipboard did not publish transcript");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let mut modifiers = vec![KeyCode::KEY_LEFTCTRL];
+        if app_id.is_some_and(is_terminal) {
+            modifiers.push(KeyCode::KEY_LEFTSHIFT);
+        }
+        self.combo(&modifiers, KeyCode::KEY_V)?;
+        if auto_submit {
+            thread::sleep(Duration::from_millis(20));
+            self.combo(&[], KeyCode::KEY_ENTER)?;
+        }
         thread::sleep(Duration::from_millis(300));
-        result.and(restore_clipboard(&previous, text))
+        // Submitting changes the field anyway, so only plain pastes are checked.
+        if !auto_submit && before.paste_missed(text) {
+            return Ok(Delivery::Copied);
+        }
+        if let Some(previous) = previous {
+            restore_clipboard(&previous, text)?;
+        }
+        Ok(Delivery::Pasted)
     }
 
     fn combo(&mut self, modifiers: &[KeyCode], key: KeyCode) -> Result<()> {

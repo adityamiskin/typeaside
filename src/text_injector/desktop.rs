@@ -1,3 +1,7 @@
+use super::{
+    Delivery,
+    verification::{self, Editability},
+};
 use anyhow::{Context, Result};
 use arboard::Clipboard;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
@@ -75,33 +79,41 @@ impl TextInjector {
         result.context("cannot inject keyboard shortcut")
     }
 
-    pub fn inject_text(&mut self, text: &str, _: Option<&str>, auto_submit: bool) -> Result<()> {
+    pub fn inject_text(
+        &mut self,
+        text: &str,
+        _: Option<&str>,
+        auto_submit: bool,
+    ) -> Result<Delivery> {
         if text.trim().is_empty() {
-            return if auto_submit {
-                self.shortcut(None, Key::Return)
-            } else {
-                Ok(())
-            };
+            if auto_submit {
+                self.shortcut(None, Key::Return)?;
+            }
+            return Ok(Delivery::Pasted);
+        }
+        let before = verification::capture();
+        if before.editability == Editability::NotEditable {
+            set_clipboard(text)?;
+            return Ok(Delivery::Copied);
         }
         let mut clipboard = Clipboard::new()?;
         let previous = SavedClipboard::read(&mut clipboard)?;
-        let result = (|| {
-            clipboard.set_text(text)?;
-            self.combo(Key::Unicode('v'))?;
-            if auto_submit {
-                thread::sleep(Duration::from_millis(20));
-                self.shortcut(None, Key::Return)?;
-            }
-            Ok(())
-        })();
+        clipboard.set_text(text)?;
+        self.combo(Key::Unicode('v'))?;
+        if auto_submit {
+            thread::sleep(Duration::from_millis(20));
+            self.shortcut(None, Key::Return)?;
+        }
         thread::sleep(Duration::from_millis(300));
+        // Submitting changes the field anyway, so only plain pastes are checked.
+        if !auto_submit && before.paste_missed(text) {
+            return Ok(Delivery::Copied);
+        }
         // Leave a newer clipboard value alone if the user copied while we were pasting.
-        let restore = if clipboard.get_text().is_ok_and(|value| value == text) {
-            previous.restore(&mut clipboard)
-        } else {
-            Ok(())
-        };
-        result.and(restore)
+        if clipboard.get_text().is_ok_and(|value| value == text) {
+            previous.restore(&mut clipboard)?;
+        }
+        Ok(Delivery::Pasted)
     }
 }
 
