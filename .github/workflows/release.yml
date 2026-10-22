@@ -52,7 +52,13 @@ jobs:
         shell: bash
         run: |
           case "$RUNNER_OS" in
-            Linux) sudo apt-get install -y minisign ;;
+            Linux)
+              curl --fail --location --retry 3 -o "$RUNNER_TEMP/minisign.tar.gz" https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
+              echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $RUNNER_TEMP/minisign.tar.gz" | sha256sum --check
+              tar -xzf "$RUNNER_TEMP/minisign.tar.gz" -C "$RUNNER_TEMP" minisign-linux/x86_64/minisign
+              install -Dm755 "$RUNNER_TEMP/minisign-linux/x86_64/minisign" "$RUNNER_TEMP/bin/minisign"
+              echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+              ;;
             macOS) brew install minisign ;;
             Windows) choco install minisign --yes --no-progress ;;
           esac
