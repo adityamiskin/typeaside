@@ -259,6 +259,7 @@ impl Drop for Worker {
 }
 impl Worker {
     fn start(model: ModelId, language: Option<String>) -> Result<Self> {
+        let started = std::time::Instant::now();
         let executable = std::env::current_exe()?;
         let mut child = Command::new(executable)
             .arg("--local-worker")
@@ -316,6 +317,13 @@ impl Worker {
             io: Some(io),
         };
         worker.response(Duration::from_secs(120))?;
+        if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+            eprintln!(
+                "typeaside local: loaded {} in {} ms",
+                model.key(),
+                started.elapsed().as_millis()
+            );
+        }
         Ok(worker)
     }
     fn response(&self, timeout: Duration) -> Result<String> {
@@ -337,9 +345,10 @@ impl Worker {
 
 type Reply = mpsc::SyncSender<std::result::Result<String, String>>;
 enum Request {
+    Idle(Option<Duration>),
     Warm(ModelId, Option<String>),
     Transcribe(ModelId, Option<String>, Vec<f32>, Reply),
-    Unload(mpsc::SyncSender<()>),
+    Unload(Option<mpsc::SyncSender<()>>),
 }
 fn sender() -> &'static mpsc::Sender<Request> {
     static SENDER: OnceLock<mpsc::Sender<Request>> = OnceLock::new();
@@ -347,8 +356,14 @@ fn sender() -> &'static mpsc::Sender<Request> {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut worker: Option<Worker> = None;
+            let mut idle = crate::config::LocalUnload::default().after();
             loop {
-                match rx.recv_timeout(Duration::from_secs(300)) {
+                let request = match idle.filter(|_| worker.is_some()) {
+                    Some(idle) => rx.recv_timeout(idle),
+                    None => rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+                };
+                match request {
+                    Ok(Request::Idle(after)) => idle = after,
                     Ok(Request::Warm(model, language)) => {
                         if worker
                             .as_ref()
@@ -379,7 +394,9 @@ fn sender() -> &'static mpsc::Sender<Request> {
                     }
                     Ok(Request::Unload(reply)) => {
                         worker = None;
-                        let _ = reply.send(());
+                        if let Some(reply) = reply {
+                            let _ = reply.send(());
+                        }
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         worker = None;
@@ -397,9 +414,17 @@ pub fn prewarm(config: &crate::config::AppConfig) {
         let _ = sender().send(Request::Warm(model, config.language.clone()));
     }
 }
+pub fn apply(config: &crate::config::AppConfig) {
+    let _ = sender().send(Request::Idle(config.local_unload.after()));
+    if config.transcription == crate::config::Source::Local {
+        prewarm(config);
+    } else {
+        let _ = sender().send(Request::Unload(None));
+    }
+}
 pub fn unload() {
     let (tx, rx) = mpsc::sync_channel(1);
-    if sender().send(Request::Unload(tx)).is_ok() {
+    if sender().send(Request::Unload(Some(tx))).is_ok() {
         let _ = rx.recv();
     }
 }

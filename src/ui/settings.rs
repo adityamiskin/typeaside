@@ -17,7 +17,9 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use typeaside::{
-    config::{AppConfig, HistoryRetention, MediaControl, RecordingMode, Source, Theme},
+    config::{
+        AppConfig, HistoryRetention, LocalUnload, MediaControl, RecordingMode, Source, Theme,
+    },
     local::{ModelId, Status},
 };
 
@@ -1183,9 +1185,6 @@ impl MainWindow {
                                 Status::Downloading(_) => this.cancel_model(cx),
                                 Status::Installed if is_active => this.remove_model(model, cx),
                                 Status::Installed => {
-                                    cx.background_executor()
-                                        .spawn(async { typeaside::local::unload() })
-                                        .detach();
                                     this.state.update(cx, |s, cx| {
                                         s.config.local_model = model;
                                         s.persist();
@@ -1211,6 +1210,17 @@ impl MainWindow {
             cx,
             |this, value, _, cx| this.state.update(cx, |s, _| s.config.transcription = value),
         );
+        let unload = segmented(
+            [
+                (LocalUnload::FiveMinutes, "5 min"),
+                (LocalUnload::ThirtyMinutes, "30 min"),
+                (LocalUnload::Never, "Never"),
+            ],
+            c.local_unload,
+            p,
+            cx,
+            |this, value, _, cx| this.state.update(cx, |s, _| s.config.local_unload = value),
+        );
         let own_key = c.transcription == Source::OwnKey;
         let mut models = Vec::new();
         if !signed_in {
@@ -1223,6 +1233,13 @@ impl MainWindow {
                     })
                     .child(source),
             ];
+            if c.transcription == Source::Local {
+                transcription.push(
+                    Setting::new("Unload when idle")
+                        .description("Frees model memory after this long unused.")
+                        .child(unload),
+                );
+            }
             if typeaside::local::AVAILABLE {
                 transcription.extend(model_rows);
             }
