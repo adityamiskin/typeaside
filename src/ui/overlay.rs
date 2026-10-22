@@ -43,7 +43,8 @@ pub struct Overlay {
     dot: Spring,
     bars: [Spring; BARS],
     positions: [Spring; BARS],
-    levels: [f32; BARS],
+    levels: [f32; RIPPLE],
+    floor: Option<f32>,
     quiet: bool,
     clickable: Option<(bool, f32, f32)>,
 }
@@ -65,8 +66,9 @@ impl Overlay {
             dot: Spring::new(0.),
             bars: [Spring::new(0.); BARS],
             positions: std::array::from_fn(|i| Spring::new((i as f32 - BAR_CENTER) * 5.)),
-            levels: [0.15; BARS],
-            quiet: false,
+            levels: [0.; RIPPLE],
+            floor: None,
+            quiet: true,
             clickable: None,
         }
     }
@@ -75,13 +77,25 @@ impl Overlay {
         if self.phase == Visual::Paused {
             return;
         }
-        self.levels.rotate_left(1);
-        self.levels[BARS - 1] = if level.is_finite() {
+        let level = if level.is_finite() {
             level.clamp(0., 1.)
         } else {
             0.
         };
-        self.quiet = level < 0.05;
+        // Room noise sits around 0.2-0.35 on the dB scale, so heights track loudness above the
+        // mic's own floor; it snaps down instantly and creeps up so sustained speech stays tall.
+        let floor = self.floor.map_or(level, |floor| {
+            if level < floor {
+                level
+            } else {
+                floor + (level - floor) * 0.004
+            }
+        });
+        self.floor = Some(floor);
+        let voice = ((level - floor - VOICE_GATE) / VOICE_RANGE).clamp(0., 1.);
+        self.levels.rotate_right(1);
+        self.levels[0] = voice;
+        self.quiet = self.levels.iter().all(|&level| level < 0.04);
         cx.notify();
     }
 
@@ -359,9 +373,15 @@ impl Overlay {
                 if self.quiet {
                     3. + (entered * std::f32::consts::TAU / QUIET_PERIOD - i as f32 * 0.45).sin()
                 } else {
-                    (22. * self.levels[i]
-                        * (-((i as f32 - BAR_CENTER) / BAR_ENVELOPE).powi(2)).exp())
-                    .max(3.)
+                    let ripple = self.levels[(distance as usize).min(RIPPLE - 1)];
+                    let jitter = ((entered * 9.1 + i as f32 * 1.7).sin()
+                        + (entered * 14.3 - i as f32 * 2.9).sin())
+                        * 0.25
+                        + 0.5;
+                    3. + 21.
+                        * ripple
+                        * (-(distance / BAR_ENVELOPE).powi(2)).exp()
+                        * (0.5 + 0.5 * jitter)
                 }
             } else if matches!(self.phase, Visual::Processing | Visual::Cancel) {
                 3.
