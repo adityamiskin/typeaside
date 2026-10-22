@@ -9,7 +9,9 @@ use atspi::{
 };
 use evdev::{AttributeSet, EventType, InputEvent, KeyCode, uinput::VirtualDevice};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Read, Write},
+    os::unix::net::UnixStream,
+    path::PathBuf,
     process::{Command, Stdio},
     sync::{Mutex, OnceLock, mpsc},
     thread,
@@ -17,6 +19,12 @@ use std::{
 };
 
 mod app_name;
+mod command;
+#[cfg(test)]
+mod tests;
+
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_CLIPBOARD_BYTES: usize = 32 * 1024 * 1024;
 
 pub fn focused_app() -> Option<super::FocusedApp> {
     focused_window().flatten().map(|mut app| {
@@ -29,16 +37,60 @@ pub fn has_focused_window() -> bool {
     focused_window().is_none_or(|window| window.is_some())
 }
 
-/// Unknown focus stays `None`; only niri can establish that no window has focus.
+/// Unknown focus stays `None`; compositors can establish that no window has focus.
 fn focused_window() -> Option<Option<super::FocusedApp>> {
-    niri_focused_window().or_else(|| atspi_focused_app().map(Some))
+    hyprland_focused_window()
+        .or_else(niri_focused_window)
+        .or_else(|| atspi_focused_app().map(Some))
+}
+
+fn hyprland_focused_window() -> Option<Option<super::FocusedApp>> {
+    let signature = std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE")?;
+    let path = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?)
+        .join("hypr")
+        .join(signature)
+        .join(".socket.sock");
+    let mut socket = UnixStream::connect(path).ok()?;
+    let timeout = Some(Duration::from_millis(150));
+    socket.set_read_timeout(timeout).ok()?;
+    socket.set_write_timeout(timeout).ok()?;
+    socket.write_all(b"j/activewindow").ok()?;
+    let mut bytes = Vec::new();
+    socket.take(1024 * 1024).read_to_end(&mut bytes).ok()?;
+    parse_hyprland_window(&bytes)
+}
+
+fn parse_hyprland_window(bytes: &[u8]) -> Option<Option<super::FocusedApp>> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let window = value.as_object()?;
+    let Some(address) = window.get("address").and_then(|value| value.as_str()) else {
+        return Some(None);
+    };
+    if address.is_empty() {
+        return Some(None);
+    }
+    let field = |key| {
+        window
+            .get(key)
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    };
+    Some(Some(super::FocusedApp {
+        id: field("class"),
+        title: field("title"),
+        name: None,
+    }))
 }
 
 fn niri_focused_window() -> Option<Option<super::FocusedApp>> {
-    let output = Command::new("niri")
-        .args(["msg", "--json", "focused-window"])
-        .output()
-        .ok()?;
+    let output = command::run(
+        Command::new("niri").args(["msg", "--json", "focused-window"]),
+        None,
+        COMMAND_TIMEOUT,
+        MAX_CLIPBOARD_BYTES,
+    )
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -152,7 +204,7 @@ impl TextInjector {
         if text.trim().is_empty() {
             return Ok(());
         }
-        let previous = read_clipboard()?;
+        let previous = save_clipboard()?;
         let result = (|| {
             set_clipboard(text)?;
             let deadline = Instant::now() + Duration::from_millis(350);
@@ -234,9 +286,9 @@ fn wait_for_modifiers() {
     }
 }
 
-fn restore_clipboard(previous: &str, transcript: &str) -> Result<()> {
+fn restore_clipboard(previous: &Clipboard, transcript: &str) -> Result<()> {
     if read_clipboard().is_ok_and(|current| current.as_deref() == Some(transcript)) {
-        set_clipboard(previous)?;
+        write_clipboard(previous)?;
     }
     Ok(())
 }
@@ -245,49 +297,106 @@ fn key_event(code: KeyCode, value: i32) -> InputEvent {
     InputEvent::new(EventType::KEY.0, code.code(), value)
 }
 
-/// `None` when the clipboard is empty or holds non-text data, which wl-copy cannot restore.
-pub(crate) fn read_clipboard() -> Result<Option<String>> {
-    let types = Command::new("wl-paste")
-        .arg("--list-types")
-        .output()
-        .context("cannot run wl-paste")?;
-    if !types.status.success() {
-        return Ok(None);
-    }
-    let types = String::from_utf8_lossy(&types.stdout);
-    if types
-        .lines()
-        .any(|line| line == "x-kde-passwordManagerHint")
-        || !types.lines().any(|line| line.starts_with("text/"))
-    {
-        return Ok(None);
-    }
-    let output = Command::new("wl-paste")
-        .args(["--no-newline", "--type", "text"])
-        .output()?;
-    if !output.status.success() {
-        bail!("cannot read clipboard text");
-    }
-    Ok(Some(String::from_utf8(output.stdout)?))
+struct Clipboard {
+    mime: String,
+    bytes: Vec<u8>,
 }
 
-pub fn set_clipboard(text: &str) -> Result<()> {
-    let mut child = Command::new("wl-copy")
-        .args(["--type", "text/plain;charset=utf-8"])
-        .stdin(Stdio::piped())
-        .spawn()
-        .context("cannot run wl-copy")?;
-    let write = child
-        .stdin
-        .take()
-        .context("wl-copy stdin unavailable")?
-        .write_all(text.as_bytes());
-    let status = child.wait()?;
-    write?;
-    if !status.success() {
+fn clipboard_mime(types: &str) -> Option<&str> {
+    let types: Vec<_> = types.lines().filter(|mime| !mime.is_empty()).collect();
+    if types.contains(&"x-kde-passwordManagerHint") {
+        return None;
+    }
+    types
+        .iter()
+        .copied()
+        .find(|mime| *mime == "text/plain;charset=utf-8")
+        .or_else(|| types.iter().copied().find(|mime| *mime == "text/plain"))
+        .or_else(|| types.iter().copied().find(|mime| mime.starts_with("text/")))
+        .or_else(|| {
+            types
+                .iter()
+                .copied()
+                .find(|mime| mime.starts_with("image/"))
+        })
+        .or_else(|| types.first().copied())
+}
+
+fn clipboard_types() -> Result<Option<String>> {
+    let output = command::run(
+        Command::new("wl-paste").arg("--list-types"),
+        None,
+        COMMAND_TIMEOUT,
+        MAX_CLIPBOARD_BYTES,
+    )
+    .context("cannot list clipboard types")?;
+    Ok(output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned()))
+}
+
+fn clipboard_bytes(mime: &str) -> io::Result<Vec<u8>> {
+    let output = command::run(
+        Command::new("wl-paste").args(["--no-newline", "--type", mime]),
+        None,
+        COMMAND_TIMEOUT,
+        MAX_CLIPBOARD_BYTES,
+    )?;
+    if !output.status.success() {
+        return Err(io::Error::other("cannot read clipboard"));
+    }
+    Ok(output.stdout)
+}
+
+fn save_clipboard() -> Result<Option<Clipboard>> {
+    let Some(types) = clipboard_types()? else {
+        return Ok(None);
+    };
+    let Some(mime) = clipboard_mime(&types) else {
+        return Ok(None);
+    };
+    let bytes = match clipboard_bytes(mime) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::FileTooLarge => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    Ok(Some(Clipboard {
+        mime: mime.to_owned(),
+        bytes,
+    }))
+}
+
+/// Password-manager entries and non-text content are never exposed as text.
+pub(crate) fn read_clipboard() -> Result<Option<String>> {
+    let Some(types) = clipboard_types()? else {
+        return Ok(None);
+    };
+    if !clipboard_mime(&types).is_some_and(|mime| mime.starts_with("text/")) {
+        return Ok(None);
+    }
+    Ok(Some(String::from_utf8(clipboard_bytes("text")?)?))
+}
+
+fn write_clipboard(clipboard: &Clipboard) -> Result<()> {
+    let output = command::run(
+        Command::new("wl-copy").args(["--type", &clipboard.mime]),
+        Some(&clipboard.bytes),
+        COMMAND_TIMEOUT,
+        0,
+    )
+    .context("cannot write clipboard")?;
+    if !output.status.success() {
         bail!("wl-copy failed");
     }
     Ok(())
+}
+
+pub fn set_clipboard(text: &str) -> Result<()> {
+    write_clipboard(&Clipboard {
+        mime: "text/plain;charset=utf-8".to_owned(),
+        bytes: text.as_bytes().to_vec(),
+    })
 }
 
 pub(crate) fn selected_text(app_id: Option<&str>) -> String {
@@ -300,7 +409,7 @@ pub(crate) fn selected_text(app_id: Option<&str>) -> String {
             slot => slot.insert(TextInjector::new()?),
         };
         let terminal = app_id.is_some_and(is_terminal);
-        let previous = read_clipboard()?;
+        let previous = save_clipboard()?;
         // Clearing is unreliable on some compositors, so detect the copy as a selection change.
         let mut watch = Command::new("wl-paste")
             .args(["--watch", "echo"])
@@ -334,7 +443,7 @@ pub(crate) fn selected_text(app_id: Option<&str>) -> String {
             }
             let text = read_clipboard()?.unwrap_or_default();
             if let Some(previous) = previous {
-                set_clipboard(&previous)?;
+                restore_clipboard(&previous, &text)?;
             }
             Ok(text)
         })();
@@ -350,21 +459,16 @@ pub(crate) fn selected_text(app_id: Option<&str>) -> String {
 
 /// Held shortcuts would turn a simulated copy into a different chord, so these flows read PRIMARY.
 pub(crate) fn primary_selection() -> String {
-    Command::new("timeout")
-        .args([
-            "0.3s",
-            "wl-paste",
-            "--primary",
-            "--no-newline",
-            "--type",
-            "text",
-        ])
-        .stderr(Stdio::null())
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .unwrap_or_default()
+    command::run(
+        Command::new("wl-paste").args(["--primary", "--no-newline", "--type", "text"]),
+        None,
+        Duration::from_millis(300),
+        MAX_CLIPBOARD_BYTES,
+    )
+    .ok()
+    .filter(|output| output.status.success())
+    .and_then(|output| String::from_utf8(output.stdout).ok())
+    .unwrap_or_default()
 }
 
 fn is_terminal(id: &str) -> bool {
