@@ -59,6 +59,7 @@ enum Selection {
 }
 #[derive(Clone, Copy)]
 pub(super) enum Toggle {
+    MicrophoneReady,
     Editing,
     Sounds,
     Duck,
@@ -757,6 +758,7 @@ impl MainWindow {
                     this.state.update(cx, |s, cx| {
                         match field {
                             Toggle::Editing => s.config.cleanup.enabled = !on,
+                            Toggle::MicrophoneReady => s.config.keep_microphone_ready = !on,
                             Toggle::Sounds => s.config.sounds = !on,
                             Toggle::Duck => s.config.duck_media = !on,
                             Toggle::Submit => s.config.auto_submit = !on,
@@ -1309,6 +1311,14 @@ impl MainWindow {
                 Setting::new("Microphones")
                     .description("First available is used.")
                     .child(div().w(px(FIELD)).child(self.microphones(cx))),
+                Setting::new("Keep microphone ready")
+                    .description("Catches the first word. The OS microphone indicator stays on.")
+                    .child(self.toggle(
+                        "microphone-ready",
+                        c.keep_microphone_ready,
+                        Toggle::MicrophoneReady,
+                        cx,
+                    )),
                 Setting::new("Test microphone")
                     .when(testing, |row| row.child(meter(level, 7, 18., p)))
                     .child(

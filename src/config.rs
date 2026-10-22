@@ -274,6 +274,7 @@ pub struct AppConfig {
     pub hotkey: String,
     pub mode: RecordingMode,
     pub input_devices: Vec<String>,
+    pub keep_microphone_ready: bool,
     pub transcription: Source,
     // A removed model falls back to the default instead of invalidating the whole config.
     #[serde(deserialize_with = "known_or_default")]
@@ -321,6 +322,7 @@ impl Default for AppConfig {
             .into(),
             mode: RecordingMode::Hold,
             input_devices: Vec::new(),
+            keep_microphone_ready: false,
             transcription: Source::OwnKey,
             local_model: crate::local::ModelId::default(),
             stt: Endpoint::new("https://api.groq.com/openai/v1", "whisper-large-v3-turbo"),

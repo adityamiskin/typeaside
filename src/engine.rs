@@ -41,6 +41,13 @@ impl ReleaseTail {
     }
 }
 
+const READY_CHECK: Duration = Duration::from_secs(2);
+
+fn held_audio(audio: &[f32], preroll: usize, held: usize) -> &[f32] {
+    let start = preroll.min(audio.len());
+    &audio[start..start.saturating_add(held).min(audio.len())]
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
@@ -555,6 +562,9 @@ fn run(
         crate::learn::enable();
     }
     let mut recorder: Option<AudioRecorder> = None;
+    let mut ready: Option<AudioRecorder> = None;
+    let mut ready_check = Instant::now() - READY_CHECK;
+    let mut ready_error = String::new();
     let mut release_tail: Option<ReleaseTail> = None;
     let mut stream = None;
     let mut generation = 0u64;
@@ -590,6 +600,30 @@ fn run(
     loop {
         if events.is_closed() {
             break;
+        }
+        if recorder.is_none() && monitor.is_none() && ready_check.elapsed() >= READY_CHECK {
+            ready_check = Instant::now();
+            if ready
+                .as_ref()
+                .is_some_and(|r| r.take_error().is_some() || !r.matches_device(&config))
+            {
+                ready = None;
+            }
+            if config.keep_microphone_ready && ready.is_none() {
+                match AudioRecorder::ready(&config) {
+                    Ok(capture) => {
+                        ready = Some(capture);
+                        ready_error.clear();
+                    }
+                    Err(error) => {
+                        let error = error.to_string();
+                        if error != ready_error {
+                            eprintln!("typeaside: microphone not kept ready: {error}");
+                            ready_error = error;
+                        }
+                    }
+                }
+            }
         }
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         crate::hotkeys::set_cancelable(
@@ -639,10 +673,12 @@ fn run(
         {
             Message::Command(Command::Stop)
         } else {
-            let received = if recorder.is_none() && monitor.is_none() {
-                rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected)
-            } else {
+            let received = if recorder.is_some() || monitor.is_some() {
                 rx.recv_timeout(Duration::from_millis(33).saturating_sub(tick.elapsed()))
+            } else if config.keep_microphone_ready {
+                rx.recv_timeout(READY_CHECK.saturating_sub(ready_check.elapsed()))
+            } else {
+                rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected)
             };
             match received {
                 Ok(message) => message,
@@ -1042,10 +1078,20 @@ fn run(
                 stream = (config.transcription == crate::config::Source::Hosted)
                     .then(crate::stream::Session::start)
                     .and_then(Result::ok);
-                let capture = match &stream {
-                    Some(stream) => AudioRecorder::start_streaming(&config, stream.audio()),
-                    None => AudioRecorder::start(&config),
-                };
+                let capture = ready
+                    .take()
+                    .filter(|capture| capture.take_error().is_none())
+                    .and_then(|capture| {
+                        capture
+                            .begin(stream.as_ref().map(crate::stream::Session::audio))
+                            .ok()
+                            .map(|()| capture)
+                    })
+                    .map(Ok)
+                    .unwrap_or_else(|| match &stream {
+                        Some(stream) => AudioRecorder::start_streaming(&config, stream.audio()),
+                        None => AudioRecorder::start(&config),
+                    });
                 screen_names = None;
                 if config.screen_context && start_mode == Mode::Dictate {
                     let (names_tx, names_rx) = std::sync::mpsc::sync_channel(1);
@@ -1203,8 +1249,12 @@ fn run(
                     }
                     let held_samples = release_tail.take().unwrap().samples;
                     let capture = recorder.take().unwrap();
-                    let audio = match capture.stop() {
-                        Ok(audio) => audio,
+                    let preroll = capture.preroll_samples();
+                    let audio = match capture.stop(config.keep_microphone_ready) {
+                        Ok((audio, next)) => {
+                            ready = next;
+                            audio
+                        }
                         Err(error) => {
                             stream = None;
                             report_error(&events, error);
@@ -1214,14 +1264,15 @@ fn run(
                             continue;
                         }
                     };
+                    let held_audio = held_audio(&audio, preroll, held_samples);
                     if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
                         eprintln!(
-                            "typeaside: release samples={held_samples} stopped samples={} tail samples={}",
+                            "typeaside: pre-roll samples={preroll} release samples={held_samples} stopped samples={} tail samples={} gate samples={}",
                             audio.len(),
-                            audio.len().saturating_sub(held_samples)
+                            audio.len().saturating_sub(preroll + held_samples),
+                            held_audio.len()
                         );
                     }
-                    let held_audio = &audio[..held_samples.min(audio.len())];
                     let tap = crate::transcribe::is_tap(held_audio);
                     let silent = tap || !crate::transcribe::has_speech(held_audio);
                     if silent && context.0 == Mode::Translate && !context.2.trim().is_empty() {
@@ -1264,6 +1315,7 @@ fn run(
                     let _ = events.try_send(Event::DismissReply);
                 }
                 let recording = recorder.take().is_some();
+                ready_check = Instant::now() - READY_CHECK;
                 release_tail = None;
                 stream = None;
                 monitor = None;
@@ -1300,6 +1352,8 @@ fn run(
                     }
                 }
                 monitor = None;
+                ready = None;
+                ready_check = Instant::now() - READY_CHECK;
                 drop(hotkeys.take());
                 epoch = epoch.wrapping_add(1);
                 held = None;
@@ -1350,6 +1404,7 @@ fn run(
                 monitor = None;
             }
             Command::MicTest(true) | Command::MicPreview if recorder.is_none() => {
+                ready = None;
                 match AudioRecorder::monitor(&config) {
                     Ok(capture) => {
                         monitor = Some((
@@ -1470,6 +1525,18 @@ fn deliver(
 
 #[cfg(test)]
 mod queue_tests {
+    #[test]
+    fn gates_exclude_preroll_and_release_tail() {
+        let mut audio = vec![0.8; 7200];
+        audio.extend(vec![0.; 1600]);
+        audio.extend(vec![0.8; 3200]);
+        let held = super::held_audio(&audio, 7200, 1600);
+        assert_eq!(held.len(), 1600);
+        assert!(crate::transcribe::is_tap(held));
+        assert!(!crate::transcribe::has_speech(held));
+        assert!(super::held_audio(&audio[..100], 7200, 1600).is_empty());
+    }
+
     #[test]
     fn release_tail_keeps_gates_on_held_samples() {
         let now = std::time::Instant::now();
