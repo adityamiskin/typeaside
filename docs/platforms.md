@@ -2,7 +2,10 @@
 
 Linux keeps evdev hotkeys, uinput paste, Wayland clipboard/primary selection,
 Secret Service credentials, StatusNotifierItem tray, layer-shell overlay,
-XDG autostart and wpctl ducking.
+XDG autostart and media control while dictating: pause playing MPRIS players
+(default) and resume only those still paused on the same track, or lower volume
+through wpctl or pactl. A marker file restores the volume on the next start
+after a crash.
 
 macOS uses a listen-only CGEventTap, Cmd+C/Cmd+V, NSWorkspace bundle IDs,
 Keychain, a main-thread menu-bar tray, nonactivating GPUI PopUp overlay,
@@ -11,7 +14,7 @@ Windows uses a WH_KEYBOARD_LL hook with its own message loop, Ctrl+C/Ctrl+V,
 foreground process executable names, Credential Manager, a main-thread tray,
 GPUI PopUp overlay, a per-user named pipe and the current-user Run registry key.
 The recording/transcription engine and configuration storage continue to use
-CPAL, reqwest and directories on all three platforms. Media ducking is a no-op
+CPAL, reqwest and directories on all three platforms. Media control is a no-op
 on macOS and Windows; start/stop sounds still play.
 
 ## macOS installation

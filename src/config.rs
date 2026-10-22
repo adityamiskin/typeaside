@@ -3,6 +3,24 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaControl {
+    Off,
+    LowerVolume,
+    PauseMedia,
+}
+
+impl Default for MediaControl {
+    fn default() -> Self {
+        if cfg!(target_os = "linux") {
+            Self::PauseMedia
+        } else {
+            Self::Off
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordingMode {
@@ -301,7 +319,7 @@ pub struct AppConfig {
     pub snippets: Vec<Snippet>,
     pub app_instructions: Vec<AppInstruction>,
     pub sounds: bool,
-    pub duck_media: bool,
+    pub media_control: MediaControl,
     pub launch_at_login: bool,
     pub theme: Theme,
     pub onboarded: bool,
@@ -345,7 +363,7 @@ impl Default for AppConfig {
             snippets: Vec::new(),
             app_instructions: Vec::new(),
             sounds: true,
-            duck_media: true,
+            media_control: MediaControl::default(),
             launch_at_login: true,
             theme: Theme::System,
             onboarded: false,

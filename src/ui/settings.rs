@@ -17,7 +17,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use typeaside::{
-    config::{AppConfig, HistoryRetention, RecordingMode, Source, Theme},
+    config::{AppConfig, HistoryRetention, MediaControl, RecordingMode, Source, Theme},
     local::{ModelId, Status},
 };
 
@@ -61,7 +61,6 @@ enum Selection {
 pub(super) enum Toggle {
     Editing,
     Sounds,
-    Duck,
     Submit,
     SendCommand,
     AutoLearn,
@@ -758,7 +757,6 @@ impl MainWindow {
                         match field {
                             Toggle::Editing => s.config.cleanup.enabled = !on,
                             Toggle::Sounds => s.config.sounds = !on,
-                            Toggle::Duck => s.config.duck_media = !on,
                             Toggle::Submit => s.config.auto_submit = !on,
                             Toggle::SendCommand => s.config.send_command = !on,
                             Toggle::AutoLearn => s.config.auto_learn = !on,
@@ -1319,9 +1317,21 @@ impl MainWindow {
                 Setting::new("Sound cues")
                     .description("Short tones when recording starts and stops.")
                     .child(self.toggle("sounds", c.sounds, Toggle::Sounds, cx)),
-                Setting::new("Lower media volume")
-                    .description("Duck music and video while you dictate.")
-                    .child(self.toggle("duck", c.duck_media, Toggle::Duck, cx)),
+                Setting::new("Media while dictating")
+                    .description("Pause or quiet music and video while you dictate.")
+                    .child(segmented(
+                        [
+                            (MediaControl::Off, "Off"),
+                            (MediaControl::LowerVolume, "Lower volume"),
+                            (MediaControl::PauseMedia, "Pause media"),
+                        ],
+                        c.media_control,
+                        p,
+                        cx,
+                        |this, value, _, cx| {
+                            this.state.update(cx, |s, _| s.config.media_control = value)
+                        },
+                    )),
             ],
             p,
         )];
