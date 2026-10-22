@@ -361,7 +361,7 @@ impl Default for AppConfig {
             translate_hotkey: Some("RIGHTALT+RIGHTSHIFT".into()),
             pause_hotkey: Some("PAUSE".into()),
             note_hotkey: Some("LEFTSHIFT*2".into()),
-            paste_last_hotkey: None,
+            paste_last_hotkey: Some("LEFTCTRL+LEFTALT+V".into()),
             translate_to: "English".into(),
             styles: Styles::default(),
             snippets: Vec::new(),

@@ -99,6 +99,6 @@ bindr = , F9, exec, typeaside dictation stop
 `typeaside paste-last` pastes the latest successful transcript through the normal
 text delivery path, including clipboard fallback and the auto-submit setting.
 It does nothing when no transcript is available. The tray also has “Paste last
-dictation”; its optional shortcut is unset by default and can be configured or
+dictation”; its shortcut defaults to left Ctrl+Alt+V and can be changed or
 cleared in Settings. The latest saved transcript is available after restart;
 with history disabled, only transcripts from the current session are available.
