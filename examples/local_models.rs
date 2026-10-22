@@ -1,6 +1,8 @@
 //! TYPEASIDE_HOME=/absolute/scratch cargo run --example local_models -- english.wav french.wav
 //! Use --download MODEL to install into that isolated home, or --list to inspect it.
 //! --bench MANIFEST OUT.jsonl times every manifest clip per model and scores word error rate.
+//! --stream-bench MANIFEST OUT.jsonl [SPEED] replays each clip into a live stream at SPEED times
+//! real time (default 1) and compares release-to-text with offline transcription.
 #[path = "support/bench.rs"]
 mod bench;
 #[path = "support/wav.rs"]
@@ -51,6 +53,14 @@ fn main() -> Result<()> {
         Some("--bench") => {
             ensure!(args.len() == 3, "Expected --bench MANIFEST OUT.jsonl");
             return bench::run(Path::new(&args[1]), Path::new(&args[2]));
+        }
+        Some("--stream-bench") => {
+            ensure!(
+                (3..=4).contains(&args.len()),
+                "Expected --stream-bench MANIFEST OUT.jsonl [SPEED]"
+            );
+            let speed = args.get(3).map_or(Ok(1.), |s| s.parse())?;
+            return bench::stream(Path::new(&args[1]), Path::new(&args[2]), speed);
         }
         Some("--list") => {
             for model in ModelId::ALL {

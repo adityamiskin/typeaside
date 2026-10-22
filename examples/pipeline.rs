@@ -461,7 +461,7 @@ fn main() -> Result<()> {
             );
             sink.send(chunk);
         }
-        Some(session)
+        Some(typeaside::stream::Streaming::Hosted(session))
     } else {
         None
     };

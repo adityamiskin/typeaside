@@ -236,7 +236,7 @@ struct Worker {
     child: Child,
     model: ModelId,
     language: Option<String>,
-    requests: Option<mpsc::Sender<Vec<f32>>>,
+    requests: Option<mpsc::Sender<Job>>,
     responses: mpsc::Receiver<Result<String, String>>,
     io: Option<std::thread::JoinHandle<()>>,
 }
@@ -265,7 +265,7 @@ impl Worker {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
-        let (requests, input) = mpsc::channel::<Vec<f32>>();
+        let (requests, input) = mpsc::channel::<Job>();
         let (output, responses) = mpsc::channel();
         let mut stdin = child.stdin.take().context("worker stdin")?;
         let mut stdout = BufReader::new(child.stdout.take().context("worker stdout")?);
@@ -284,19 +284,19 @@ impl Worker {
             if output.send(ready).is_err() || failed {
                 return;
             }
-            for audio in input {
+            for job in input {
+                let answered = matches!(job, Job::Transcribe(_) | Job::End);
                 let result = (|| -> Result<String> {
-                    stdin.write_all(&(audio.len() as u64).to_le_bytes())?;
-                    let bytes: Vec<_> = audio
-                        .iter()
-                        .flat_map(|sample| sample.to_le_bytes())
-                        .collect();
-                    stdin.write_all(&bytes)?;
+                    job.write(&mut stdin)?;
                     stdin.flush()?;
-                    response(&mut stdout)
+                    if answered {
+                        response(&mut stdout)
+                    } else {
+                        Ok(String::new())
+                    }
                 })()
                 .map_err(|e| e.to_string());
-                if output.send(result).is_err() {
+                if (answered || result.is_err()) && output.send(result).is_err() {
                     break;
                 }
             }
@@ -320,20 +320,82 @@ impl Worker {
         Ok(worker)
     }
     fn response(&self, timeout: Duration) -> Result<String> {
+        self.answer(timeout)?.map_err(anyhow::Error::msg)
+    }
+    /// The outer error means the worker is gone or out of step; the inner one is its answer.
+    fn answer(&self, timeout: Duration) -> Result<Result<String, String>> {
         self.responses
             .recv_timeout(timeout)
-            .context("On-device transcription worker timed out or disconnected")?
-            .map_err(anyhow::Error::msg)
+            .context("On-device transcription worker timed out or disconnected")
     }
-    fn transcribe(&mut self, audio: &[f32]) -> Result<String> {
+    fn send(&self, job: Job) -> Result<()> {
         self.requests
             .as_ref()
             .context("worker requests unavailable")?
-            .send(audio.to_vec())?;
-        self.response(Duration::from_secs(
-            30 + (audio.len() as u64).div_ceil(16_000) * 2,
-        ))
+            .send(job)?;
+        Ok(())
     }
+    fn transcribe(&mut self, audio: &[f32]) -> Result<String> {
+        let timeout = 30 + (audio.len() as u64).div_ceil(16_000) * 2;
+        self.send(Job::Transcribe(audio.to_vec()))?;
+        self.response(Duration::from_secs(timeout))
+    }
+}
+
+const TRANSCRIBE: u8 = 0;
+const BEGIN: u8 = 1;
+const FEED: u8 = 2;
+const END: u8 = 3;
+const CANCEL: u8 = 4;
+
+/// One message to the worker. Only `Transcribe` and `End` are answered.
+enum Job {
+    Transcribe(Vec<f32>),
+    Begin,
+    Feed(Vec<f32>),
+    End,
+    Cancel,
+}
+impl Job {
+    fn write(&self, output: &mut impl Write) -> Result<()> {
+        let (tag, samples) = match self {
+            Self::Transcribe(samples) => (TRANSCRIBE, Some(samples)),
+            Self::Begin => (BEGIN, None),
+            Self::Feed(samples) => (FEED, Some(samples)),
+            Self::End => (END, None),
+            Self::Cancel => (CANCEL, None),
+        };
+        output.write_all(&[tag])?;
+        if let Some(samples) = samples {
+            output.write_all(&(samples.len() as u64).to_le_bytes())?;
+            let bytes: Vec<_> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+            output.write_all(&bytes)?;
+        }
+        Ok(())
+    }
+}
+
+fn read_job(input: &mut impl Read) -> Result<Option<(u8, Vec<f32>)>> {
+    let mut tag = [0];
+    if input.read_exact(&mut tag).is_err() {
+        return Ok(None);
+    }
+    if !matches!(tag[0], TRANSCRIBE | FEED) {
+        return Ok(Some((tag[0], Vec::new())));
+    }
+    let mut len = [0; 8];
+    input.read_exact(&mut len)?;
+    let len = usize::try_from(u64::from_le_bytes(len))?;
+    ensure!(len <= 16_000 * 60 * 60, "Recording exceeds one hour");
+    let mut bytes = vec![0; len * 4];
+    input.read_exact(&mut bytes)?;
+    let samples = bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect();
+    Ok(Some((tag[0], samples)))
 }
 
 type Reply = mpsc::SyncSender<std::result::Result<String, String>>;
@@ -341,7 +403,25 @@ enum Request {
     Idle(Option<Duration>),
     Warm(ModelId, Option<String>),
     Transcribe(ModelId, Option<String>, Vec<f32>, Reply),
+    Begin(ModelId, Option<String>),
+    Feed(Vec<f32>),
+    End(Reply),
+    Cancel,
     Unload(Option<mpsc::SyncSender<()>>),
+}
+fn ensure(
+    worker: &mut Option<Worker>,
+    model: ModelId,
+    language: Option<String>,
+) -> Result<&mut Worker> {
+    if worker
+        .as_ref()
+        .is_none_or(|w| w.model != model || w.language != language)
+    {
+        drop(worker.take());
+        *worker = Some(Worker::start(model, language)?);
+    }
+    worker.as_mut().context("missing worker")
 }
 fn sender() -> &'static mpsc::Sender<Request> {
     static SENDER: OnceLock<mpsc::Sender<Request>> = OnceLock::new();
@@ -349,44 +429,63 @@ fn sender() -> &'static mpsc::Sender<Request> {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut worker: Option<Worker> = None;
+            let mut streaming = false;
             let mut idle = crate::config::LocalUnload::default().after();
             loop {
-                let request = match idle.filter(|_| worker.is_some()) {
+                let request = match idle.filter(|_| worker.is_some() && !streaming) {
                     Some(idle) => rx.recv_timeout(idle),
                     None => rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
                 };
                 match request {
                     Ok(Request::Idle(after)) => idle = after,
                     Ok(Request::Warm(model, language)) => {
-                        if worker
-                            .as_ref()
-                            .is_none_or(|w| w.model != model || w.language != language)
-                        {
-                            drop(worker.take());
-                            worker = Worker::start(model, language).ok();
+                        if !streaming && ensure(&mut worker, model, language).is_err() {
+                            worker = None;
                         }
                     }
                     Ok(Request::Transcribe(model, language, audio, reply)) => {
-                        let result = (|| {
-                            if worker
-                                .as_ref()
-                                .is_none_or(|w| w.model != model || w.language != language)
-                            {
-                                drop(worker.take());
-                                worker = Some(Worker::start(model, language)?);
-                            }
-                            worker
-                                .as_mut()
-                                .context("missing worker")?
-                                .transcribe(&audio)
-                        })();
+                        let result = ensure(&mut worker, model, language)
+                            .and_then(|worker| worker.transcribe(&audio));
                         if result.is_err() {
                             worker = None;
                         }
                         let _ = reply.send(result.map_err(|e: anyhow::Error| e.to_string()));
                     }
+                    Ok(Request::Begin(model, language)) => {
+                        streaming = ensure(&mut worker, model, language)
+                            .and_then(|worker| worker.send(Job::Begin))
+                            .is_ok();
+                    }
+                    Ok(Request::Feed(audio)) => {
+                        if streaming && let Some(worker) = &worker {
+                            let _ = worker.send(Job::Feed(audio));
+                        }
+                    }
+                    Ok(Request::End(reply)) => {
+                        let result = match worker.as_ref().filter(|_| streaming).map(|live| {
+                            live.send(Job::End)
+                                .and_then(|()| live.answer(Duration::from_secs(30)))
+                        }) {
+                            Some(Ok(answer)) => answer,
+                            // The worker is gone or still mid-stream, out of step with its answers.
+                            Some(Err(error)) => {
+                                worker = None;
+                                Err(error.to_string())
+                            }
+                            None => Err("No stream".into()),
+                        };
+                        streaming = false;
+                        let _ = reply.send(result);
+                    }
+                    Ok(Request::Cancel) => {
+                        if streaming && let Some(worker) = &worker {
+                            let _ = worker.send(Job::Cancel);
+                        }
+                        streaming = false;
+                    }
                     Ok(Request::Unload(reply)) => {
                         worker = None;
+                        streaming = false;
                         if let Some(reply) = reply {
                             let _ = reply.send(());
                         }
@@ -443,6 +542,70 @@ pub fn transcribe_model(model: ModelId, language: Option<String>, audio: &[f32])
     rx.recv()?.map_err(anyhow::Error::msg)
 }
 
+/// Feeds the recorder's audio to the worker while the shortcut is held. Dropping it before
+/// `release` abandons the stream.
+pub struct Stream {
+    released: Option<mpsc::Receiver<std::result::Result<String, String>>>,
+}
+impl Stream {
+    pub fn start(config: &crate::config::AppConfig) -> Option<Self> {
+        let model = config.local_model.available()?;
+        sender()
+            .send(Request::Begin(model, config.language.clone()))
+            .ok()?;
+        Some(Self { released: None })
+    }
+    pub fn audio(&self) -> crate::stream::AudioSink {
+        crate::stream::AudioSink::new(16_000 * 160 / 1000, |samples| {
+            let _ = sender().send(Request::Feed(samples.to_vec()));
+        })
+    }
+    /// Finalizes at release, so this stream ends before a later capture begins its own.
+    pub fn release(&mut self) {
+        let (tx, rx) = mpsc::sync_channel(1);
+        if self.released.is_none() && sender().send(Request::End(tx)).is_ok() {
+            self.released = Some(rx);
+        }
+    }
+}
+impl Drop for Stream {
+    fn drop(&mut self) {
+        if self.released.is_none() {
+            let _ = sender().send(Request::Cancel);
+        }
+    }
+}
+
+/// The stream's text, or the whole clip offline when the stream failed, heard nothing or
+/// missed its finalize deadline. CPU workers never stream. True when the stream's text is used.
+pub fn finish(
+    config: &crate::config::AppConfig,
+    audio: &[f32],
+    stream: Option<Stream>,
+) -> Result<(String, bool)> {
+    let started = std::time::Instant::now();
+    let streamed = stream.and_then(|mut stream| {
+        stream.release();
+        stream.released.as_ref()?.recv().ok()
+    });
+    if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+        eprintln!(
+            "typeaside local: stream={} finish={} ms",
+            match &streamed {
+                Some(Ok(text)) if !text.is_empty() => "text".to_owned(),
+                Some(Ok(_)) => "empty".to_owned(),
+                Some(Err(error)) => error.clone(),
+                None => "none".to_owned(),
+            },
+            started.elapsed().as_millis()
+        );
+    }
+    match streamed {
+        Some(Ok(text)) if !text.is_empty() => Ok((text, true)),
+        _ => Ok((transcribe(config, audio)?, false)),
+    }
+}
+
 pub fn worker_main() -> Result<()> {
     let option = |flag: &str| std::env::args().skip_while(|arg| arg != flag).nth(1);
     let model: ModelId = option("--local-model")
@@ -496,47 +659,66 @@ pub fn worker_main() -> Result<()> {
     )?;
     output.flush()?;
     let mut input = std::io::stdin().lock();
-    loop {
-        let mut len = [0; 8];
-        if input.read_exact(&mut len).is_err() {
-            break;
+    while let Some((tag, samples)) = read_job(&mut input)? {
+        let result = match tag {
+            TRANSCRIBE => Some(transcribe_speech(&mut model, &mut vad, &samples)),
+            BEGIN => stream(&mut model, &mut input),
+            _ => anyhow::bail!("Unexpected message outside a stream"),
+        };
+        if let Some(result) = result {
+            let result = result.map_err(|e| e.to_string());
+            writeln!(output, "{}", serde_json::to_string(&result)?)?;
+            output.flush()?;
         }
-        let len = usize::try_from(u64::from_le_bytes(len))?;
-        ensure!(len <= 16_000 * 60 * 60, "Recording exceeds one hour");
-        let mut bytes = vec![0; len * 4];
-        input.read_exact(&mut bytes)?;
-        let samples: Vec<_> = bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|b| f32::from_le_bytes(*b))
-            .collect();
-        // No speech yields no chunks and an empty transcript, which the engine discards quietly.
-        let result = (|| -> Result<String> {
-            let started = std::time::Instant::now();
-            let chunks = vad.chunks(&samples)?;
-            if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
-                eprintln!(
-                    "typeaside: VAD samples={} chunks={chunks:?} elapsed={} ms",
-                    samples.len(),
-                    started.elapsed().as_millis()
-                );
-            }
-            let mut parts = Vec::new();
-            for chunk in chunks {
-                let text = model.transcribe(samples[chunk].to_vec())?;
-                let text = text.trim();
-                if !text.is_empty() {
-                    parts.push(text.to_owned());
-                }
-            }
-            Ok(parts.join(" "))
-        })()
-        .map_err(|e| e.to_string());
-        writeln!(output, "{}", serde_json::to_string(&result)?)?;
-        output.flush()?;
     }
     Ok(())
+}
+
+// No speech yields no chunks and an empty transcript, which the engine discards quietly.
+fn transcribe_speech(model: &mut Engine, vad: &mut vad::Vad, samples: &[f32]) -> Result<String> {
+    let started = std::time::Instant::now();
+    let chunks = vad.chunks(samples)?;
+    if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+        eprintln!(
+            "typeaside: VAD samples={} chunks={chunks:?} elapsed={} ms",
+            samples.len(),
+            started.elapsed().as_millis()
+        );
+    }
+    let mut parts = Vec::new();
+    for chunk in chunks {
+        let text = model.transcribe(samples[chunk].to_vec())?;
+        let text = text.trim();
+        if !text.is_empty() {
+            parts.push(text.to_owned());
+        }
+    }
+    Ok(parts.join(" "))
+}
+
+/// Runs one stream to its end; `None` when it was cancelled and owes no answer.
+fn stream(model: &mut Engine, input: &mut impl Read) -> Option<Result<String>> {
+    let mut next = || -> Result<gguf::StreamInput> {
+        Ok(match read_job(input)? {
+            Some((FEED, samples)) => gguf::StreamInput::Feed(samples),
+            Some((END, _)) => gguf::StreamInput::End,
+            Some((CANCEL, _)) => gguf::StreamInput::Cancel,
+            _ => anyhow::bail!("Stream interrupted"),
+        })
+    };
+    match model {
+        Engine::Gguf(model) if model.streams() => model.stream(next).transpose(),
+        _ => loop {
+            match next() {
+                Ok(gguf::StreamInput::Feed(_)) => {}
+                Ok(gguf::StreamInput::End) => {
+                    break Some(Err(anyhow::anyhow!("This model does not stream here")));
+                }
+                Ok(gguf::StreamInput::Cancel) => break None,
+                Err(error) => break Some(Err(error)),
+            }
+        },
+    }
 }
 
 enum Engine {

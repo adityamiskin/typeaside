@@ -17,32 +17,45 @@ enum Command {
     Release(String),
 }
 
+type Feed = Arc<dyn Fn(&[f32]) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct AudioSink {
-    commands: mpsc::SyncSender<Command>,
-    cancelled: Arc<AtomicBool>,
+    pub block: usize,
+    send: Feed,
 }
 
 impl AudioSink {
-    pub fn send(&self, samples: &[f32]) {
-        if self.cancelled.load(Ordering::Relaxed) {
-            return;
+    pub(crate) fn new(block: usize, send: impl Fn(&[f32]) + Send + Sync + 'static) -> Self {
+        Self {
+            block,
+            send: Arc::new(send),
         }
-        let bytes = samples
-            .iter()
-            .flat_map(|sample| ((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).to_le_bytes())
-            .collect();
-        if matches!(
-            self.commands.try_send(Command::Audio(bytes)),
-            Err(mpsc::TrySendError::Full(_))
-        ) {
-            self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    pub fn send(&self, samples: &[f32]) {
+        (self.send)(samples);
+    }
+}
+
+/// Audio streamed while the shortcut is held, finished on release.
+pub enum Streaming {
+    Hosted(Session),
+    Local(crate::local::Stream),
+}
+
+impl Streaming {
+    pub fn audio(&self) -> AudioSink {
+        match self {
+            Self::Hosted(session) => session.audio(),
+            Self::Local(stream) => stream.audio(),
         }
     }
 }
 
 pub struct Session {
-    sink: AudioSink,
+    commands: mpsc::SyncSender<Command>,
+    cancelled: Arc<AtomicBool>,
     result: mpsc::Receiver<Result<crate::pipeline::HostedResponse>>,
 }
 
@@ -59,25 +72,41 @@ impl Session {
                 let _ = result.send(response);
             })?;
         Ok(Self {
-            sink: AudioSink {
-                commands,
-                cancelled,
-            },
+            commands,
+            cancelled,
             result: receiver,
         })
     }
 
     pub fn audio(&self) -> AudioSink {
-        self.sink.clone()
+        let commands = self.commands.clone();
+        let cancelled = self.cancelled.clone();
+        AudioSink::new(1600, move |samples| {
+            if cancelled.load(Ordering::Relaxed) {
+                return;
+            }
+            let bytes = samples
+                .iter()
+                .flat_map(|sample| {
+                    ((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).to_le_bytes()
+                })
+                .collect();
+            if matches!(
+                commands.try_send(Command::Audio(bytes)),
+                Err(mpsc::TrySendError::Full(_))
+            ) {
+                cancelled.store(true, Ordering::Relaxed);
+            }
+        })
     }
 
     // Only structured server errors are definitive. All transport failures retain POST fallback.
     pub(crate) fn finish(self, context: String) -> Option<Result<crate::pipeline::HostedResponse>> {
-        if self.sink.cancelled.load(Ordering::Relaxed) {
+        if self.cancelled.load(Ordering::Relaxed) {
             return None;
         }
         if matches!(
-            self.sink.commands.try_send(Command::Release(context)),
+            self.commands.try_send(Command::Release(context)),
             Err(mpsc::TrySendError::Full(_))
         ) {
             return None;
@@ -94,7 +123,7 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        self.sink.cancelled.store(true, Ordering::Relaxed);
+        self.cancelled.store(true, Ordering::Relaxed);
     }
 }
 

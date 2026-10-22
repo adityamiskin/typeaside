@@ -236,7 +236,7 @@ impl AudioRecorder {
             .lock()
             .map_err(|_| anyhow!("audio buffer poisoned"))?;
         *realtime = sink.map(|sink| {
-            for chunk in ready.preroll.chunks(1600) {
+            for chunk in ready.preroll.chunks(sink.block) {
                 sink.send(chunk);
             }
             Realtime {
@@ -459,9 +459,10 @@ impl Realtime {
         let next = resample_from(samples, rate, self.emitted, flush);
         self.emitted += next.len();
         self.pending.extend(next);
-        while self.pending.len() >= 1600 {
-            self.sink.send(&self.pending[..1600]);
-            self.pending.drain(..1600);
+        let block = self.sink.block;
+        while self.pending.len() >= block {
+            self.sink.send(&self.pending[..block]);
+            self.pending.drain(..block);
         }
         if flush && !self.pending.is_empty() {
             self.sink.send(&self.pending);
