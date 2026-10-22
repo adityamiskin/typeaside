@@ -27,6 +27,11 @@ fn main() {
         if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
             println!("cargo:rustc-link-arg=/DELAYLOAD:vulkan-1.dll");
             println!("cargo:rustc-link-lib=delayimp");
+            // transcribe.cpp links vulkan-1.lib without saying where the SDK keeps it.
+            println!("cargo:rerun-if-env-changed=VULKAN_SDK");
+            if let Ok(sdk) = std::env::var("VULKAN_SDK") {
+                println!("cargo:rustc-link-search=native={sdk}/Lib");
+            }
         }
     }
 }
