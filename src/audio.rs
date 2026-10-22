@@ -178,6 +178,12 @@ impl AudioRecorder {
         f32::from_bits(self.level.load(Ordering::Relaxed))
     }
 
+    pub(crate) fn sample_count(&self) -> usize {
+        self.buffer.lock().map_or(0, |buffer| {
+            (buffer.len() as f64 * 16_000.0 / f64::from(self.sample_rate)).floor() as usize
+        })
+    }
+
     pub fn stop(self) -> Result<Vec<f32>> {
         drop(self.stream);
         if let Some(error) = self
@@ -319,6 +325,23 @@ impl Realtime {
         if flush && !self.pending.is_empty() {
             self.sink.send(&self.pending);
             self.pending.clear();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn resampling_preserves_release_tail_sample_count() {
+        for rate in [16_000, 44_100, 48_000] {
+            let held = vec![0.1; rate as usize];
+            let mut captured = held.clone();
+            captured.extend(vec![0.2; rate as usize / 5]);
+            let held_samples = super::resample(&held, rate).len();
+            let audio = super::resample(&captured, rate);
+            assert_eq!(held_samples, 16_000);
+            assert_eq!(audio.len(), 19_200);
+            assert_eq!(audio.len() - held_samples, 3200);
         }
     }
 }
