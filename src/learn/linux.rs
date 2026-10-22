@@ -157,7 +157,13 @@ async fn walk(
         if !state.contains(State::Showing) {
             continue;
         }
-        for child in node.get_children().await.unwrap_or_default().into_iter().rev() {
+        for child in node
+            .get_children()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .rev()
+        {
             if let Ok(child) = child.into_accessible_proxy(connection).await {
                 stack.push(child);
             }
