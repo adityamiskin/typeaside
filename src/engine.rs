@@ -13,11 +13,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
-    fs::OpenOptions,
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Command as ProcessCommand, Stdio},
-    sync::{Arc, mpsc},
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::{Duration, Instant, SystemTime},
 };
@@ -177,15 +176,71 @@ impl Engine {
     }
 }
 
+const HISTORY_ENTRIES: usize = 2_000;
+const HISTORY_TEXT_BYTES: usize = 16 * 1024;
+const HISTORY_BYTES: usize = 4 * 1024 * 1024;
+static HISTORY_LOCK: Mutex<()> = Mutex::new(());
+
 pub fn load_history(paths: &AppPaths) -> Vec<Dictation> {
+    let _guard = HISTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    read_history(paths)
+}
+
+fn read_history(paths: &AppPaths) -> Vec<Dictation> {
     let Ok(file) = std::fs::File::open(&paths.history_file) else {
         return Vec::new();
     };
-    BufReader::new(file)
-        .lines()
-        .map_while(std::result::Result::ok)
-        .filter_map(|line| serde_json::from_str(&line).ok())
-        .collect()
+    let mut history = Vec::new();
+    let mut changed = false;
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("typeaside: cannot read history: {error:#}");
+                return history;
+            }
+        }
+        match serde_json::from_slice::<Dictation>(&line) {
+            Ok(mut entry) => {
+                changed |= truncate_entry(&mut entry);
+                history.push(entry);
+            }
+            Err(_) => changed = true,
+        }
+        if history.len() % 100 == 0 {
+            changed |= prune_history(&mut history, HistoryRetention::Forever, SystemTime::now());
+        }
+    }
+    changed |= prune_history(&mut history, HistoryRetention::Forever, SystemTime::now());
+    if changed && let Err(error) = write_history(paths, &history) {
+        eprintln!("typeaside: cannot bound history: {error:#}");
+    }
+    history
+}
+
+fn truncate_text(text: &mut String, bytes: usize) -> bool {
+    if text.len() <= bytes {
+        return false;
+    }
+    let mut end = bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
+    true
+}
+
+fn truncate_entry(entry: &mut Dictation) -> bool {
+    let mut changed = truncate_text(&mut entry.cleaned, HISTORY_TEXT_BYTES / 2);
+    changed |= truncate_text(&mut entry.raw, HISTORY_TEXT_BYTES - entry.cleaned.len());
+    if let Some(app) = &mut entry.app_id {
+        changed |= truncate_text(app, 1024);
+    }
+    changed
 }
 
 pub fn prune_history(
@@ -194,23 +249,63 @@ pub fn prune_history(
     now: SystemTime,
 ) -> bool {
     let days = match retention {
-        HistoryRetention::Forever => return false,
-        HistoryRetention::Month => 30,
-        HistoryRetention::Week => 7,
-        HistoryRetention::Off => {
-            let changed = !history.is_empty();
-            history.clear();
-            return changed;
-        }
+        HistoryRetention::Forever | HistoryRetention::Off => None,
+        HistoryRetention::Month => Some(30),
+        HistoryRetention::Week => Some(7),
     };
-    let cutoff = now.checked_sub(Duration::from_secs(days * 24 * 60 * 60));
+    let cutoff = days.and_then(|days| now.checked_sub(Duration::from_secs(days * 86400)));
     let before = history.len();
     history.retain(|entry| cutoff.is_none_or(|cutoff| entry.at >= cutoff));
-    history.len() != before
+    let mut changed = before != history.len();
+    let mut sizes = Vec::with_capacity(history.len());
+    for (index, entry) in history.iter_mut().enumerate() {
+        changed |= truncate_entry(entry);
+        sizes.push((
+            entry.at,
+            index,
+            serde_json::to_vec(entry)
+                .expect("serializable dictation")
+                .len()
+                + 1,
+        ));
+    }
+    sizes.sort_by_key(|(at, _, _)| *at);
+    let mut bytes: usize = sizes.iter().map(|(_, _, size)| size).sum();
+    let mut count = sizes.len();
+    let mut remove = vec![false; count];
+    for (_, index, size) in sizes {
+        if count <= HISTORY_ENTRIES && bytes <= HISTORY_BYTES {
+            break;
+        }
+        remove[index] = true;
+        bytes -= size;
+        count -= 1;
+        changed = true;
+    }
+    let mut index = 0;
+    history.retain(|_| {
+        let keep = !remove[index];
+        index += 1;
+        keep
+    });
+    changed
 }
 
-/// Rewrites history atomically, e.g. after the user deletes an entry.
 pub fn save_history(paths: &AppPaths, history: &[Dictation]) -> Result<()> {
+    let _guard = HISTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut history = history.to_vec();
+    prune_history(&mut history, HistoryRetention::Forever, SystemTime::now());
+    write_history(paths, &history)
+}
+
+pub fn delete_history(paths: &AppPaths, at: Option<SystemTime>) -> Result<()> {
+    let _guard = HISTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut history = read_history(paths);
+    history.retain(|entry| at.is_some_and(|at| entry.at != at));
+    write_history(paths, &history)
+}
+
+fn write_history(paths: &AppPaths, history: &[Dictation]) -> Result<()> {
     let temporary = paths.history_file.with_extension("jsonl.tmp");
     let mut bytes = Vec::new();
     for dictation in history {
@@ -231,6 +326,10 @@ fn failed_recordings(paths: &AppPaths, retrying: Option<SystemTime>) -> Vec<Fail
     if let Ok(entries) = std::fs::read_dir(paths.data_dir.join("failed")) {
         for entry in entries.flatten() {
             let path = entry.path();
+            if path.extension().is_some_and(|extension| extension == "tmp") {
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
             if path.extension().is_none_or(|extension| extension != "wav") {
                 continue;
             }
@@ -239,6 +338,7 @@ fn failed_recordings(paths: &AppPaths, retrying: Option<SystemTime>) -> Vec<Fail
                 .and_then(|stem| stem.to_str())
                 .and_then(|stem| stem.parse::<u64>().ok())
             else {
+                let _ = std::fs::remove_file(&path);
                 continue;
             };
             let Some(at) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_nanos(stamp)) else {
@@ -254,7 +354,24 @@ fn failed_recordings(paths: &AppPaths, retrying: Option<SystemTime>) -> Vec<Fail
             });
         }
     }
-    recordings.sort_by_key(|recording| std::cmp::Reverse(recording.at));
+    recordings.sort_by_key(|recording| recording.at);
+    let sizes: Vec<_> = recordings
+        .iter()
+        .map(|recording| {
+            failed_path(paths, recording.at)
+                .ok()
+                .and_then(|path| std::fs::metadata(path).ok())
+                .map_or(0, |meta| meta.len())
+        })
+        .collect();
+    let evict = failed_evictions(&sizes, 20, 200 * 1024 * 1024);
+    for recording in &recordings[..evict] {
+        if let Err(error) = discard_failed(paths, recording.at) {
+            eprintln!("typeaside: cannot evict failed audio: {error:#}");
+        }
+    }
+    recordings.drain(..evict);
+    recordings.reverse();
     recordings
 }
 
@@ -264,9 +381,7 @@ fn save_failed(paths: &AppPaths, audio: &[f32]) -> Result<()> {
     let temporary = path.with_extension("wav.tmp");
     std::fs::write(&temporary, crate::transcribe::encode_wav(audio)?)?;
     std::fs::rename(temporary, path)?;
-    for recording in failed_recordings(paths, None).into_iter().skip(10) {
-        discard_failed(paths, recording.at)?;
-    }
+    failed_recordings(paths, None);
     Ok(())
 }
 
@@ -278,17 +393,22 @@ fn idle_reload<T>(pending: &mut Option<T>, recording: bool, transcribing: bool) 
     }
 }
 
+fn failed_evictions(sizes: &[u64], max_count: usize, max_bytes: u64) -> usize {
+    let mut bytes: u64 = sizes.iter().sum();
+    let mut evict = 0;
+    while sizes.len() - evict > max_count || bytes > max_bytes {
+        bytes -= sizes[evict];
+        evict += 1;
+    }
+    evict
+}
+
 fn append_history(paths: &AppPaths, dictation: &Dictation) -> Result<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&paths.history_file)
-        .context("cannot append dictation history")?;
-    let mut line = serde_json::to_vec(dictation)?;
-    line.push(b'\n');
-    file.write_all(&line)?;
-    file.sync_data()?;
-    Ok(())
+    let _guard = HISTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut history = read_history(paths);
+    history.push(dictation.clone());
+    prune_history(&mut history, HistoryRetention::Forever, SystemTime::now());
+    write_history(paths, &history)
 }
 
 fn deliver_and_record(
@@ -1407,3 +1527,7 @@ mod queue_tests {
         assert!(pending.next(false, false, false).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "history_tests.rs"]
+mod history_tests;

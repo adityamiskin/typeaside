@@ -669,6 +669,11 @@ fn start_ui(
                         }
                         if s.config.history_retention != typeaside::config::HistoryRetention::Off {
                             s.history.insert(0, dictation);
+                            typeaside::engine::prune_history(
+                                &mut s.history,
+                                s.config.history_retention,
+                                std::time::SystemTime::now(),
+                            );
                         }
                         cx.notify();
                     });

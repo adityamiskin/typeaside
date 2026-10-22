@@ -27,7 +27,7 @@ impl MainWindow {
                 s.expanded = None;
             }
             if !s.is_demo {
-                s.save_error = typeaside::engine::save_history(&s.paths, &s.history)
+                s.save_error = typeaside::engine::delete_history(&s.paths, Some(item.at))
                     .err()
                     .map(|e| format!("Could not save history: {e}"));
             }
