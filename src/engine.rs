@@ -164,7 +164,10 @@ impl Engine {
                     paths.ensure()?;
                     Ok(paths)
                 }) {
-                    Ok(paths) => run(config, paths, tx, rx, events),
+                    Ok(paths) => {
+                        crate::media::recover();
+                        run(config, paths, tx, rx, events);
+                    }
                     Err(error) => report_error(&events, error),
                 }
             })?;
@@ -1083,8 +1086,10 @@ fn run(
                             crate::local::prewarm(&config);
                         }
                         crate::http::prewarm(&config);
-                        effects =
-                            crate::media::ListeningEffects::start(config.sounds, config.duck_media);
+                        effects = crate::media::ListeningEffects::start(
+                            config.sounds,
+                            config.media_control,
+                        );
                         phase(&events, Phase::Listening(start_mode));
                     }
                     Err(error) => {
