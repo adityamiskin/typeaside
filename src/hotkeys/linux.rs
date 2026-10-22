@@ -46,6 +46,7 @@ pub enum HotkeyEvent {
     Translate(bool),
     Pause(bool),
     Note(bool),
+    PasteLast(bool),
     Interrupt,
 }
 
@@ -113,6 +114,7 @@ impl HotkeyService {
             (&config.translate_hotkey, HotkeyEvent::Translate),
             (&config.pause_hotkey, HotkeyEvent::Pause),
             (&config.note_hotkey, HotkeyEvent::Note),
+            (&config.paste_last_hotkey, HotkeyEvent::PasteLast),
         ] {
             if let Some(value) = value {
                 combos.push(Combo::parse(value, event)?);

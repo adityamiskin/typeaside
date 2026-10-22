@@ -85,6 +85,7 @@ pub fn follow(config: &crate::config::AppConfig) {
         config.command_hotkey.as_ref(),
         config.translate_hotkey.as_ref(),
         config.pause_hotkey.as_ref(),
+        config.paste_last_hotkey.as_ref(),
     ]
     .into_iter()
     .flatten()

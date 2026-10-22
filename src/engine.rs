@@ -100,6 +100,8 @@ pub enum Event {
 pub enum Command {
     CloseCapture,
     Start,
+    Toggle,
+    PasteLast,
     Stop,
     RetryFailed(SystemTime),
     TranscribeFile(PathBuf),
@@ -429,6 +431,11 @@ fn run(
     let mut screen_names = None;
     let mut cursor: Option<mpsc::Receiver<Option<(String, String)>>> = None;
     let mut around: Option<(String, String)> = None;
+    let mut last_dictation = load_history(&paths)
+        .into_iter()
+        .rev()
+        .find(|dictation| !dictation.cleaned.is_empty())
+        .map(|dictation| dictation.cleaned);
     let mut last_paste: Option<(Option<FocusedApp>, Instant, char)> = None;
     let mut start_mode = Mode::Dictate;
     let mut held = None;
@@ -499,12 +506,29 @@ fn run(
         let command = match message {
             Message::Shutdown => break,
             Message::Command(command) => {
+                let command = match command {
+                    Command::Toggle if recorder.is_some() => Command::Stop,
+                    Command::Toggle => Command::Start,
+                    command => command,
+                };
+                if std::env::var("TYPEASIDE_TRACE").as_deref() == Ok("1")
+                    && matches!(
+                        command,
+                        Command::Start | Command::Stop | Command::Cancel | Command::PasteLast
+                    )
+                {
+                    eprintln!(
+                        "typeaside engine: {command:?}, recording={}",
+                        recorder.is_some()
+                    );
+                }
                 if matches!(command, Command::Start) {
                     start_mode = Mode::Dictate;
                 }
                 command
             }
             Message::Hotkey(source, event) if source == epoch => match event {
+                HotkeyEvent::PasteLast(true) => Command::PasteLast,
                 HotkeyEvent::Note(true) => {
                     if crate::hotkeys::shortcut_recording() {
                         continue;
@@ -708,6 +732,7 @@ fn run(
                         }
                     }
                     Ok((dictation, delivery, metered)) => {
+                        last_dictation = Some(dictation.cleaned.clone());
                         if dictation.mode == Mode::Dictate {
                             usage = metered;
                         }
@@ -1123,6 +1148,18 @@ fn run(
                 reply_visible = false;
                 let _ = events.try_send(Event::DismissReply);
             }
+            Command::PasteLast => {
+                if let Some(text) = &last_dictation {
+                    deliver(
+                        &mut injector,
+                        &mut watch,
+                        text,
+                        focused_app().and_then(|app| app.id).as_deref(),
+                        &config,
+                        &events,
+                    );
+                }
+            }
             Command::Insert(text) => {
                 deliver(
                     &mut injector,
@@ -1154,6 +1191,7 @@ fn run(
                 }
             }
             Command::Start
+            | Command::Toggle
             | Command::Stop
             | Command::RetryFailed(_)
             | Command::TranscribeFile(_)

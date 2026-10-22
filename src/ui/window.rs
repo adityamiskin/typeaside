@@ -42,6 +42,7 @@ pub enum Shortcut {
     Translate,
     Pause,
     Note,
+    PasteLast,
 }
 
 pub struct MainWindow {

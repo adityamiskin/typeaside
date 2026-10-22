@@ -32,6 +32,7 @@ pub enum HotkeyEvent {
     Translate(bool),
     Pause(bool),
     Note(bool),
+    PasteLast(bool),
     /// A key pressed while Fn is held: Fn+Left is Home, not dictation.
     #[cfg(target_os = "macos")]
     Interrupt,
@@ -66,6 +67,7 @@ impl State {
             (config.translate_hotkey.as_deref(), HotkeyEvent::Translate),
             (config.pause_hotkey.as_deref(), HotkeyEvent::Pause),
             (config.note_hotkey.as_deref(), HotkeyEvent::Note),
+            (config.paste_last_hotkey.as_deref(), HotkeyEvent::PasteLast),
         ] {
             if let Some(value) = value {
                 let double = value.ends_with("*2");

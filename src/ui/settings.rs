@@ -639,6 +639,7 @@ impl MainWindow {
                 Shortcut::Translate => s.config.translate_hotkey = Some(key),
                 Shortcut::Pause => s.config.pause_hotkey = Some(key),
                 Shortcut::Note => s.config.note_hotkey = Some(key),
+                Shortcut::PasteLast => s.config.paste_last_hotkey = Some(key),
             }
             s.persist();
             cx.notify();
@@ -662,6 +663,7 @@ impl MainWindow {
                 Shortcut::Translate => "translate-key",
                 Shortcut::Pause => "pause-key",
                 Shortcut::Note => "note-key",
+                Shortcut::PasteLast => "paste-last-key",
             })
             .cursor_pointer()
             .child(if self.capture == Some(target) {
@@ -672,25 +674,34 @@ impl MainWindow {
             } else {
                 kbd(value.unwrap_or_default(), p).into_any_element()
             })
-            .when(target == Shortcut::Pause && value.is_some(), |el| {
-                el.child(
-                    div()
-                        .id("clear-pause-key")
-                        .ml(px(8.))
-                        .text_color(p.muted)
-                        .child("×")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.capture = None;
-                            this.state.update(cx, |s, cx| {
-                                s.config.pause_hotkey = None;
-                                s.persist();
+            .when(
+                matches!(target, Shortcut::Pause | Shortcut::PasteLast) && value.is_some(),
+                |el| {
+                    el.child(
+                        div()
+                            .id(match target {
+                                Shortcut::PasteLast => "clear-paste-last-key",
+                                _ => "clear-pause-key",
+                            })
+                            .ml(px(8.))
+                            .text_color(p.muted)
+                            .child("×")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.capture = None;
+                                this.state.update(cx, |s, cx| {
+                                    match target {
+                                        Shortcut::PasteLast => s.config.paste_last_hotkey = None,
+                                        _ => s.config.pause_hotkey = None,
+                                    }
+                                    s.persist();
+                                    cx.notify();
+                                });
                                 cx.notify();
-                            });
-                            cx.notify();
-                        })),
-                )
-            })
+                            })),
+                    )
+                },
+            )
             .on_click(cx.listener(move |this, _, w, cx| {
                 typeaside::hotkeys::set_shortcut_recording(true);
                 this.shortcut_down = None;
@@ -1264,6 +1275,11 @@ impl MainWindow {
                 Setting::new("Pause / resume")
                     .description("Tap while recording.")
                     .child(self.shortcut(Shortcut::Pause, c.pause_hotkey.as_deref(), cx)),
+                Setting::new("Paste last dictation").child(self.shortcut(
+                    Shortcut::PasteLast,
+                    c.paste_last_hotkey.as_deref(),
+                    cx,
+                )),
                 Setting::new("New note").child(self.shortcut(
                     Shortcut::Note,
                     c.note_hotkey.as_deref(),

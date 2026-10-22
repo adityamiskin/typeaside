@@ -1,6 +1,24 @@
 mod ui;
 
 fn main() {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if matches!(
+        args.first().map(String::as_str),
+        Some("dictation" | "paste-last" | "open")
+    ) {
+        let command = args.join(" ").parse::<ui::instance::Command>();
+        let result = match command {
+            Ok(command) => ui::instance::send("typeaside.sock", command)
+                .map_err(|error| format!("cannot contact running TypeAside instance (is it running?): {error}")),
+            Err(_) => Err("usage: typeaside dictation start|stop|toggle|cancel | typeaside paste-last | typeaside open".into()),
+        };
+        if let Err(error) = result {
+            eprintln!("typeaside: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if std::env::args().any(|arg| arg == "--local-worker") {
         if let Err(error) = typeaside::local::worker_main() {
             eprintln!("typeaside local: {error:#}");
@@ -22,6 +40,15 @@ fn main() {
                 std::process::exit(1);
             }
         }
+    }
+    if args
+        .iter()
+        .any(|arg| !matches!(arg.as_str(), "--demo" | "--hidden"))
+    {
+        eprintln!(
+            "typeaside: unknown command or option; use dictation start|stop|toggle|cancel, paste-last, open, --demo, or --hidden"
+        );
+        std::process::exit(1);
     }
     let started = std::time::Instant::now();
     #[cfg(target_os = "linux")]

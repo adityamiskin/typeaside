@@ -4,7 +4,7 @@ mod clock;
 mod demo;
 mod dictionary;
 mod home;
-mod instance;
+pub(crate) mod instance;
 mod motion;
 mod notes;
 mod onboarding;
@@ -44,6 +44,7 @@ pub struct AppState {
     config: AppConfig,
     paths: AppPaths,
     engine: Option<Engine>,
+    pending_commands: Vec<Command>,
     is_demo: bool,
     key_hint: String,
     editing_key_hint: String,
@@ -274,6 +275,7 @@ fn start_ui(
         config,
         paths,
         engine: None,
+        pending_commands: Vec::new(),
         is_demo,
         file_transcribing: None,
         key_hint: if is_demo {
@@ -326,12 +328,19 @@ fn start_ui(
     }
     let mut main_window: Option<gpui::AnyWindowHandle> = None;
     let (sender, actions) = actions;
+    let paste_available = !is_demo
+        && state
+            .read(cx)
+            .history
+            .iter()
+            .any(|entry| !entry.cleaned.is_empty());
+    let tray_updates = sender.clone();
     #[cfg(target_os = "linux")]
     let tray = cx
         .background_executor()
-        .spawn(async move { tray::spawn(sender) });
+        .spawn(async move { tray::spawn(sender, paste_available) });
     #[cfg(not(target_os = "linux"))]
-    let tray = tray::spawn(sender);
+    let tray = tray::spawn(sender, paste_available);
     let tray_state = state.clone();
     cx.spawn(async move |cx| {
         #[cfg(target_os = "linux")]
@@ -343,6 +352,22 @@ fn start_ui(
         while let Ok(action) = actions.recv().await {
             cx.update(|cx| match action {
                 tray::Action::Quit => cx.quit(),
+                tray::Action::PasteAvailable => {
+                    if let Ok(tray) = &_tray {
+                        tray.enable_paste();
+                    }
+                }
+                tray::Action::Command(command) => {
+                    tray_state.update(cx, |s, _| {
+                        if let Some(command) = command.engine() {
+                            if s.engine.is_some() {
+                                s.command(command);
+                            } else if !s.is_demo {
+                                s.pending_commands.push(command);
+                            }
+                        }
+                    });
+                }
                 tray::Action::Open => {
                     #[cfg(target_os = "macos")]
                     window::show_in_dock(true);
@@ -423,6 +448,9 @@ fn start_ui(
             Ok((engine, events)) => {
                 state.update(cx, |s, cx| {
                     s.engine = engine;
+                    for command in std::mem::take(&mut s.pending_commands) {
+                        s.command(command);
+                    }
                     s.command(Command::Reload(Box::new(s.config.clone())));
                     if s.mic_testing {
                         s.command(
@@ -628,6 +656,9 @@ fn start_ui(
                     }
                 }
                 Event::Done(dictation) => {
+                    if !is_demo && !dictation.cleaned.is_empty() {
+                        let _ = tray_updates.try_send(tray::Action::PasteAvailable);
+                    }
                     if state.read(cx).config.transcription == Source::Hosted {
                         refresh_account(&state, cx);
                     }
