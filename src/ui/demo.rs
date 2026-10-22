@@ -202,8 +202,8 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                 std::thread::park();
                 return;
             }
-            loop {
-                if !send(Event::Level(0.7)) {
+            for tick in 0.. {
+                if !send(Event::Level(speech(tick))) {
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(33));
@@ -219,10 +219,7 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                 break;
             }
             for tick in 0..91 {
-                let t = tick as f32;
-                let level =
-                    (0.5 + 0.22 * (t * 0.37).sin() + 0.17 * (t * 1.23).sin()).clamp(0.08, 1.);
-                if !send(Event::Level(level)) {
+                if !send(Event::Level(speech(tick))) {
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(33));
@@ -255,6 +252,11 @@ pub fn spawn() -> async_channel::Receiver<Event> {
         }
     });
     rx
+}
+
+fn speech(tick: u32) -> f32 {
+    let t = tick as f32;
+    (0.5 + 0.22 * (t * 0.37).sin() + 0.17 * (t * 1.23).sin()).clamp(0.08, 1.)
 }
 
 pub fn account() -> Option<typeaside::account::Account> {
