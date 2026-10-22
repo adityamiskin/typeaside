@@ -22,6 +22,26 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+const RELEASE_TAIL: Duration = Duration::from_millis(200);
+
+struct ReleaseTail {
+    deadline: Instant,
+    samples: usize,
+}
+
+impl ReleaseTail {
+    fn new(now: Instant, samples: usize) -> Self {
+        Self {
+            deadline: now + RELEASE_TAIL,
+            samples,
+        }
+    }
+
+    fn ready(&self, now: Instant) -> bool {
+        now >= self.deadline
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
@@ -415,6 +435,7 @@ fn run(
         crate::learn::enable();
     }
     let mut recorder: Option<AudioRecorder> = None;
+    let mut release_tail: Option<ReleaseTail> = None;
     let mut stream = None;
     let mut generation = 0u64;
     let mut busy = None;
@@ -471,6 +492,7 @@ fn run(
                 let _ = events.try_send(Event::Level(capture.current_level()));
                 if let Some(error) = capture.take_error() {
                     recorder = None;
+                    release_tail = None;
                     stream = None;
                     monitor = None;
                     stop_effects(&mut effects, &mut restoring);
@@ -489,7 +511,12 @@ fn run(
             idle_reload(&mut pending_reload, recorder.is_some(), busy.is_some())
         {
             Message::Command(Command::Reload(next))
-        } else if recorder.as_ref().is_some_and(AudioRecorder::limit_reached) {
+        } else if release_tail
+            .as_ref()
+            .is_some_and(|tail| tail.ready(Instant::now()))
+            || (release_tail.is_none()
+                && recorder.as_ref().is_some_and(AudioRecorder::limit_reached))
+        {
             Message::Command(Command::Stop)
         } else {
             let received = if recorder.is_none() && monitor.is_none() {
@@ -557,7 +584,9 @@ fn run(
                     Command::Cancel
                 }
                 HotkeyEvent::Pause(true) => {
-                    if let Some(capture) = &recorder {
+                    if let Some(capture) = &recorder
+                        && release_tail.is_none()
+                    {
                         let paused = capture.toggle_paused();
                         let _ = events.try_send(Event::Level(0.));
                         phase(
@@ -1034,10 +1063,22 @@ fn run(
                         }
                     }
                 } else {
-                    let Some(capture) = recorder.take() else {
+                    let Some(capture) = recorder.as_ref() else {
                         continue;
                     };
-                    stop_effects(&mut effects, &mut restoring);
+                    if let Some(tail) = &release_tail {
+                        if !tail.ready(Instant::now()) {
+                            continue;
+                        }
+                    } else {
+                        release_tail =
+                            Some(ReleaseTail::new(Instant::now(), capture.sample_count()));
+                        stop_effects(&mut effects, &mut restoring);
+                        phase(&events, Phase::Transcribing);
+                        continue;
+                    }
+                    let held_samples = release_tail.take().unwrap().samples;
+                    let capture = recorder.take().unwrap();
                     let audio = match capture.stop() {
                         Ok(audio) => audio,
                         Err(error) => {
@@ -1049,8 +1090,16 @@ fn run(
                             continue;
                         }
                     };
-                    let tap = crate::transcribe::is_tap(&audio);
-                    let silent = tap || !crate::transcribe::has_speech(&audio);
+                    if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+                        eprintln!(
+                            "typeaside: release samples={held_samples} stopped samples={} tail samples={}",
+                            audio.len(),
+                            audio.len().saturating_sub(held_samples)
+                        );
+                    }
+                    let held_audio = &audio[..held_samples.min(audio.len())];
+                    let tap = crate::transcribe::is_tap(held_audio);
+                    let silent = tap || !crate::transcribe::has_speech(held_audio);
                     if silent && context.0 == Mode::Translate && !context.2.trim().is_empty() {
                         // Tapping Translate over a selection translates it in place.
                         stream = None;
@@ -1091,6 +1140,7 @@ fn run(
                     let _ = events.try_send(Event::DismissReply);
                 }
                 let recording = recorder.take().is_some();
+                release_tail = None;
                 stream = None;
                 monitor = None;
                 stop_effects(&mut effects, &mut restoring);
@@ -1290,6 +1340,26 @@ fn deliver(
 
 #[cfg(test)]
 mod queue_tests {
+    #[test]
+    fn release_tail_keeps_gates_on_held_samples() {
+        let now = std::time::Instant::now();
+        let tail = super::ReleaseTail::new(now, 1600);
+        assert!(!tail.ready(now + std::time::Duration::from_millis(199)));
+        assert!(tail.ready(now + std::time::Duration::from_millis(200)));
+        let mut audio = vec![0.0; tail.samples];
+        audio.extend(vec![0.1; 3200]);
+        assert_eq!(audio.len() - tail.samples, 3200);
+        assert!(!crate::transcribe::is_tap(&audio));
+        assert!(crate::transcribe::is_tap(&audio[..tail.samples]));
+        assert!(crate::transcribe::has_speech(&audio));
+        assert!(!crate::transcribe::has_speech(&audio[..tail.samples]));
+        let speech = vec![0.0035; 4000];
+        let mut with_tail = speech.clone();
+        with_tail.extend(vec![0.0; 3200]);
+        assert!(crate::transcribe::has_speech(&speech));
+        assert!(!crate::transcribe::has_speech(&with_tail));
+    }
+
     use super::*;
 
     fn recorded(sample: f32) -> Recorded {
