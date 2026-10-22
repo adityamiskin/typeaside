@@ -10,8 +10,7 @@ export const Route = createFileRoute("/releases/$")({
       GET: async ({ params }) => {
         const key = params._splat ?? "";
         const [, file, signature] = releaseKey.exec(key) ?? [];
-        if (!file || !releaseFiles.has(file) || (signature && file === "latest.json"))
-          return new Response("Not found", { status: 404 });
+        if (!file || !releaseFiles.has(file)) return new Response("Not found", { status: 404 });
         const { env } = await import("cloudflare:workers");
         const object = await env.RELEASES.get(key);
         if (!object) return new Response("Not found", { status: 404 });

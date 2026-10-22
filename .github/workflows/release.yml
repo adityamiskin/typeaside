@@ -118,6 +118,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y minisign
       - name: Upload installers and latest manifest to R2
         env:
+          TYPEASIDE_SIGNING_KEY: ${{ secrets.TYPEASIDE_SIGNING_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VERSION: ${{ needs.version.outputs.version }}
