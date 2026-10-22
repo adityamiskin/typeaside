@@ -2,20 +2,29 @@
 
 Settings → Dictation lists the available models. Download several, then use **Use** to switch. The dot marks the active model; its action is **Remove**. To remove another installed model, select it first. Only one download runs at a time. Source → On device appears when a model is installed.
 
-| Model key       | Languages                                          | Assets   | Engine                             |
-| --------------- | -------------------------------------------------- | -------- | ---------------------------------- |
-| `parakeet-v3`   | 25 European languages                              | 671 MB   | Existing int8 TDT                  |
-| `bark-3-clean`  | English                                            | 685 MB   | int8 TDT, split decoder and joiner |
-| `bark-3`        | English                                            | 685 MB   | int8 TDT, split decoder and joiner |
-| `bark-3-plus`   | English                                            | 685 MB   | int8 TDT, split decoder and joiner |
-| `cohere`        | 14, including Arabic, Chinese, Japanese and Korean | 2,128 MB | q4, float32 activations and caches |
-| `whisper-turbo` | 99                                                 | 574 MB   | whisper.cpp, q5_0 ggml             |
+| Model key             | Languages                                          | Assets   | Engine                                   |
+| --------------------- | -------------------------------------------------- | -------- | ---------------------------------------- |
+| `parakeet-v3`         | 25 European languages                              | 671 MB   | ONNX, int8 TDT                           |
+| `parakeet-unified-en` | English                                            | 732 MB   | transcribe.cpp, Q8_0 GGUF, GPU           |
+| `bark-3-clean`        | English                                            | 685 MB   | ONNX, int8 TDT, split decoder and joiner |
+| `bark-3`              | English                                            | 685 MB   | ONNX, int8 TDT, split decoder and joiner |
+| `bark-3-plus`         | English                                            | 685 MB   | ONNX, int8 TDT, split decoder and joiner |
+| `cohere`              | 14, including Arabic, Chinese, Japanese and Korean | 2,128 MB | ONNX, q4, float32 activations and caches |
+| `whisper-turbo`       | 99                                                 | 620 MB   | transcribe.cpp, Q5_K_M GGUF, GPU         |
 
-Sizes use decimal MB and exclude the shared ONNX runtime. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 35 catalog entries were checked against downloaded bytes, including Cohere's external weight files.
+Sizes use decimal MB and exclude the shared ONNX runtime, which every model downloads for the VAD. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 35 catalog entries were checked against downloaded bytes, including Cohere's external weight files.
 
-Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Every local model gets the same preprocessing from [Silero VAD](https://github.com/snakers4/silero-vad) v6.2.3 (MIT, `licenses/silero-vad-MIT.txt`), installed into the shared runtime directory with any model and pinned to its upstream commit, byte size and SHA-256. The worker trims non-speech edges, keeping 200 ms of padding so the engine's release tail and optional pre-roll still reach the model, and returns an empty transcript when it finds no speech. That replaces the energy gate's "No speech detected" for local dictation, since the VAD hears quiet speech the gate rejects. Recordings longer than 25 s are split at the longest pause in the 10 s before each boundary, or at the least speech-like frame when there is none, and chunks without speech are skipped. Whisper decodes with timestamps so whisper.cpp keeps seeking within a chunk instead of stopping after its first segments. Hosted transcription is unchanged: the VAD only ships with local models.
+Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Every local model gets the same preprocessing from [Silero VAD](https://github.com/snakers4/silero-vad) v6.2.3 (MIT, `licenses/silero-vad-MIT.txt`), installed into the shared runtime directory with any model and pinned to its upstream commit, byte size and SHA-256. The worker trims non-speech edges, keeping 200 ms of padding so the engine's release tail and optional pre-roll still reach the model, and returns an empty transcript when it finds no speech. That replaces the energy gate's "No speech detected" for local dictation, since the VAD hears quiet speech the gate rejects. Recordings longer than 25 s are split at the longest pause in the 10 s before each boundary, or at the least speech-like frame when there is none, and chunks without speech are skipped. Whisper decodes with segment timestamps so it keeps seeking within a chunk instead of stopping after its first segments. Hosted transcription is unchanged: the VAD only ships with local models.
 
-Existing configurations default to Parakeet v3. The ONNX runtime and VAD live in shared storage and count toward each model's installation marker, so models installed before the VAD shipped show as not installed until downloaded again, which fetches only the 2.3 MB VAD. Removing a model preserves the shared runtime and other models. When Source is On device, the selected model loads in the background at launch and after a model or language change. **Unload when idle** (5 min, 30 min, Never) frees the worker after that long unused. The default, 30 min, keeps a working session warm while returning the roughly 1.3 GB a loaded Parakeet v3 worker holds on 8 to 16 GB laptops. Switching Source away unloads it. No warm-up inference runs: the first transcription after loading measured the same as later ones.
+Existing configurations default to Parakeet v3. The ONNX runtime and VAD live in shared storage and count toward each model's installation marker, so models installed before the VAD shipped show as not installed until downloaded again, which fetches only the 2.3 MB VAD. Removing a model preserves the shared runtime and other models. When Source is On device, the selected model loads in the background at launch and after a model or language change. **Unload when idle** (5 min, 30 min, Never) frees the worker after that long unused. The default, 30 min, keeps a working session warm while returning the roughly 1.3 GB a loaded Parakeet v3 worker holds on 8 to 16 GB laptops. Switching Source away unloads it. ONNX models run no warm-up inference: the first transcription after loading measured the same as later ones. GGUF models transcribe 1.5 s of silence while loading so the GPU compiles its kernels before the first dictation.
+
+## GPU acceleration
+
+`parakeet-unified-en` and `whisper-turbo` run on [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) 0.2.4 (ggml): Vulkan on Linux x86_64 and Windows x64, Metal on macOS, CPU elsewhere. The worker prefers an integrated GPU, then a discrete one, then the CPU. A discrete laptop GPU powers down about 25 s after use even with the model loaded, so every dictation after a pause pays its wake-up: on this machine a 4.9 s clip took 1,060 to 1,120 ms on the RTX 4060 after 35 s idle, against 170 to 210 ms on the Radeon 780M. `TYPEASIDE_LOCAL_DEVICE=gpu` prefers the discrete GPU (desktops) and `=cpu` forces the CPU. If the GPU fails to load the model or to run the warm-up, the worker reloads it on the CPU. GPU sessions use one CPU thread for the per-token decoder. Each run gets a fresh session so a long recording's scratch memory is released.
+
+ONNX Parakeet v3 stays: its GGUF conversion (`handy-computer/parakeet-tdt-0.6b-v3-gguf`, Q8_0) measured faster on the GPU (`long-en` 1,007 ms on the RTX 4060 and 1,257 ms on the 780M against 1,999 ms ONNX) with WER 0.066 against 0.096, but 3x slower on the CPU (median RTF 0.112 against 0.034), and ONNX Runtime is still needed for Bark, Cohere and the VAD. Whisper moved because whisper-rs and transcribe.cpp each link their own ggml and cannot share a binary; its CPU speed is close to whisper-rs and its GPU speed is new.
+
+Building needs CMake, the Vulkan headers and loader, `glslc` and SPIRV-Headers on Linux and Windows (Arch: `vulkan-headers spirv-headers shaderc vulkan-icd-loader`; Ubuntu 24.04: `libvulkan-dev glslc spirv-headers`; Windows: the LunarG SDK plus `vcpkg install spirv-headers`). The binary links the Vulkan loader; Windows delay-loads it so the app starts without one, but on such a machine the worker cannot load GGUF models.
 
 ## Repeatable verification
 
@@ -56,7 +65,7 @@ Clips: `short-en` 2.9 s, `medium-en` 10.3 s, `medium-fr` 10.5 s, `long-en` 44.3 
 ```bash
 export TYPEASIDE_HOME="$(mktemp -d -p ~/.cache)"
 cargo build --release --example local_models
-for model in parakeet-v3 whisper-turbo; do
+for model in parakeet-v3 parakeet-unified-en whisper-turbo; do
   target/release/examples/local_models --download "$model"
 done
 target/release/examples/local_models --bench tests/fixtures/local-models-bench.json "$TYPEASIDE_HOME/bench.jsonl"
@@ -98,6 +107,37 @@ A 52.3 s clip of eight different English fixtures with 0.8 to 3 s of digital sil
 
 VAD chunks alone left Whisper at 5 of 8. It dropped sentences inside a 23 s chunk until `no_timestamps` was removed, which lets whisper.cpp seek per segment; that costs more encoder passes on CPU. The first cut, searching only the last 3 s before the 25 s boundary, missed a 3 s pause and split "Open source slash config.rs", which Parakeet then lost; searching the last 10 s fixed it. On 6 s of digital silence, Whisper returned "Sous-titrage Société Radio-Canada" before and the VAD now returns no speech in 15 ms. Parakeet returned nothing on silence or noise either way.
 
+### transcribe.cpp on the GPU
+
+After the VAD (`a519f00`), same machine, release build, 5 warm iterations. iGPU is the default device (Radeon 780M, RADV), dGPU is `TYPEASIDE_LOCAL_DEVICE=gpu` (RTX 4060 Laptop, NVIDIA 615.78), CPU is `=cpu`. ONNX Parakeet v3 was rerun in the same session as the baseline; whisper-rs is the post-VAD row above. Back-to-back warm runs keep the dGPU awake, so its numbers exclude the wake-up described in GPU acceleration. Unified English's WER and final-word columns exclude `medium-fr`, which an English model cannot transcribe (WER 0.85).
+
+| Model                        | Device | Median RTF | p95 ms | Mean WER | Median cold ms | Final word kept at 0/100/200 ms cut |
+| ---------------------------- | ------ | ---------- | ------ | -------- | -------------- | ----------------------------------- |
+| `parakeet-v3` (ONNX)         | CPU    | 0.037      | 1,652  | 0.096    | 1,907          | 4/3/3 of 4                          |
+| `parakeet-unified-en`        | iGPU   | 0.027      | 1,098  | 0.090    | 823            | 3/3/3 of 3                          |
+| `parakeet-unified-en`        | dGPU   | 0.015      | 583    | 0.090    | 686            | 3/3/3 of 3                          |
+| `parakeet-unified-en`        | CPU    | 0.051      | 2,269  | 0.090    | 1,019          | 3/3/3 of 3                          |
+| `whisper-turbo` (whisper-rs) | CPU    | 1.130      |        | 0.259    |                | 4/4/4 of 4                          |
+| `whisper-turbo`              | iGPU   | 0.119      | 2,989  | 0.259    | 2,388          | 4/4/4 of 4                          |
+| `whisper-turbo`              | dGPU   | 0.025      | 527    | 0.259    | 888            | 4/4/4 of 4                          |
+| `whisper-turbo`              | CPU    | 0.699      | 14,597 | 0.259    | 14,665         | 4/4/4 of 4                          |
+
+Warm medians per clip, ms:
+
+| Model                 | Device | short-en | medium-en | medium-fr | long-en |
+| --------------------- | ------ | -------- | --------- | --------- | ------- |
+| `parakeet-v3` (ONNX)  | CPU    | 123      | 355       | 397       | 1,635   |
+| `parakeet-unified-en` | iGPU   | 119      | 273       |           | 943     |
+| `parakeet-unified-en` | dGPU   | 65       | 155       |           | 576     |
+| `parakeet-unified-en` | CPU    | 174      | 632       |           | 2,126   |
+| `whisper-turbo`       | iGPU   | 790      | 1,373     | 1,245     | 2,088   |
+| `whisper-turbo`       | dGPU   | 204      | 256       | 254       | 525     |
+| `whisper-turbo`       | CPU    | 7,237    | 7,230     | 7,187     | 14,370  |
+
+Unified English's errors are all "3" for "three". Whisper GGUF scored the same per-clip WER as whisper-rs, including two of eight sentences on `long-en`. On the 52.3 s varied clip from the VAD section, clean and under pink noise, both GGUF models kept 8 of 8 sentences; cold-load-inclusive Whisper took 6.0 s on the iGPU and 33.6 s on the CPU (whisper-rs: 68.7 s), Unified English 1.5 s and 2.9 s.
+
+The silent warm-up at load matters on the dGPU: the first Whisper transcription after loading took 1,012 ms without it and 232 ms with it (later runs 255 to 261 ms). On the iGPU the first run matched later ones either way. Mesa and NVIDIA keep their compiled shaders in the user's cache; the very first load on a machine took 4.1 s on the 780M and 11.7 s on the RTX 4060.
+
 ## Verification on Linux x86_64
 
 Debug build, CPU ONNX Runtime 1.24.4, four inference threads. English audio: 4,875 ms; French audio: 4,987 ms. These are single-run timings, including model loading, not a comparative accuracy benchmark.
@@ -121,7 +161,9 @@ Unverified: macOS/Windows runtime execution, other supported languages, VAD chun
 
 ## Attribution
 
-The decoder/cache handling, from its Moonshine and Cohere engines, and the Cohere feature-extractor structure were adapted from [voxtype](https://github.com/peteonrails/voxtype), commit `dc499ad47444ba6ea80d8750aa3581c23120821c`, MIT, Copyright 2025 Peter Jackson. The license is retained in `licenses/voxtype-MIT.txt` and ported files carry credit. The Cohere port corrects framing, Slaney filter normalization and per-feature variance to match the upstream Hugging Face processor. Whisper runs on [whisper.cpp](https://github.com/ggml-org/whisper.cpp) through `whisper-rs`, built for a portable x86 baseline (AVX2, FMA, F16C) via `.cargo/config.toml`, with Metal on macOS.
+The decoder/cache handling, from its Moonshine and Cohere engines, and the Cohere feature-extractor structure were adapted from [voxtype](https://github.com/peteonrails/voxtype), commit `dc499ad47444ba6ea80d8750aa3581c23120821c`, MIT, Copyright 2025 Peter Jackson. The license is retained in `licenses/voxtype-MIT.txt` and ported files carry credit. The Cohere port corrects framing, Slaney filter normalization and per-feature variance to match the upstream Hugging Face processor. Whisper and Parakeet Unified English run on [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) (MIT, built on MIT ggml), built for a portable x86 baseline (AVX2, FMA, F16C) without system BLAS via `.cargo/config.toml`. One decoder thread on GPU sessions, per-run session rotation and the 1.5 s minimum input were adapted from [HEX](https://github.com/anomalyco/hex), commit `7160492a4d415c24184f57012ce3a6dae1af4e99`, MIT, Copyright 2026 Christopher Langton, retained in `licenses/hex-MIT.txt`.
+
+Parakeet Unified English is NVIDIA's [parakeet-unified-en-0.6b](https://huggingface.co/nvidia/parakeet-unified-en-0.6b), CC-BY-4.0, used as handy-computer's [Q8_0 GGUF conversion](https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf) at commit `7e948f21`. Whisper large-v3-turbo is OpenAI's, MIT, used as handy-computer's [Q5_K_M GGUF conversion](https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf) at commit `18ada752`.
 
 The Underdog Bark 3.0 family is by Conway Research ([Standard](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0), [Clean](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0-Clean), [Plus](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0-Plus)), derived from NVIDIA's parakeet-tdt-0.6b-v3 and Moondream's parakeet-ultra, CC-BY-4.0. Clean drops fillers and false starts; Standard and Plus keep every word, and Plus makes fewer mistakes. Each was converted to int8 sherpa-onnx from its `model.bark` at the pinned Hugging Face revision, with the converter that produced velddev's [Standard conversion](https://huggingface.co/velddev/Underdog-Bark-3.0-sherpa-onnx) (Standard's int8 encoder is byte-identical). The encoder's weights are split into three external data files of at most 212 MB, served from `typeaside.app/models` (R2), since no upstream host publishes Clean or Plus as ONNX. All three reuse v3's `nemo128.onnx` preprocessor and get the leading silence they were evaluated with: 0.25 s for Standard and Plus, none for Clean. NOTICE files are retained in `licenses/underdog-bark-3.0*-NOTICE.txt`. Standard often omits capitals and punctuation; Clean and Plus usually include them.
 

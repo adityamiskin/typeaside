@@ -1,7 +1,7 @@
 fn main() {
     println!("cargo:rerun-if-changed=packaging/windows/typeaside.ico");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        // Whisper's Metal availability checks need Clang's runtime on older macOS.
+        // ggml's Metal availability checks need Clang's runtime on older macOS.
         let output = std::process::Command::new("xcrun")
             .args(["clang", "--print-resource-dir"])
             .output()
@@ -22,5 +22,16 @@ fn main() {
             .set_icon("packaging/windows/typeaside.ico")
             .compile()
             .expect("compile TypeAside icon resource");
+        // Machines without a GPU driver lack the Vulkan loader. Only the transcription worker
+        // calls into it, so the app still starts there.
+        if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
+            println!("cargo:rustc-link-arg=/DELAYLOAD:vulkan-1.dll");
+            println!("cargo:rustc-link-lib=delayimp");
+            // transcribe.cpp links vulkan-1.lib without saying where the SDK keeps it.
+            println!("cargo:rerun-if-env-changed=VULKAN_SDK");
+            if let Ok(sdk) = std::env::var("VULKAN_SDK") {
+                println!("cargo:rustc-link-search=native={sdk}/Lib");
+            }
+        }
     }
 }

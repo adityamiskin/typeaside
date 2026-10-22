@@ -2,11 +2,9 @@
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
 
-# ggml otherwise compiles whisper.cpp for the build machine's CPU, so releases would crash on
-# older ones. AVX2/FMA/F16C covers x86 CPUs from 2013 on; ARM builds ignore these.
+# ggml otherwise compiles for the build machine's CPU, so releases would crash on older ones.
+# AVX2/FMA/F16C covers x86 CPUs from 2013 on; ARM builds ignore these. System BLAS would add a
+# runtime library the release binary cannot assume. MSVC must use the static CRT that
+# crt-static links above; other compilers ignore the setting.
 [env]
-GGML_NATIVE = "OFF"
-GGML_AVX = "ON"
-GGML_AVX2 = "ON"
-GGML_FMA = "ON"
-GGML_F16C = "ON"
+TRANSCRIBE_CMAKE_ARGS = "-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DTRANSCRIBE_USE_SYSTEM_BLAS=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"

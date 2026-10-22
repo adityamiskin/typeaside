@@ -13,15 +13,17 @@ pub enum ModelId {
     BarkPlus,
     Cohere,
     WhisperTurbo,
+    ParakeetUnifiedEn,
 }
 impl ModelId {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::ParakeetV3,
         Self::BarkClean,
         Self::Bark,
         Self::BarkPlus,
         Self::Cohere,
         Self::WhisperTurbo,
+        Self::ParakeetUnifiedEn,
     ];
     pub fn key(self) -> &'static str {
         match self {
@@ -31,6 +33,7 @@ impl ModelId {
             Self::BarkPlus => "bark-3-plus",
             Self::Cohere => "cohere",
             Self::WhisperTurbo => "whisper-turbo",
+            Self::ParakeetUnifiedEn => "parakeet-unified-en",
         }
     }
     pub fn label(self) -> &'static str {
@@ -41,6 +44,7 @@ impl ModelId {
             Self::BarkPlus => "Bark 3.0 Plus",
             Self::Cohere => "Cohere Transcribe",
             Self::WhisperTurbo => "Whisper large-v3-turbo",
+            Self::ParakeetUnifiedEn => "Parakeet Unified",
         }
     }
     pub fn description(self) -> &'static str {
@@ -51,6 +55,7 @@ impl ModelId {
             Self::BarkPlus => "English, every word, fewer mistakes",
             Self::Cohere => "14 languages incl. CJK, select spoken language",
             Self::WhisperTurbo => "99 languages",
+            Self::ParakeetUnifiedEn => "English, GPU accelerated",
         }
     }
     pub fn index(self) -> usize {
@@ -65,6 +70,7 @@ impl ModelId {
             Self::BarkPlus => &BARK_3_PLUS,
             Self::Cohere => &COHERE,
             Self::WhisperTurbo => &WHISPER_TURBO,
+            Self::ParakeetUnifiedEn => &PARAKEET_UNIFIED_EN,
         }
     }
     pub fn size_mb(self) -> u64 {
