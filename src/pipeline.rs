@@ -77,7 +77,8 @@ fn local_fallback(error: &anyhow::Error) -> bool {
 
 fn local_dictation(config: &AppConfig, audio: &[f32], started: Instant) -> Result<Output> {
     let raw = crate::local::transcribe(config, audio)?;
-    let (text, submit) = dictation_text(config, Mode::Dictate, &raw);
+    let corrected = crate::replacements::apply(&raw, &config.replacements);
+    let (text, submit) = dictation_text(config, Mode::Dictate, &corrected);
     let text = without_send(
         snippets::expand(
             &cleanup::remove_fillers(text, config.language.as_deref()),
@@ -204,7 +205,8 @@ pub fn run(
     };
     let stt = started.elapsed();
     let started = Instant::now();
-    let (text, submit) = dictation_text(config, mode, &raw);
+    let corrected = crate::replacements::apply(&raw, &config.replacements);
+    let (text, submit) = dictation_text(config, mode, &corrected);
     let answer = if text.is_empty() {
         Answer {
             delivery: Delivery::Insert,
@@ -220,7 +222,7 @@ pub fn run(
         }
     } else if mode == Mode::Command {
         cleaning();
-        cleanup::command(config, &raw, selection)?
+        cleanup::command(config, &corrected, selection)?
     } else {
         if config.editing() || mode == Mode::Translate {
             cleaning();
@@ -357,6 +359,7 @@ fn hosted_context(
         after_cursor: Option<&'a str>,
         category: AppCategory,
         dictionary: &'a [String],
+        replacements: &'a [crate::replacements::Rule],
         names: &'a [String],
         #[serde(skip_serializing_if = "Option::is_none")]
         language: Option<&'a str>,
@@ -394,6 +397,7 @@ fn hosted_context(
         }),
         category,
         dictionary: &config.dictionary,
+        replacements: &config.replacements,
         names,
         language: config.language.as_deref(),
         tone: config.styles.get(category),

@@ -35,6 +35,17 @@ pub fn config() -> AppConfig {
         ]
         .map(str::to_owned)
         .to_vec(),
+        replacements: [
+            ("type aside", "TypeAside"),
+            ("pre ya", "Priya"),
+            ("cube ctl", "kubectl"),
+        ]
+        .into_iter()
+        .map(|(trigger, replacement)| typeaside::replacements::Rule {
+            trigger: trigger.into(),
+            replacement: replacement.into(),
+        })
+        .collect(),
         snippets: [
             ("my calendar link", "https://cal.com/aditya/30min"),
             (

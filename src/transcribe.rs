@@ -74,13 +74,14 @@ pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
         )?
         .text);
     }
-    request(
+    let raw = request(
         config,
         file,
         &endpoint_key(&config.stt.base_url)?,
         &[],
         Duration::from_secs(120),
-    )
+    )?;
+    Ok(crate::replacements::apply(&raw, &config.replacements))
 }
 
 fn request(
