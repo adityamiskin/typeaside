@@ -348,6 +348,22 @@ mod tests {
     use std::cell::RefCell;
 
     #[test]
+    fn default_shortcuts_parse() {
+        let config = AppConfig::default();
+        for value in [
+            Some(&config.hotkey),
+            config.command_hotkey.as_ref(),
+            config.translate_hotkey.as_ref(),
+            config.pause_hotkey.as_ref(),
+            config.note_hotkey.as_ref(),
+            config.paste_last_hotkey.as_ref(),
+        ] {
+            let value = value.expect("every shortcut has a default");
+            assert!(Combo::parse(value, HotkeyEvent::Main).is_ok(), "{value}");
+        }
+    }
+
+    #[test]
     fn modifier_shortcut_interrupts_once_and_waits_for_release() {
         let mut combos = [Combo::parse("RIGHTCTRL", HotkeyEvent::Main).unwrap()];
         let events = RefCell::new(Vec::new());
