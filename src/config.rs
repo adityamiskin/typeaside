@@ -39,6 +39,25 @@ pub enum HistoryRetention {
     Off,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalUnload {
+    FiveMinutes,
+    #[default]
+    ThirtyMinutes,
+    Never,
+}
+
+impl LocalUnload {
+    pub fn after(self) -> Option<std::time::Duration> {
+        match self {
+            Self::FiveMinutes => Some(std::time::Duration::from_secs(5 * 60)),
+            Self::ThirtyMinutes => Some(std::time::Duration::from_secs(30 * 60)),
+            Self::Never => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endpoint {
     pub base_url: String,
@@ -297,6 +316,7 @@ pub struct AppConfig {
     // A removed model falls back to the default instead of invalidating the whole config.
     #[serde(deserialize_with = "known_or_default")]
     pub local_model: crate::local::ModelId,
+    pub local_unload: LocalUnload,
     pub stt: Endpoint,
     pub language: Option<String>,
     pub cleanup: Cleanup,
@@ -344,6 +364,7 @@ impl Default for AppConfig {
             keep_microphone_ready: false,
             transcription: Source::OwnKey,
             local_model: crate::local::ModelId::default(),
+            local_unload: LocalUnload::default(),
             stt: Endpoint::new("https://api.groq.com/openai/v1", "whisper-large-v3-turbo"),
             language: None,
             cleanup: Cleanup::default(),

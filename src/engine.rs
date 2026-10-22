@@ -557,6 +557,7 @@ fn run(
     events: async_channel::Sender<Event>,
 ) {
     phase(&events, Phase::Idle);
+    crate::local::apply(&config);
     let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
     let mut epoch = 0;
     let mut hotkeys = open_hotkeys(&config, &tx, epoch, &events);
@@ -1364,6 +1365,7 @@ fn run(
                 held = None;
                 held_modes.clear();
                 config = *next;
+                crate::local::apply(&config);
                 if !config.auto_learn {
                     watch = None;
                 }

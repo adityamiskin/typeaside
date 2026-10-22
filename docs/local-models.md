@@ -15,7 +15,7 @@ Sizes use decimal MB and exclude the shared ONNX runtime. Every model asset is p
 
 Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Cohere processes long audio in chunks of up to 25 seconds, cut at quiet points; whisper.cpp windows long audio itself.
 
-Existing configurations default to Parakeet v3. Its original directory and installation marker continue to work. A later download copies its runtime into shared storage, preserving its modification time so existing installation markers stay valid. Removing a model preserves the shared runtime and other models. Model/language changes restart the worker; loading stays lazy and the existing five-minute idle unload remains.
+Existing configurations default to Parakeet v3. Its original directory and installation marker continue to work. A later download copies its runtime into shared storage, preserving its modification time so existing installation markers stay valid. Removing a model preserves the shared runtime and other models. When Source is On device, the selected model loads in the background at launch and after a model or language change. **Unload when idle** (5 min, 30 min, Never) frees the worker after that long unused. The default, 30 min, keeps a working session warm while returning the roughly 1.3 GB a loaded Parakeet v3 worker holds on 8 to 16 GB laptops. Switching Source away unloads it. No warm-up inference runs: the first transcription after loading measured the same as later ones.
 
 ## Repeatable verification
 
@@ -66,7 +66,7 @@ The real GPUI app was launched with `--demo`, `TYPEASIDE_HOME=/tmp/typeaside-mod
 
 ![On-device model settings in the real app](assets/local-models-settings.png)
 
-Unverified: macOS/Windows runtime execution, other supported languages, long-recording accuracy across chunk boundaries, and live UI download/selection/removal interactions. The five-minute idle timeout was preserved but not re-timed.
+Unverified: macOS/Windows runtime execution, other supported languages, long-recording accuracy across chunk boundaries, and live UI download/selection/removal interactions.
 
 ## Attribution
 
