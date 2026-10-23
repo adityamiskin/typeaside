@@ -29,7 +29,6 @@ export const Route = createFileRoute("/")({
         applicationCategory: "ProductivityApplication",
         operatingSystem: "macOS, Windows, Linux",
         downloadUrl: `${siteUrl}/download`,
-        offers: [{ "@type": "Offer", name: "Free", price: "0", priceCurrency: "USD" }],
       },
       {
         "@context": "https://schema.org",
@@ -60,10 +59,6 @@ const faqs = [
   [
     "Is there a phone app?",
     "Not yet. TypeAside today is a desktop app for Linux, macOS and Windows.",
-  ],
-  [
-    "Is it really free?",
-    "Yes. TypeAside is open source under the MIT license. On-device transcription costs nothing; if you use a cloud provider, you pay them directly.",
   ],
   [
     "Can I use it offline?",
