@@ -17,20 +17,12 @@ the static transcribe, ggml, backend and ggml-base archives plus system librarie
 This crate builds only a static llama archive. Static source builds are the
 supported posture; shared/dynamic-backends need separate packaging validation.
 
-Run independently of the app's Cargo graph:
-  CMAKE_ARGS=-DTRANSCRIBE_VULKAN=OFF cargo run --release -j8 \
-    --manifest-path vendor/llama-cpp-sys/Cargo.toml --example s1_cleanup -- \
-    /path/to/s1-mini-q4_k_m.gguf /path/to/silero-vad-v6.2-F32.gguf
+The root typeaside crate depends on this path crate. Cargo unifies its exact
+transcribe-cpp-sys dependency with transcribe-cpp 0.4.1, including platform
+features: Vulkan on Linux/Windows x86_64, Metal on macOS. There is no second
+ggml build. The root build.rs supplies the Windows Vulkan SDK library search
+path; ci.yml and release.yml install that SDK.
 
-Enable --features vulkan on Linux/Windows or --features metal on macOS.
-These forward exclusively to transcribe-cpp-sys. Initialize transcribe backends
-before loading either model; llama sees the same process-global ggml registry.
-The example defaults to 99 GPU layers (CPU fallback when no GPU is registered).
-Optional positional arguments select thread count and GPU layer count.
-
-S1-mini by Superwhisper is not bundled. Its required LICENSE and NOTICE are
-retained under examples/S1-mini-{LICENSE,NOTICE}. The example uses its exact
-system prompt, styling controls and Qwen3 non-thinking prefix, greedy decoding,
-a 1024-token context and a 512-token output limit. The twelve inputs reproduce
-/home/aditya/Projects/.s1-exp/run_cases.py. Silero VAD runs before and after
-cleanup with both models resident, checking identical silence probabilities.
+App integration and repeatable worker verification live in src/local/cleanup.rs
+and examples/local_cleanup.rs. S1-mini by Superwhisper is downloaded separately,
+with its LICENSE and NOTICE; see src/local/assets.rs and docs/local-models.md.

@@ -36,3 +36,24 @@ pub(super) const SILERO_VAD: Asset = Asset {
     sha256: "0d871a800c420fdd5d1b17a3aea4296d1c39608f0ff4a9295eb76457eb1c88e6",
     size: 1241056,
 };
+
+pub(super) const S1_MINI: [Asset; 3] = [
+    Asset {
+        name: "s1-mini-q4_k_m.gguf",
+        url: "https://huggingface.co/superwhisper/s1-mini-GGUF/resolve/34add00a48a2e5d24e5a4ee5405a99620a3a240c/s1-mini-q4_k_m.gguf",
+        size: 484219808,
+        sha256: "3b41ebe2502cbd03e811d5d16b022f5ab551eda58d62597d152f89535003c634",
+    },
+    Asset {
+        name: "LICENSE",
+        url: "https://huggingface.co/superwhisper/s1-mini-GGUF/resolve/34add00a48a2e5d24e5a4ee5405a99620a3a240c/LICENSE",
+        size: 12033,
+        sha256: "f715982df6ce767ae64864d74b95644e5d658aab54717dbceeb252eb3cbcb421",
+    },
+    Asset {
+        name: "NOTICE",
+        url: "https://huggingface.co/superwhisper/s1-mini-GGUF/resolve/34add00a48a2e5d24e5a4ee5405a99620a3a240c/NOTICE",
+        size: 507,
+        sha256: "6eb1e98a0d0046dd1b71da19d3b64ebccc12622e7d62e5efcad10298b4d66292",
+    },
+];

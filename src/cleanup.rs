@@ -79,6 +79,19 @@ pub(crate) fn remove_fillers(text: &str, language: Option<&str>) -> String {
 }
 
 fn checked_output(raw: &str, output: Result<String>, translation: bool) -> String {
+    check_output(raw, output, translation, false)
+}
+
+pub(crate) fn local_output(raw: &str, output: Result<String>) -> String {
+    check_output(
+        raw,
+        output,
+        false,
+        remove_fillers(raw, Some("en")).is_empty(),
+    )
+}
+
+fn check_output(raw: &str, output: Result<String>, translation: bool, allow_empty: bool) -> String {
     let output = match output {
         Ok(output) => output,
         Err(error) => {
@@ -95,6 +108,9 @@ fn checked_output(raw: &str, output: Result<String>, translation: bool) -> Strin
     let reply = ["sure", "here", "certainly", "of course", "as an ai"]
         .iter()
         .any(|prefix| lower.starts_with(prefix) && !raw_lower.starts_with(prefix));
+    if output.is_empty() && allow_empty {
+        return String::new();
+    }
     if output.is_empty() || (!translation && !(0.25..=1.3).contains(&ratio)) || reply {
         raw.into()
     } else {

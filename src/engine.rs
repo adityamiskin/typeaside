@@ -16,7 +16,11 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Command as ProcessCommand, Stdio},
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant, SystemTime},
 };
@@ -567,6 +571,7 @@ fn run(
     let mut release_tail: Option<ReleaseTail> = None;
     let mut stream = None;
     let mut generation = 0u64;
+    let mut busy_cancel: Option<Arc<AtomicBool>> = None;
     let mut busy = None;
     let mut pending = PendingDictations::default();
     let mut busy_phase = Phase::Transcribing;
@@ -833,6 +838,8 @@ fn run(
                 if recorder.is_none() {
                     phase(&events, Phase::Transcribing);
                 }
+                let cancel = Arc::new(AtomicBool::new(false));
+                busy_cancel = Some(cancel.clone());
                 let pipeline_config = config.clone();
                 let pipeline_tx = tx.clone();
                 let (mode, app, selection) = busy_context.clone();
@@ -845,7 +852,7 @@ fn run(
                             let names = names
                                 .and_then(|names| names.try_recv().ok())
                                 .unwrap_or_default();
-                            let output = crate::pipeline::run(
+                            let output = crate::pipeline::run_cancellable(
                                 &pipeline_config,
                                 &audio,
                                 app.as_ref(),
@@ -856,6 +863,7 @@ fn run(
                                 || {
                                     let _ = tx.send(Message::Cleaning(id));
                                 },
+                                cancel,
                             )?;
                             Ok((
                                 Dictation {
@@ -900,6 +908,7 @@ fn run(
                     continue;
                 }
                 busy = None;
+                busy_cancel = None;
                 let audio = pending_audio.take();
                 match result {
                     Ok((dictation, delivery))
@@ -1295,6 +1304,9 @@ fn run(
                 monitor = None;
                 stop_effects(&mut effects, &mut restoring);
                 if !recording {
+                    if let Some(cancel) = busy_cancel.take() {
+                        cancel.store(true, Ordering::Relaxed);
+                    }
                     busy = None;
                     pending_audio = None;
                     pending = PendingDictations::default();

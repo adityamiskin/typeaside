@@ -1,5 +1,7 @@
 mod assets;
 mod catalog;
+mod cleanup;
+pub use cleanup::{CleanupModel, CleanupSettings};
 mod gguf;
 mod vad;
 pub use catalog::ModelId;
@@ -48,13 +50,19 @@ fn models_directory() -> Result<PathBuf> {
     Ok(crate::paths::AppPaths::discover()?.data_dir.join("models"))
 }
 fn inventory(model: ModelId, dir: &Path) -> Result<String> {
+    inventory_assets(
+        dir,
+        model
+            .assets()
+            .iter()
+            .map(|asset| asset.name)
+            .chain([SILERO_VAD.name]),
+    )
+}
+
+fn inventory_assets(dir: &Path, names: impl Iterator<Item = &'static str>) -> Result<String> {
     let mut entries = Vec::new();
-    for name in model
-        .assets()
-        .iter()
-        .map(|asset| asset.name)
-        .chain([SILERO_VAD.name])
-    {
+    for name in names {
         let path = dir.join(name);
         let metadata = fs::metadata(path)?;
         entries.push((
@@ -107,21 +115,31 @@ async fn cancelled(cancel: &AtomicBool) {
 
 async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()> {
     let dir = model.directory()?;
-    fs::create_dir_all(&dir)?;
-    let _ = fs::remove_file(dir.join("installed"));
-    let total: u64 = model
+    let assets: Vec<_> = model
         .assets()
         .iter()
         .chain([&SILERO_VAD])
-        .map(|a| a.size)
-        .sum();
+        .copied()
+        .collect();
+    download_assets(&dir, &assets, cancel, progress).await
+}
+
+async fn download_assets(
+    dir: &Path,
+    assets: &[assets::Asset],
+    cancel: &AtomicBool,
+    progress: impl Fn(u8),
+) -> Result<()> {
+    fs::create_dir_all(dir)?;
+    let _ = fs::remove_file(dir.join("installed"));
+    let total: u64 = assets.iter().map(|a| a.size).sum();
     let mut completed = 0;
     let mut last = std::time::Instant::now() - Duration::from_secs(1);
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(1800))
         .build()?;
-    for asset in model.assets().iter().chain([&SILERO_VAD]) {
+    for asset in assets {
         let target = &dir;
         ensure!(!cancel.load(Ordering::Relaxed), "Download cancelled");
         let final_path = target.join(asset.name);
@@ -153,10 +171,17 @@ async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u
         }
         output.sync_all()?;
         drop(output);
+        ensure!(
+            fs::metadata(&part)?.len() == asset.size,
+            "Download size mismatch"
+        );
         verify(&part, asset.sha256, cancel)?;
         fs::rename(part, final_path)?;
     }
-    fs::write(dir.join("installed.part"), inventory(model, &dir)?)?;
+    fs::write(
+        dir.join("installed.part"),
+        inventory_assets(dir, assets.iter().map(|a| a.name))?,
+    )?;
     fs::rename(dir.join("installed.part"), dir.join("installed"))?;
     progress(100);
     Ok(())
@@ -215,7 +240,7 @@ impl Worker {
                 return;
             }
             for job in input {
-                let answered = matches!(job, Job::Transcribe(_) | Job::End);
+                let answered = matches!(job, Job::Transcribe(_) | Job::End | Job::Clean(..));
                 let result = (|| -> Result<String> {
                     job.write(&mut stdin)?;
                     stdin.flush()?;
@@ -277,14 +302,16 @@ const BEGIN: u8 = 1;
 const FEED: u8 = 2;
 const END: u8 = 3;
 const CANCEL: u8 = 4;
+const CLEAN: u8 = 5;
 
-/// One message to the worker. Only `Transcribe` and `End` are answered.
+/// One message to the worker. Transcription, stream end and cleanup are answered.
 enum Job {
     Transcribe(Vec<f32>),
     Begin,
     Feed(Vec<f32>),
     End,
     Cancel,
+    Clean(String, CleanupSettings),
 }
 impl Job {
     fn write(&self, output: &mut impl Write) -> Result<()> {
@@ -294,6 +321,14 @@ impl Job {
             Self::Feed(samples) => (FEED, Some(samples)),
             Self::End => (END, None),
             Self::Cancel => (CANCEL, None),
+            Self::Clean(text, settings) => {
+                let bytes = serde_json::to_vec(&(text, settings))?;
+                ensure!(bytes.len() <= 1024 * 1024, "Cleanup request too large");
+                output.write_all(&[CLEAN])?;
+                output.write_all(&(bytes.len() as u64).to_le_bytes())?;
+                output.write_all(&bytes)?;
+                return Ok(());
+            }
         };
         output.write_all(&[tag])?;
         if let Some(samples) = samples {
@@ -337,6 +372,7 @@ enum Request {
     Feed(Vec<f32>),
     End(Reply),
     Cancel,
+    Clean(String, CleanupSettings, Arc<AtomicBool>, Reply),
     Unload(Option<mpsc::SyncSender<()>>),
 }
 fn ensure(
@@ -412,6 +448,30 @@ fn sender() -> &'static mpsc::Sender<Request> {
                             let _ = worker.send(Job::Cancel);
                         }
                         streaming = false;
+                    }
+                    Ok(Request::Clean(text, settings, cancel, reply)) => {
+                        let result = (|| -> Result<Result<String, String>> {
+                            ensure!(!cancel.load(Ordering::Relaxed), "Cleanup cancelled");
+                            let live = worker.as_ref().context("Speech worker is not loaded")?;
+                            live.send(Job::Clean(text, settings))?;
+                            let started = std::time::Instant::now();
+                            loop {
+                                ensure!(!cancel.load(Ordering::Relaxed), "Cleanup cancelled");
+                                ensure!(
+                                    started.elapsed() < Duration::from_secs(30),
+                                    "Cleanup timed out"
+                                );
+                                match live.responses.recv_timeout(Duration::from_millis(20)) {
+                                    Ok(result) => return Ok(result),
+                                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                                    Err(error) => return Err(error.into()),
+                                }
+                            }
+                        })();
+                        if result.is_err() {
+                            worker = None;
+                        }
+                        let _ = reply.send(result.unwrap_or_else(|e| Err(e.to_string())));
                     }
                     Ok(Request::Unload(reply)) => {
                         worker = None;
@@ -559,6 +619,26 @@ pub fn finish(
     }
 }
 
+/// Applies the same on-device cleanup policy used by the dictation pipeline.
+pub fn cleanup_text(
+    config: &crate::config::AppConfig,
+    text: &str,
+    app_id: Option<&str>,
+    cancel: Arc<AtomicBool>,
+) -> String {
+    if let Some(settings) = CleanupSettings::for_app(config, app_id) {
+        crate::cleanup::local_output(text, clean(text, settings, cancel))
+    } else {
+        crate::cleanup::remove_fillers(text, config.language.as_deref())
+    }
+}
+
+fn clean(text: &str, settings: CleanupSettings, cancel: Arc<AtomicBool>) -> Result<String> {
+    let (tx, rx) = mpsc::sync_channel(1);
+    sender().send(Request::Clean(text.to_owned(), settings, cancel, tx))?;
+    rx.recv()?.map_err(anyhow::Error::msg)
+}
+
 pub fn worker_main() -> Result<()> {
     let option = |flag: &str| std::env::args().skip_while(|arg| arg != flag).nth(1);
     let model: ModelId = option("--local-model")
@@ -596,11 +676,13 @@ pub fn worker_main() -> Result<()> {
         serde_json::to_string(&Ok::<_, String>("ready"))?
     )?;
     output.flush()?;
+    let mut cleanup = None;
     let mut input = std::io::stdin().lock();
     while let Some((tag, samples)) = read_job(&mut input)? {
         let result = match tag {
             TRANSCRIBE => Some(transcribe_speech(&mut model, &mut vad, &samples)),
-            BEGIN => stream(&mut model, &mut input),
+            BEGIN => stream(&mut model, &mut input, &mut cleanup, &mut output),
+            CLEAN => Some(cleanup_job(&mut input, &mut cleanup)),
             _ => anyhow::bail!("Unexpected message outside a stream"),
         };
         if let Some(result) = result {
@@ -638,15 +720,46 @@ fn transcribe_speech(
     Ok(parts.join(" "))
 }
 
+fn cleanup_job(input: &mut impl Read, model: &mut Option<cleanup::Model>) -> Result<String> {
+    let mut size = [0; 8];
+    input.read_exact(&mut size)?;
+    let size = usize::try_from(u64::from_le_bytes(size))?;
+    ensure!(size <= 1024 * 1024, "Cleanup request too large");
+    let mut bytes = vec![0; size];
+    input.read_exact(&mut bytes)?;
+    let (text, settings): (String, CleanupSettings) = serde_json::from_slice(&bytes)?;
+    if model.is_none() {
+        *model = Some(cleanup::Model::load()?);
+    }
+    model
+        .as_mut()
+        .context("Missing cleanup model")?
+        .clean(&text, settings)
+}
+
 /// Runs one stream to its end; `None` when it was cancelled and owes no answer.
-fn stream(model: &mut gguf::Model, input: &mut impl Read) -> Option<Result<String>> {
+fn stream(
+    model: &mut gguf::Model,
+    input: &mut impl Read,
+    cleanup: &mut Option<cleanup::Model>,
+    output: &mut impl Write,
+) -> Option<Result<String>> {
     let mut next = || -> Result<gguf::StreamInput> {
-        Ok(match read_job(input)? {
-            Some((FEED, samples)) => gguf::StreamInput::Feed(samples),
-            Some((END, _)) => gguf::StreamInput::End,
-            Some((CANCEL, _)) => gguf::StreamInput::Cancel,
-            _ => anyhow::bail!("Stream interrupted"),
-        })
+        loop {
+            return Ok(match read_job(input)? {
+                Some((FEED, samples)) => gguf::StreamInput::Feed(samples),
+                Some((END, _)) => gguf::StreamInput::End,
+                Some((CANCEL, _)) => gguf::StreamInput::Cancel,
+                // The next capture may already be streaming when the previous dictation cleans up.
+                Some((CLEAN, _)) => {
+                    let result = cleanup_job(input, cleanup).map_err(|e| e.to_string());
+                    writeln!(output, "{}", serde_json::to_string(&result)?)?;
+                    output.flush()?;
+                    continue;
+                }
+                _ => anyhow::bail!("Stream interrupted"),
+            });
+        }
     };
     if model.streams() {
         model.stream(next).transpose()
