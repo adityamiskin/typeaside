@@ -1090,7 +1090,7 @@ impl MainWindow {
                     .description(if own_key {
                         "Clean up fillers, punctuation and lists."
                     } else {
-                        "Set Spoken language to English. Skips code apps."
+                        "English only. Skips code apps."
                     })
                     .child(self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx)),
             ];

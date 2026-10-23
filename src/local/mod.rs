@@ -470,6 +470,7 @@ fn sender() -> &'static mpsc::Sender<Request> {
                         })();
                         if result.is_err() {
                             worker = None;
+                            streaming = false;
                         }
                         let _ = reply.send(result.unwrap_or_else(|e| Err(e.to_string())));
                     }
@@ -626,10 +627,13 @@ pub fn cleanup_text(
     app_id: Option<&str>,
     cancel: Arc<AtomicBool>,
 ) -> String {
-    if let Some(settings) = CleanupSettings::for_app(config, app_id) {
-        crate::cleanup::local_output(text, clean(text, settings, cancel))
-    } else {
-        crate::cleanup::remove_fillers(text, config.language.as_deref())
+    // S1-mini sometimes keeps "um"; stripping first also makes filler-only input empty.
+    let text = crate::cleanup::remove_fillers(text, config.language.as_deref());
+    match CleanupSettings::for_app(config, app_id) {
+        Some(settings) if !text.is_empty() => {
+            crate::cleanup::checked_output(&text, clean(&text, settings, cancel), false)
+        }
+        _ => text,
     }
 }
 

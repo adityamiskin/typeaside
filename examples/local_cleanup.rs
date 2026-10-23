@@ -131,7 +131,10 @@ fn main() -> Result<()> {
     println!("code category (skipped): {output:?}");
     let long = "Please bring your notes tomorrow. ".repeat(200);
     let output = local::cleanup_text(&config, &long, None, Arc::new(AtomicBool::new(false)));
-    ensure!(output == long, "Long cleanup must preserve original text");
+    ensure!(
+        output == long.trim(),
+        "Long cleanup must preserve original text"
+    );
     println!("long transcript: preserved {} bytes", output.len());
     // A skipped oversized request must not prevent the next dictation.
     local::prewarm(&config);

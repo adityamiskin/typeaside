@@ -196,8 +196,11 @@ impl Model {
             let sampler = Sampler(
                 NonNull::new(llama_sampler_init_greedy()).context("Create greedy sampler")?,
             );
+            // English averages about 4 bytes per token and the output guard rejects anything
+            // past 1.3x the input's length, so longer generation is wasted latency.
+            let limit = (raw.len() / 2 + 32).min(MAX_OUTPUT);
             let mut output = Vec::new();
-            for _ in 0..MAX_OUTPUT {
+            for _ in 0..limit {
                 let batch = llama_batch_get_one(tokens.as_mut_ptr(), tokens.len().try_into()?);
                 let status = llama_decode(ctx, batch);
                 ensure!(
