@@ -1,14 +1,11 @@
 mod assets;
 mod catalog;
-mod cohere;
-mod features;
 mod gguf;
-mod inference;
 mod vad;
 pub use catalog::ModelId;
 
 use anyhow::{Context, Result, ensure};
-use assets::{RUNTIME, SILERO_VAD};
+use assets::SILERO_VAD;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -23,7 +20,11 @@ use std::{
     time::Duration,
 };
 
-pub const AVAILABLE: bool = RUNTIME.is_some();
+pub const AVAILABLE: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows"
+));
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
@@ -46,36 +47,15 @@ impl Status {
 fn models_directory() -> Result<PathBuf> {
     Ok(crate::paths::AppPaths::discover()?.data_dir.join("models"))
 }
-fn runtime_directory() -> Result<PathBuf> {
-    Ok(models_directory()?.join("runtime"))
-}
-fn runtime_library() -> Result<PathBuf> {
-    Ok(runtime_directory()?.join(library_name()))
-}
-
-fn library_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "onnxruntime.dll"
-    } else if cfg!(target_os = "macos") {
-        "libonnxruntime.1.24.4.dylib"
-    } else {
-        "libonnxruntime.so.1.24.4"
-    }
-}
-
 fn inventory(model: ModelId, dir: &Path) -> Result<String> {
     let mut entries = Vec::new();
     for name in model
         .assets()
         .iter()
         .map(|asset| asset.name)
-        .chain([library_name(), SILERO_VAD.name])
+        .chain([SILERO_VAD.name])
     {
-        let path = if name == library_name() || name == SILERO_VAD.name {
-            runtime_directory()?.join(name)
-        } else {
-            dir.join(name)
-        };
+        let path = dir.join(name);
         let metadata = fs::metadata(path)?;
         entries.push((
             name,
@@ -126,9 +106,6 @@ async fn cancelled(cancel: &AtomicBool) {
 }
 
 async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u8)) -> Result<()> {
-    let Some(runtime) = &RUNTIME else {
-        anyhow::bail!("On-device transcription is not available on this platform");
-    };
     let dir = model.directory()?;
     fs::create_dir_all(&dir)?;
     let _ = fs::remove_file(dir.join("installed"));
@@ -136,7 +113,6 @@ async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u
         .assets()
         .iter()
         .chain([&SILERO_VAD])
-        .chain(&RUNTIME)
         .map(|a| a.size)
         .sum();
     let mut completed = 0;
@@ -145,19 +121,10 @@ async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(1800))
         .build()?;
-    for asset in model.assets().iter().chain([&SILERO_VAD]).chain(&RUNTIME) {
-        let target = if asset.name == runtime.name || asset.name == SILERO_VAD.name {
-            runtime_directory()?
-        } else {
-            dir.clone()
-        };
-        fs::create_dir_all(&target)?;
+    for asset in model.assets().iter().chain([&SILERO_VAD]) {
+        let target = &dir;
         ensure!(!cancel.load(Ordering::Relaxed), "Download cancelled");
         let final_path = target.join(asset.name);
-        if asset.name == runtime.name && runtime_library()?.exists() {
-            completed += asset.size;
-            continue;
-        }
         if verify(&final_path, asset.sha256, cancel).is_ok() {
             completed += asset.size;
             continue;
@@ -188,43 +155,6 @@ async fn download_async(model: ModelId, cancel: &AtomicBool, progress: impl Fn(u
         drop(output);
         verify(&part, asset.sha256, cancel)?;
         fs::rename(part, final_path)?;
-    }
-    let runtime_dir = runtime_directory()?;
-    let archive = runtime_dir.join(runtime.name);
-    if archive.exists() {
-        if runtime.name.ends_with(".zip") {
-            let mut zip = zip::ZipArchive::new(File::open(&archive)?)?;
-            for i in 0..zip.len() {
-                let mut entry = zip.by_index(i)?;
-                if Path::new(entry.name())
-                    .file_name()
-                    .is_some_and(|n| n == library_name())
-                {
-                    let mut out =
-                        File::create(runtime_dir.join(format!("{}.part", library_name())))?;
-                    std::io::copy(&mut entry, &mut out)?;
-                }
-            }
-        } else {
-            let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(File::open(&archive)?));
-            for entry in tar.entries()? {
-                let mut entry = entry?;
-                if entry.header().entry_type().is_file()
-                    && entry
-                        .path()?
-                        .file_name()
-                        .is_some_and(|n| n == library_name())
-                {
-                    entry.unpack(runtime_dir.join(format!("{}.part", library_name())))?;
-                }
-            }
-        }
-        ensure!(!cancel.load(Ordering::Relaxed), "Download cancelled");
-        fs::rename(
-            runtime_dir.join(format!("{}.part", library_name())),
-            runtime_dir.join(library_name()),
-        )?;
-        fs::remove_file(archive)?;
     }
     fs::write(dir.join("installed.part"), inventory(model, &dir)?)?;
     fs::rename(dir.join("installed.part"), dir.join("installed"))?;
@@ -636,26 +566,29 @@ pub fn worker_main() -> Result<()> {
         .transpose()?
         .unwrap_or_default();
     let language = option("--local-language");
+    let language = if model == ModelId::Cohere {
+        let language = language.unwrap_or_else(|| "en".to_owned());
+        ensure!(
+            [
+                "ar", "de", "el", "en", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "vi", "zh"
+            ]
+            .contains(&language.as_str()),
+            "Cohere does not support language {language}; choose a language in Settings"
+        );
+        Some(language)
+    } else {
+        language
+    };
     let dir = model.directory()?;
     ensure!(
         model.installed(),
         "On-device model is missing or has changed; download it again"
     );
-    ort::init_from(runtime_library()?)?.commit();
-    let mut model = match model {
-        ModelId::ParakeetV3 => Engine::Parakeet(Box::new(inference::Model::load(&dir)?)),
-        ModelId::Cohere => {
-            Engine::Cohere(Box::new(cohere::Model::load(&dir, language.as_deref())?))
-        }
-        ModelId::WhisperTurbo | ModelId::ParakeetUnifiedEn => {
-            let model = gguf::Model::load(&dir.join(model.assets()[0].name), language.as_deref())?;
-            if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
-                eprintln!("typeaside local: device {}", model.device());
-            }
-            Engine::Gguf(Box::new(model))
-        }
-    };
-    let mut vad = vad::Vad::load(&runtime_directory()?.join(SILERO_VAD.name))?;
+    let mut model = gguf::Model::load(&dir.join(model.assets()[0].name), language.as_deref())?;
+    if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+        eprintln!("typeaside local: device {}", model.device());
+    }
+    let mut vad = vad::Vad::load(&dir.join(SILERO_VAD.name))?;
     let mut output = std::io::stdout().lock();
     writeln!(
         output,
@@ -680,7 +613,11 @@ pub fn worker_main() -> Result<()> {
 }
 
 // No speech yields no chunks and an empty transcript, which the engine discards quietly.
-fn transcribe_speech(model: &mut Engine, vad: &mut vad::Vad, samples: &[f32]) -> Result<String> {
+fn transcribe_speech(
+    model: &mut gguf::Model,
+    vad: &mut vad::Vad,
+    samples: &[f32],
+) -> Result<String> {
     let started = std::time::Instant::now();
     let chunks = vad.chunks(samples)?;
     if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
@@ -692,7 +629,7 @@ fn transcribe_speech(model: &mut Engine, vad: &mut vad::Vad, samples: &[f32]) ->
     }
     let mut parts = Vec::new();
     for chunk in chunks {
-        let text = model.transcribe(samples[chunk].to_vec())?;
+        let text = model.transcribe(&samples[chunk])?;
         let text = text.trim();
         if !text.is_empty() {
             parts.push(text.to_owned());
@@ -702,7 +639,7 @@ fn transcribe_speech(model: &mut Engine, vad: &mut vad::Vad, samples: &[f32]) ->
 }
 
 /// Runs one stream to its end; `None` when it was cancelled and owes no answer.
-fn stream(model: &mut Engine, input: &mut impl Read) -> Option<Result<String>> {
+fn stream(model: &mut gguf::Model, input: &mut impl Read) -> Option<Result<String>> {
     let mut next = || -> Result<gguf::StreamInput> {
         Ok(match read_job(input)? {
             Some((FEED, samples)) => gguf::StreamInput::Feed(samples),
@@ -711,9 +648,10 @@ fn stream(model: &mut Engine, input: &mut impl Read) -> Option<Result<String>> {
             _ => anyhow::bail!("Stream interrupted"),
         })
     };
-    match model {
-        Engine::Gguf(model) if model.streams() => model.stream(next).transpose(),
-        _ => loop {
+    if model.streams() {
+        model.stream(next).transpose()
+    } else {
+        loop {
             match next() {
                 Ok(gguf::StreamInput::Feed(_)) => {}
                 Ok(gguf::StreamInput::End) => {
@@ -722,21 +660,6 @@ fn stream(model: &mut Engine, input: &mut impl Read) -> Option<Result<String>> {
                 Ok(gguf::StreamInput::Cancel) => break None,
                 Err(error) => break Some(Err(error)),
             }
-        },
-    }
-}
-
-enum Engine {
-    Parakeet(Box<inference::Model>),
-    Cohere(Box<cohere::Model>),
-    Gguf(Box<gguf::Model>),
-}
-impl Engine {
-    fn transcribe(&mut self, samples: Vec<f32>) -> Result<String> {
-        match self {
-            Self::Parakeet(model) => model.transcribe(samples),
-            Self::Cohere(model) => model.transcribe(&samples),
-            Self::Gguf(model) => model.transcribe(&samples),
         }
     }
 }

@@ -1,6 +1,6 @@
 use anyhow::Result;
-use ort::{inputs, session::Session, value::Tensor};
 use std::{ops::Range, path::Path};
+use transcribe_cpp::{Backend, Model, ModelOptions, VadOptions, VadSession, VadSessionOptions};
 
 const RATE: usize = 16_000;
 const FRAME: usize = 512;
@@ -8,39 +8,27 @@ const PAD: usize = RATE / 5;
 const MAX: usize = 25 * RATE;
 
 pub(super) struct Vad {
-    session: Session,
+    session: VadSession,
 }
 impl Vad {
     pub fn load(path: &Path) -> Result<Self> {
+        let model = Model::load_with(
+            path,
+            &ModelOptions {
+                backend: Backend::Cpu,
+                ..Default::default()
+            },
+        )?;
         Ok(Self {
-            session: Session::builder()?
-                .with_intra_threads(1)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?
-                .commit_from_file(path)?,
+            session: model.vad_session_with(&VadSessionOptions { n_threads: 1 })?,
         })
     }
 
     pub fn chunks(&mut self, samples: &[f32]) -> Result<Vec<Range<usize>>> {
-        // Each recording is an independent stream; only frames within it share state.
-        let mut state = vec![0.0_f32; 256];
-        let mut context = [0.0; 64];
-        let mut probabilities = Vec::with_capacity(samples.len().div_ceil(FRAME));
-        for frame in samples.chunks(FRAME) {
-            let mut input = vec![0.0; 64 + FRAME];
-            input[..64].copy_from_slice(&context);
-            input[64..64 + frame.len()].copy_from_slice(frame);
-            context.copy_from_slice(&input[FRAME..]);
-            let output = self.session.run(inputs![
-                "input" => Tensor::from_array(([1, 64 + FRAME], input))?,
-                "state" => Tensor::from_array(([2, 1, 128], state))?,
-                "sr" => Tensor::from_array(([] as [usize; 0], vec![RATE as i64]))?,
-            ])?;
-            probabilities.push(output["output"].try_extract_tensor::<f32>()?.1[0]);
-            state = output["stateN"].try_extract_tensor::<f32>()?.1.to_vec();
-        }
+        let result = self.session.run(samples, &VadOptions::default())?;
         Ok(chunks(
-            &segments(&probabilities, samples.len()),
-            &probabilities,
+            &segments(&result.probs, samples.len()),
+            &result.probs,
             samples.len(),
         ))
     }
