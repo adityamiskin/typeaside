@@ -15,5 +15,6 @@ cd "$work/aur"
 makepkg --printsrcinfo > .SRCINFO
 git add PKGBUILD .SRCINFO
 git diff --cached --quiet && { echo "typeaside-bin already at $VERSION"; exit 0; }
+[[ "${PUSH:-true}" == true ]] || { git diff --cached; exit 0; }
 git -c user.name="Aditya Miskin" -c user.email="adityamiskin98@gmail.com" commit -qm "Update to $VERSION"
 git push -q origin HEAD:master

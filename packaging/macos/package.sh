@@ -1,10 +1,9 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/../.."
-mkdir -p target/release/universal dist
-lipo -create target/aarch64-apple-darwin/release/typeaside target/x86_64-apple-darwin/release/typeaside -output target/release/universal/typeaside
-lipo target/release/universal/typeaside -verify_arch arm64 x86_64
-scripts/bundle-macos.sh target/release/universal/typeaside
+mkdir -p dist
+lipo target/release/typeaside -verify_arch arm64
+scripts/bundle-macos.sh target/release/typeaside
 codesign --verify --deep --strict target/release/TypeAside.app
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
