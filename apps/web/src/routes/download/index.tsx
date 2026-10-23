@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { seo } from "../../lib/seo";
 import { buttonVariants } from "@typeaside/ui/components/button";
 import { comingSoon, downloads, useOS } from "../../lib/downloads";
+import { InstallCommand } from "../../components/install-command";
 export const Route = createFileRoute("/download/")({
   head: () =>
     seo({
@@ -39,6 +40,7 @@ function Download() {
             <div>
               <h2>{system}</h2>
               <p>{downloads[system].requirement}</p>
+              {system === "Linux" && <InstallCommand />}
             </div>
             <div className="download-actions">
               {downloads[system].files.map((file) => (
