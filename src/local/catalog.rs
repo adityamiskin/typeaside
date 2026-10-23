@@ -8,19 +8,13 @@ use std::{fs, path::PathBuf, str::FromStr};
 pub enum ModelId {
     #[default]
     ParakeetV3,
-    BarkClean,
-    Bark,
-    BarkPlus,
     Cohere,
     WhisperTurbo,
     ParakeetUnifiedEn,
 }
 impl ModelId {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 4] = [
         Self::ParakeetV3,
-        Self::BarkClean,
-        Self::Bark,
-        Self::BarkPlus,
         Self::Cohere,
         Self::WhisperTurbo,
         Self::ParakeetUnifiedEn,
@@ -28,9 +22,6 @@ impl ModelId {
     pub fn key(self) -> &'static str {
         match self {
             Self::ParakeetV3 => "parakeet-v3",
-            Self::BarkClean => "bark-3-clean",
-            Self::Bark => "bark-3",
-            Self::BarkPlus => "bark-3-plus",
             Self::Cohere => "cohere",
             Self::WhisperTurbo => "whisper-turbo",
             Self::ParakeetUnifiedEn => "parakeet-unified-en",
@@ -39,9 +30,6 @@ impl ModelId {
     pub fn label(self) -> &'static str {
         match self {
             Self::ParakeetV3 => "Parakeet v3",
-            Self::BarkClean => "Bark 3.0 Clean",
-            Self::Bark => "Bark 3.0",
-            Self::BarkPlus => "Bark 3.0 Plus",
             Self::Cohere => "Cohere Transcribe",
             Self::WhisperTurbo => "Whisper large-v3-turbo",
             Self::ParakeetUnifiedEn => "Parakeet Unified",
@@ -50,9 +38,6 @@ impl ModelId {
     pub fn description(self) -> &'static str {
         match self {
             Self::ParakeetV3 => "25 European languages",
-            Self::BarkClean => "English, writes what you meant: no um, no false starts",
-            Self::Bark => "English, every word",
-            Self::BarkPlus => "English, every word, fewer mistakes",
             Self::Cohere => "14 languages incl. CJK, select spoken language",
             Self::WhisperTurbo => "99 languages",
             Self::ParakeetUnifiedEn => "English, GPU accelerated",
@@ -65,9 +50,6 @@ impl ModelId {
         use super::assets::*;
         match self {
             Self::ParakeetV3 => &PARAKEET_V3,
-            Self::BarkClean => &BARK_3_CLEAN,
-            Self::Bark => &BARK_3,
-            Self::BarkPlus => &BARK_3_PLUS,
             Self::Cohere => &COHERE,
             Self::WhisperTurbo => &WHISPER_TURBO,
             Self::ParakeetUnifiedEn => &PARAKEET_UNIFIED_EN,
