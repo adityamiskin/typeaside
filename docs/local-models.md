@@ -59,6 +59,44 @@ ffmpeg -i /tmp/local-en.wav -ar 16000 -ac 1 tests/fixtures/local-models-en.wav
 ffmpeg -i /tmp/local-fr.wav -ar 16000 -ac 1 tests/fixtures/local-models-fr.wav
 ```
 
+## ggml 0.4.1 migration verification
+
+Linux x86_64, Ryzen 9 8945HS (16 logical CPUs), release `local_models` binary using the real `--local-worker` protocol, CPU forced, eight inference threads. All models and workers use an isolated `TYPEASIDE_HOME` and `XDG_RUNTIME_DIR`. All three new HF assets were downloaded and matched their exact byte sizes and SHA-256 values. The example's `--download` installed Parakeet and Cohere from those verified files; Whisper and Unified English were installed through the downloader too.
+
+The worker benchmark concatenates the English fixture two or six times and runs five warm requests after measuring ten seconds idle. Medians:
+
+| Audio   | ONNX baseline latency (4 threads) | GGUF latency (8 threads) | GGUF CPU-seconds | Loaded PSS | PSS after runs | Peak RSS |
+| ------- | --------------------------------: | -----------------------: | ---------------: | ---------: | -------------: | -------: |
+| 9.75 s  |                            280 ms |                   325 ms |           2.46 s |    850 MiB |        864 MiB |  908 MiB |
+| 29.25 s |                            950 ms |                 1,006 ms |           7.72 s |    851 MiB |        891 MiB |  998 MiB |
+
+GGUF idle CPU was 0%, load was 0.22 s, and swap was zero. Baseline ONNX PSS supplied for this migration was 1.37 to 1.53 GB; it was not rerun. Earlier GGUF runs overlapped another worktree's compilation and were discarded after latency rose to 552/2,284 ms. The final measurements above ran after those compiler processes exited. This full worker path includes VAD, 25 s chunking, and session rotation; standalone upstream inference timings exclude those costs. Downloads shrink from 671 MB to 485,425,504 bytes for Parakeet and from 2,128 MB to 1,558,162,944 bytes for Cohere.
+
+Final worker latency samples were `[325, 316, 335, 339, 320]` and `[987, 1026, 1006, 1022, 999]` ms. CPU samples were `[2.46, 2.41, 2.56, 2.59, 2.43]` and `[7.54, 7.87, 7.72, 7.85, 7.66]` seconds.
+
+```bash
+TYPEASIDE_LOCAL_DEVICE=cpu python3 -I /home/aditya/Projects/.ta-scripts/worker_bench.py "$BINARY" parakeet-v3 tests/fixtures/local-models-en.wav 2
+TYPEASIDE_LOCAL_DEVICE=cpu python3 -I /home/aditya/Projects/.ta-scripts/worker_bench.py "$BINARY" parakeet-v3 tests/fixtures/local-models-en.wav 6
+```
+
+English and French fixture transcripts (4.875/4.987 s audio), with the spoken language set to en/fr:
+
+```text
+parakeet-v3 en: The meeting is tomorrow at 3 in the afternoon. Please bring your notes.
+parakeet-v3 fr: Bonjour, la réunion est demain à 3h. Merci de préparer vos notes.
+cohere en: The meeting is tomorrow at 3 in the afternoon. Please bring your notes.
+cohere fr: Bonjour, la réunion est demain à trois heures. Merci de préparer vos notes.
+whisper-turbo en: The meeting is tomorrow at 3 in the afternoon. Please bring your notes.
+whisper-turbo fr: Bonjour, la réunion est demain à 3h. Merci de préparer vos notes.
+parakeet-unified-en en: The meeting is tomorrow at 3 in the afternoon. Please bring your notes
+```
+
+Cold-load-inclusive timings were 438/492 ms for Parakeet, 1,554/1,566 ms for Cohere, and 7,249/7,448 ms for Whisper. Unified English took 394 ms for English. Its French probe returned `Boujour, La Mel de Martoiser. Merci de Prespar note.` (388 ms), as expected outside its supported English language. These are single runs, not accuracy benchmarks.
+
+Both Parakeet and Cohere returned `""` for six seconds of digital silence. With two seconds leading and three seconds trailing silence, both returned `The meeting is tomorrow at three in the afternoon. Please bring your notes.` VAD selected samples `29568..107648`, retaining 200 ms padding. A 63 s clip of eight identical English fixtures separated by three-second gaps split into `0..323200`, `375680..705664`, and `753536..957568`, all under 25 s. Parakeet retained all eight sentences; Cohere retained three (one per chunk), a limitation on this synthetic repetition clip. VAD took 53/68 ms respectively; chunks without speech were skipped.
+
+Local checks: `cargo check --all-targets`, `cargo test` (38 passed, one ignored), `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `bun run build`, and `bun run check` passed. Rust commands used `CMAKE_ARGS=-DTRANSCRIBE_VULKAN=OFF` and a separate target directory. GPU execution and macOS/Windows transcription remain unverified locally.
+
 ## Historical benchmarks before the 0.4.1 migration
 
 These results describe earlier engines and assets, not the current catalog.
