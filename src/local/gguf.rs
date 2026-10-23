@@ -1,7 +1,3 @@
-// Session rotation, GPU decoder threading, minimum input padding, the GPU-only streaming probe
-// and the stream finalize deadline are adapted from HEX
-// (https://github.com/anomalyco/hex, commit 7160492a4d415c24184f57012ce3a6dae1af4e99),
-// MIT, Copyright 2026 Christopher Langton. See licenses/hex-MIT.txt.
 use anyhow::{Context, Result};
 use std::{path::Path, sync::mpsc, time::Duration};
 use transcribe_cpp::{
@@ -10,8 +6,8 @@ use transcribe_cpp::{
 };
 
 const MINIMUM_SAMPLES: usize = 16_000 * 3 / 2;
-/// Proves the GPU can stream. HEX warms up with 8 s; on a Radeon 780M that loaded 2.5 s
-/// slower without a faster first dictation.
+/// Proves the GPU can stream. An 8 s warm-up loaded 2.5 s slower on a Radeon 780M without a
+/// faster first dictation.
 const STREAM_WARM_UP: usize = 16_000;
 const FINALIZE_DEADLINE: Duration = Duration::from_millis(1500);
 

@@ -1,5 +1,4 @@
-// Adapted from voxtype's cohere_fbank.rs (MIT, Copyright 2025 Peter Jackson).
-// See licenses/voxtype-MIT.txt. Framing and Slaney filters follow the HF processor.
+// Framing and Slaney filters follow the Hugging Face Cohere processor.
 use ndarray::Array3;
 use rustfft::{FftPlanner, num_complex::Complex};
 
