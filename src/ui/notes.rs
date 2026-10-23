@@ -1,7 +1,7 @@
 use super::{AppState, home::history_button, theme::*, window::MainWindow};
 use gpui::{
-    App, AppContext, ClipboardItem, Context, Entity, Focusable, FontWeight, IntoElement, Styled,
-    Window, div, prelude::*, px,
+    AppContext, ClipboardItem, Context, Entity, Focusable, FontWeight, IntoElement, Styled, Window,
+    div, prelude::*, px,
 };
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, TextareaState};
 use typeaside::notes::{
@@ -19,49 +19,8 @@ impl AppState {
             return false;
         }
         self.notes = next;
-        let _ = self.notes_sync.try_send(());
         true
     }
-}
-
-pub fn schedule_sync(state: &Entity<AppState>, wake: async_channel::Receiver<()>, cx: &mut App) {
-    let _ = state.read(cx).notes_sync.try_send(());
-    let state = state.downgrade();
-    cx.spawn(async move |cx| {
-        while wake.recv().await.is_ok() {
-            let Some(state) = state.upgrade() else { break };
-            let (pending, revision) = cx.update(|cx| {
-                (
-                    state.read(cx).notes.pending.clone(),
-                    state.read(cx).account_revision,
-                )
-            });
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let url = typeaside::account::hosted_url();
-                    let host = typeaside::credentials::endpoint_host(&url).ok()?;
-                    let token = typeaside::credentials::get_credential(&host).ok()??;
-                    Some(typeaside::notes::synchronize(pending, &url, &token))
-                })
-                .await;
-            if let Some((sent, remote)) = result {
-                state.update(cx, |s, cx| {
-                    if s.account_revision != revision {
-                        return;
-                    }
-                    let mut next = s.notes.clone();
-                    next.complete(&sent, remote);
-                    match next.save(&s.paths) {
-                        Ok(()) => s.notes = next,
-                        Err(error) => s.save_error = Some(format!("Could not save notes: {error}")),
-                    }
-                    cx.notify();
-                });
-            }
-        }
-    })
-    .detach();
 }
 
 pub struct Editor {

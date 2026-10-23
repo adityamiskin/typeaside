@@ -1,4 +1,4 @@
-use crate::account;
+use crate::web;
 
 use anyhow::{Context, Result, ensure};
 use minisign_verify::{PublicKey, Signature};
@@ -232,7 +232,7 @@ fn check_at(
 
 pub fn check() -> Result<Option<Release>> {
     check_at(
-        &account::web_url(),
+        &web::web_url(),
         RELEASE_KEY,
         env!("CARGO_PKG_VERSION"),
         InstallKind::detected().file(),
@@ -308,7 +308,7 @@ pub fn install(release: &Release, mut progress: impl FnMut(Progress)) -> Result<
     let mut response = crate::http::client()
         .get(format!(
             "{}/releases/v{}/{}",
-            account::web_url(),
+            web::web_url(),
             release.version,
             artifact.file
         ))
@@ -336,7 +336,7 @@ pub fn install(release: &Release, mut progress: impl FnMut(Progress)) -> Result<
     let signature = download_body(
         &format!(
             "{}/releases/v{}/{}.minisig",
-            account::web_url(),
+            web::web_url(),
             release.version,
             artifact.file
         ),

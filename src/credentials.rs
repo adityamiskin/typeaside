@@ -71,12 +71,6 @@ pub(crate) fn endpoint_key(base_url: &str) -> Result<String> {
     {
         return Ok(key.clone());
     }
-    if host == "api.typeaside.app"
-        && let Ok(key) = std::env::var("TYPEASIDE_API_KEY")
-        && !key.trim().is_empty()
-    {
-        return Ok(key);
-    }
     stored?;
     Err(anyhow!("no API key saved for {host}"))
 }

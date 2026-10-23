@@ -107,7 +107,6 @@ impl Op {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Store {
     pub notes: Vec<Note>,
-    pub pending: Vec<Op>,
 }
 impl Store {
     pub fn load(paths: &AppPaths) -> Result<Self> {
@@ -129,27 +128,11 @@ impl Store {
     }
     pub fn change(&mut self, op: Op) {
         op.apply(&mut self.notes);
-        self.pending.retain(|pending| pending.id() != op.id());
-        self.pending.push(op);
         self.sort();
     }
     fn sort(&mut self) {
         self.notes
             .sort_by_key(|note| std::cmp::Reverse(note.created_at));
-    }
-    pub fn complete(&mut self, sent: &[Op], remote: Option<Vec<Note>>) {
-        for op in sent {
-            if let Some(index) = self.pending.iter().position(|pending| pending == op) {
-                self.pending.remove(index);
-            }
-        }
-        if let Some(remote) = remote {
-            self.notes = remote;
-            for op in &self.pending {
-                op.apply(&mut self.notes);
-            }
-            self.sort();
-        }
     }
 }
 
@@ -177,38 +160,4 @@ pub fn new_note(text: String) -> Result<Note> {
         created_at: now,
         updated_at: now,
     })
-}
-
-pub fn synchronize(pending: Vec<Op>, url: &str, token: &str) -> (Vec<Op>, Option<Vec<Note>>) {
-    #[derive(Deserialize)]
-    struct Response {
-        notes: Vec<Note>,
-    }
-    let client = crate::http::client();
-    let endpoint = format!("{url}/v1/notes");
-    let mut sent = Vec::new();
-    for op in pending {
-        let request = match &op {
-            Op::Put(note) => client.put(&endpoint).json(note),
-            Op::Delete(id) => client.delete(&endpoint).query(&[("id", id)]),
-        };
-        match request.bearer_auth(token).send() {
-            Ok(response)
-                if response.status().is_success()
-                    || matches!(response.status().as_u16(), 400 | 404) =>
-            {
-                sent.push(op)
-            }
-            _ => break,
-        }
-    }
-    let remote = client
-        .get(endpoint)
-        .bearer_auth(token)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .and_then(|response| response.json::<Response>())
-        .ok()
-        .map(|response| response.notes);
-    (sent, remote)
 }

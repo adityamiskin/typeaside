@@ -229,7 +229,7 @@ export function LandingNotes() {
       </h2>
       <p className="lead">
         Double-tap Left Shift in any app. Type or say the note, press Enter, and you're right back
-        where you were. Your notes are on every device you sign in to.
+        where you were. Your notes stay on your computer.
       </p>
       <NotesStage />
       <div className="notes-trio">
@@ -255,12 +255,12 @@ export function LandingNotes() {
         <div>
           <h3>
             <PanelsTopLeft />
-            On every device
+            Yours alone
           </h3>
-          <p>Notes sync to your account and open at typeaside.app/notes, on your phone too.</p>
+          <p>Notes save on your computer. Open the sidebar any time to search, edit or pin them.</p>
         </div>
       </div>
-      <a className="marketing-more" href="/features/notes">
+      <a className="marketing-more" href="/docs/features/notes">
         More about Notes <ArrowRight />
       </a>
     </section>

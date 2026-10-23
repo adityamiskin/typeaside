@@ -134,8 +134,8 @@ export function LandingBento() {
         <div className="bento-copy glass">
           <h3>Private by default</h3>
           <p>
-            Audio is transcribed, then discarded. Your dictation history stays on your computer. Use
-            your own key without signing in and dictation goes directly to your provider.
+            Audio is transcribed, then discarded. Your dictation history stays on your computer. Run
+            models on-device or bring your own key — requests go directly to your provider.
           </p>
         </div>
       </div>

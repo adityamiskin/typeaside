@@ -22,24 +22,14 @@ mod window;
 
 use gpui::{App, AppContext, QuitMode, WindowHandle};
 use typeaside::engine::{Command, Dictation, Engine, Event, FailedRecording, Phase};
-use typeaside::{
-    config::{AppConfig, Source},
-    credentials,
-    paths::AppPaths,
-};
+use typeaside::{config::AppConfig, credentials, paths::AppPaths};
 
 pub struct AppState {
-    account: Option<typeaside::account::Account>,
-    account_revision: u64,
-    /// Nudges settings sync; bounded so bursts collapse into one pending wake.
-    sync: async_channel::Sender<()>,
-    sync_focus_at: Option<std::time::Instant>,
     models: [typeaside::local::Status; typeaside::local::ModelId::ALL.len()],
     model_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     update: Option<typeaside::update::Release>,
     update_status: update::Toast,
     update_dismissed: bool,
-    signing_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     onboarding_own_key: bool,
     config: AppConfig,
     paths: AppPaths,
@@ -51,7 +41,6 @@ pub struct AppState {
     devices: Vec<String>,
     history: Vec<Dictation>,
     notes: typeaside::notes::Store,
-    notes_sync: async_channel::Sender<()>,
     note_draft: String,
     note_source: Option<String>,
     capture_window: Option<WindowHandle<capture::Capture>>,
@@ -90,7 +79,6 @@ impl AppState {
         if self.save_error.is_none() {
             #[cfg(target_os = "macos")]
             typeaside::hotkeys::globe::follow(&self.config);
-            let _ = self.sync.try_send(());
             if let Some(engine) = &self.engine {
                 engine.send(Command::Reload(Box::new(self.config.clone())));
             }
@@ -243,18 +231,12 @@ fn start_ui(
     trace("theme init begin", started);
     theme::init(config.theme, cx);
     trace("theme init end", started);
-    let (sync_tx, sync_rx) = async_channel::bounded(1);
-    let (notes_tx, notes_rx) = async_channel::bounded(1);
     let (update, update_status) = if is_demo {
         demo::update()
     } else {
         (None, update::Toast::Available)
     };
     let state = cx.new(|_| AppState {
-        account: if is_demo { demo::account() } else { None },
-        account_revision: 0,
-        sync: sync_tx,
-        sync_focus_at: None,
         models: typeaside::local::ModelId::ALL.map(|id| {
             if is_demo {
                 if id == typeaside::local::ModelId::default() {
@@ -270,7 +252,6 @@ fn start_ui(
         update,
         update_status,
         update_dismissed: false,
-        signing_in: None,
         onboarding_own_key: false,
         config,
         paths,
@@ -297,7 +278,6 @@ fn start_ui(
         },
         history,
         notes,
-        notes_sync: notes_tx,
         note_draft: String::new(),
         note_source: None,
         capture_window: None,
@@ -389,8 +369,6 @@ fn start_ui(
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         permissions::watch(&state, cx);
         update::schedule(&state, cx);
-        schedule_settings_sync(&state, sync_rx, cx);
-        notes::schedule_sync(&state, notes_rx, cx);
         let config = state.read(cx).config.clone();
         let details = cx.background_executor().spawn(async move {
             (
@@ -409,31 +387,6 @@ fn start_ui(
         })
         .detach();
         refresh_devices(&state, cx);
-    }
-    if !is_demo {
-        let telemetry_state = state.clone();
-        cx.spawn(async move |cx| {
-            let mut delay = std::time::Duration::from_secs(30);
-            loop {
-                cx.background_executor().timer(delay).await;
-                let (config, paths) = cx.update(|cx| {
-                    let s = telemetry_state.read(cx);
-                    (s.config.clone(), s.paths.clone())
-                });
-                if config.share_usage {
-                    cx.background_executor()
-                        .spawn(async move {
-                            typeaside::telemetry::send(
-                                &config,
-                                &typeaside::engine::load_history(&paths),
-                            );
-                        })
-                        .await;
-                }
-                delay = std::time::Duration::from_secs(6 * 60 * 60);
-            }
-        })
-        .detach();
     }
     let startup_config = state.read(cx).config.clone();
     let startup = cx.background_executor().spawn(async move {
@@ -546,7 +499,6 @@ fn start_ui(
                             cx.notify();
                             return;
                         }
-                        let _ = s.sync.try_send(());
                         s.command(Command::Learn(words.clone()));
                         cx.notify();
                         learned = words;
@@ -618,49 +570,9 @@ fn start_ui(
                         surface = Some(h);
                     }
                 }
-                Event::Usage(usage) => {
-                    let warning = state.update(cx, |s, cx| {
-                        let Some(account) = &mut s.account else {
-                            return None;
-                        };
-                        account.usage = usage;
-                        cx.notify();
-                        let usage = &account.usage;
-                        let cap = usage.cap?;
-                        (account.plan == typeaside::account::Plan::Free
-                            && s.config.transcription == Source::Hosted
-                            && usage.words > cap * 80 / 100
-                            && s.config.usage_notice_week != Some(usage.resets_at))
-                        .then(|| usage.clone())
-                    });
-                    if let Some(usage) = warning {
-                        let updated = surface.is_some_and(|h| {
-                            h.update(cx, |v, w, cx| v.usage_warning(&usage, w, cx))
-                                .is_ok()
-                        });
-                        let shown = updated || {
-                            if let Ok(h) = overlay::open(state.clone(), cx) {
-                                let _ = h.update(cx, |v, w, cx| v.usage_warning(&usage, w, cx));
-                                surface = Some(h);
-                                true
-                            } else {
-                                false
-                            }
-                        };
-                        if shown {
-                            state.update(cx, |s, _| {
-                                s.config.usage_notice_week = Some(usage.resets_at);
-                                s.persist();
-                            });
-                        }
-                    }
-                }
                 Event::Done(dictation) => {
                     if !is_demo && !dictation.cleaned.is_empty() {
                         let _ = tray_updates.try_send(tray::Action::PasteAvailable);
-                    }
-                    if state.read(cx).config.transcription == Source::Hosted {
-                        refresh_account(&state, cx);
                     }
                     state.update(cx, |s, cx| {
                         if !s.config.onboarded && s.onboarding_step == onboarding::Step::Practice {
@@ -688,11 +600,6 @@ fn start_ui(
                     }
                 }
                 Event::Phase(phase) => {
-                    if matches!(&phase, Phase::LimitReached { .. })
-                        && state.read(cx).config.transcription == Source::Hosted
-                    {
-                        refresh_account(&state, cx);
-                    }
                     state.update(cx, |s, cx| {
                         if !s.config.onboarded
                             && s.onboarding_step == onboarding::Step::Practice
@@ -767,109 +674,6 @@ fn refresh_devices(state: &gpui::Entity<AppState>, cx: &mut App) {
                 cx.notify();
             }
         });
-    })
-    .detach();
-}
-
-fn refresh_account(state: &gpui::Entity<AppState>, cx: &mut App) {
-    if state.read(cx).is_demo {
-        return;
-    }
-    let revision = state.update(cx, |s, _| {
-        s.account_revision += 1;
-        s.account_revision
-    });
-    let state = state.clone();
-    let task = cx
-        .background_executor()
-        .spawn(async { typeaside::account::me() });
-    cx.spawn(async move |cx| {
-        if let Ok(mut account) = task.await {
-            state.update(cx, |s, cx| {
-                if s.account_revision == revision {
-                    if account.is_some() && s.config.transcription != Source::Hosted {
-                        s.config.transcription = Source::Hosted;
-                        s.persist();
-                    }
-                    if let (Some(current), Some(next)) = (&s.account, &mut account)
-                        && current.usage.resets_at == next.usage.resets_at
-                    {
-                        next.usage.words = next.usage.words.max(current.usage.words);
-                    }
-                    s.account = account;
-                    let _ = s.notes_sync.try_send(());
-                    cx.notify();
-                }
-            });
-        }
-    })
-    .detach();
-}
-
-fn schedule_settings_sync(
-    state: &gpui::Entity<AppState>,
-    wake: async_channel::Receiver<()>,
-    cx: &mut App,
-) {
-    use std::time::Duration;
-    use typeaside::settings_sync::{Fields, SyncState};
-    let ticker = state.read(cx).sync.clone();
-    cx.background_executor()
-        .spawn({
-            let executor = cx.background_executor().clone();
-            async move {
-                while !ticker.is_closed() {
-                    let _ = ticker.try_send(());
-                    executor.timer(Duration::from_secs(15 * 60)).await;
-                }
-            }
-        })
-        .detach();
-    let state = state.downgrade();
-    cx.spawn(async move |cx| {
-        while wake.recv().await.is_ok() {
-            // Wait for edits to settle so typing a dictionary word sends one request.
-            loop {
-                cx.background_executor().timer(Duration::from_secs(2)).await;
-                if wake.try_recv().is_err() {
-                    break;
-                }
-            }
-            let Some(state) = state.upgrade() else { break };
-            let (config, revision) = cx.update(|cx| {
-                let s = state.read(cx);
-                (s.config.clone(), s.account_revision)
-            });
-            let fields = Fields::from_config(&config);
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let url = typeaside::account::hosted_url();
-                    let host = credentials::endpoint_host(&url)?;
-                    let Some(token) = credentials::get_credential(&host)? else {
-                        return Ok(None);
-                    };
-                    typeaside::settings_sync::synchronize(&config, &url, &token).map(Some)
-                })
-                .await;
-            let Ok(Some(remote)) = result else { continue };
-            state.update(cx, |s, cx| {
-                if s.account_revision != revision || Fields::from_config(&s.config) != fields {
-                    return;
-                }
-                let synced = Some(SyncState {
-                    updated_at: remote.updated_at,
-                    base: remote.fields.clone(),
-                });
-                if s.config.settings_sync == synced && remote.fields == fields {
-                    return;
-                }
-                s.config.settings_sync = synced;
-                remote.fields.apply(&mut s.config);
-                s.persist();
-                cx.notify();
-            });
-        }
     })
     .detach();
 }

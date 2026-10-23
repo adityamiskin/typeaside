@@ -1,9 +1,0 @@
-<resources>
-  <color name="typeaside_widget_primary">@android:color/system_accent1_700</color>
-  <color name="typeaside_widget_on_primary">@android:color/system_accent1_100</color>
-  <color name="typeaside_widget_secondary">@android:color/system_accent2_700</color>
-  <color name="typeaside_widget_on_secondary">@android:color/system_accent2_100</color>
-  <color name="typeaside_widget_surface">@android:color/system_neutral1_900</color>
-  <color name="typeaside_widget_on_surface">@android:color/system_neutral1_50</color>
-  <color name="typeaside_widget_on_variant">@android:color/system_neutral2_200</color>
-</resources>

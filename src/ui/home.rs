@@ -18,7 +18,6 @@ use gpui_kit::component::{
 };
 use std::collections::BTreeSet;
 use typeaside::{
-    account,
     config::{AppCategory, Tone},
     engine::{Command, Dictation, Mode, Phase},
 };
@@ -328,16 +327,6 @@ impl MainWindow {
             (stats.streak.to_string(), "day streak"),
             (format!("{} ms", stats.median), "median latency"),
         ];
-        let share_url = (stats.words > 0).then(|| {
-            format!(
-                "{}/share?w={}&m={}&wpm={}&d={}",
-                account::web_url(),
-                stats.words,
-                stats.saved_minutes,
-                stats.wpm,
-                stats.streak
-            )
-        });
         let stats = div()
             .flex()
             .items_center()
@@ -406,21 +395,7 @@ impl MainWindow {
                                 .detach();
                             }))
                     }),
-            )
-            .when_some(share_url, |row, url| {
-                row.child(
-                    div()
-                        .id("share-stats")
-                        .text_size(px(12.))
-                        .text_color(p.muted)
-                        .hover(|style| style.text_color(p.fg))
-                        .cursor_pointer()
-                        .child("Share")
-                        .on_click(move |_, _, _| {
-                            let _ = account::open(&url);
-                        }),
-                )
-            });
+            );
         let mut rows = Vec::new();
         for (index, failed) in state.failed.iter().enumerate() {
             let failed_at = failed.at;

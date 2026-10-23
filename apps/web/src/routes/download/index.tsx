@@ -9,7 +9,7 @@ export const Route = createFileRoute("/download/")({
       path: "/download",
       title: "Download TypeAside",
       description:
-        "Download TypeAside voice dictation for macOS, Windows and Linux. Android and iOS coming soon. Free to start, or bring your own API key.",
+        "Download TypeAside voice dictation for macOS, Windows and Linux. Free and open source, with on-device models or your own API key.",
     }),
   component: Download,
 });
@@ -32,7 +32,7 @@ function Download() {
   return (
     <main className="container page">
       <h1>Make room for your voice.</h1>
-      <p className="lead">TypeAside for your computer and phone. Free to start.</p>
+      <p className="lead">Free and open source, for your computer.</p>
       <div className="download-list">
         {onPhone && phoneRows}
         {systems.map((system) => (

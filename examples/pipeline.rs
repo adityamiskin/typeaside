@@ -159,7 +159,6 @@ fn fixtures(generate: bool) -> Result<()> {
             selection.unwrap_or_default(),
             &[],
             None,
-            None,
             || {},
         )?;
         if name == "translation" {
@@ -228,7 +227,6 @@ fn selection_fixture() -> Result<()> {
         selection,
         &[],
         None,
-        None,
         || {},
     )?;
     let translated = output.text.to_lowercase();
@@ -271,7 +269,7 @@ fn file_fixture() -> Result<()> {
         transcribe_file(&config, Path::new("tests/fixtures/translation.m4a"))
             .unwrap_err()
             .to_string()
-            == "File transcription needs a TypeAside account or your own key"
+            == "File transcription needs your own API key"
     );
     println!("file validation: size, extension, local source passed without network access");
     let config = fixture_config();
@@ -313,17 +311,7 @@ fn local_benchmark(measure_idle: bool) -> Result<()> {
             config.transcription = source;
             config.cleanup.enabled = false;
             let start = Instant::now();
-            let result = pipeline::run(
-                &config,
-                &audio,
-                None,
-                Mode::Dictate,
-                "",
-                &[],
-                None,
-                None,
-                || {},
-            );
+            let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", &[], None, || {});
             let mut item = serde_json::json!({ "clip": name, "source": source, "audio_ms": audio.len() / 16, "elapsed_ms": start.elapsed().as_millis() });
             match result {
                 Ok(output) => {
@@ -447,11 +435,12 @@ fn main() -> Result<()> {
         read_wav(Path::new(&input))?
     };
     let stream = if realtime
-        && config.transcription == typeaside::config::Source::Hosted
+        && config.transcription == typeaside::config::Source::Local
         && !audio.is_empty()
     {
-        let session = typeaside::stream::Session::start()?;
-        let sink = session.audio();
+        let stream = typeaside::local::Stream::start(&config)
+            .ok_or_else(|| anyhow::anyhow!("No streaming model available"))?;
+        let sink = stream.audio();
         let recording = Instant::now();
         let mut sent = 0;
         for chunk in audio.chunks(1600) {
@@ -461,7 +450,7 @@ fn main() -> Result<()> {
             );
             sink.send(chunk);
         }
-        Some(typeaside::stream::Streaming::Hosted(session))
+        Some(stream)
     } else {
         None
     };
@@ -477,7 +466,6 @@ fn main() -> Result<()> {
         mode,
         text.as_deref().or(selection.as_deref()).unwrap_or_default(),
         &[],
-        caret.as_ref(),
         stream,
         || {},
     )?;

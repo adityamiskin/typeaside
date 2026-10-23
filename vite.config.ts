@@ -3,7 +3,6 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   fmt: {
     ignorePatterns: [
-      "packages/backend/convex/_generated/**",
       "Cargo.toml",
       "Cargo.lock",
       "vendor/**",

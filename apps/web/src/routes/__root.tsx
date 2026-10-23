@@ -1,4 +1,3 @@
-import type { ConvexQueryClient } from "@convex-dev/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   HeadContent,
@@ -7,26 +6,16 @@ import {
   useRouterState,
   createRootRouteWithContext,
 } from "@tanstack/react-router";
-import type { ConvexReactClient } from "convex/react";
 import bodyFont from "@fontsource-variable/hanken-grotesk/files/hanken-grotesk-latin-wght-normal.woff2?url";
 import { Header, Footer } from "../components/site";
-import { auth } from "../integrations/auth";
 import marketingCss from "../styles/marketing.css?url";
 import appCss from "../index.css?url";
 import { siteUrl } from "../lib/seo";
 export interface RouterAppContext {
   queryClient: QueryClient;
-  convexClient: ConvexReactClient;
-  convexQueryClient: ConvexQueryClient;
 }
 const themeScript = `try{const t=localStorage.getItem("theme");if(t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch{}`;
 export const Route = createRootRouteWithContext<RouterAppContext>()({
-  beforeLoad: async ({ context }) => {
-    const session = await auth.getSession();
-    if (session.accessToken)
-      context.convexQueryClient.serverHttpClient?.setAuth(session.accessToken);
-    return { viewer: session.viewer };
-  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },

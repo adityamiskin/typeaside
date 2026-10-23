@@ -1,4 +1,5 @@
-pub mod account;
+pub mod web;
+
 pub mod audio;
 pub mod autostart;
 mod cleanup;
@@ -20,12 +21,8 @@ pub mod http;
 mod media;
 pub mod pipeline;
 mod snippets;
-pub mod telemetry;
 pub mod update;
 
 pub mod local;
-pub mod settings_sync;
-
-pub mod stream;
 
 pub mod notes;

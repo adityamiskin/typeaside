@@ -1,1 +1,0 @@
-<shape xmlns:android="http://schemas.android.com/apk/res/android"><solid android:color="@color/typeaside_widget_surface"/><corners android:radius="@dimen/typeaside_widget_outer_radius"/></shape>

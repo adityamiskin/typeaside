@@ -292,7 +292,6 @@ impl Default for Cleanup {
 #[serde(rename_all = "lowercase")]
 pub enum Source {
     Local,
-    Hosted,
     #[default]
     OwnKey,
 }
@@ -324,8 +323,6 @@ pub struct AppConfig {
     pub replacements: Vec<crate::replacements::Rule>,
     /// Words the user removed; corrections never suggest them again.
     pub removed_words: Vec<String>,
-    pub settings_sync: Option<crate::settings_sync::SyncState>,
-    pub usage_notice_week: Option<i64>,
     pub auto_submit: bool,
     pub send_command: bool,
     pub on_dictation: Option<String>,
@@ -345,9 +342,7 @@ pub struct AppConfig {
     pub launch_at_login: bool,
     pub theme: Theme,
     pub onboarded: bool,
-    pub share_usage: bool,
     pub history_retention: HistoryRetention,
-    pub install_id: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -371,8 +366,6 @@ impl Default for AppConfig {
             dictionary: Vec::new(),
             replacements: Vec::new(),
             removed_words: Vec::new(),
-            settings_sync: None,
-            usage_notice_week: None,
             auto_submit: false,
             send_command: true,
             on_dictation: None,
@@ -392,15 +385,12 @@ impl Default for AppConfig {
             launch_at_login: true,
             theme: Theme::System,
             onboarded: false,
-            share_usage: false,
             history_retention: HistoryRetention::Forever,
-            install_id: None,
         }
     }
 }
 
 impl AppConfig {
-    /// Account (hosted) users always get AI editing; the toggle only exists for their own keys.
     /// Returns false when the word is already in the dictionary.
     pub fn add_word(&mut self, word: String) -> bool {
         let key = word.to_lowercase();
@@ -451,28 +441,7 @@ impl AppConfig {
     }
 
     pub fn editing(&self) -> bool {
-        self.cleanup.enabled || self.transcription == Source::Hosted
-    }
-
-    pub fn set_share_usage(&mut self, enabled: bool) -> Result<()> {
-        if enabled && self.install_id.is_none() {
-            let mut bytes = [0; 16];
-            getrandom::fill(&mut bytes)
-                .map_err(|_| anyhow::anyhow!("Could not generate install ID"))?;
-            bytes[6] = (bytes[6] & 0x0f) | 0x40;
-            bytes[8] = (bytes[8] & 0x3f) | 0x80;
-            let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-            self.install_id = Some(format!(
-                "{}-{}-{}-{}-{}",
-                &hex[..8],
-                &hex[8..12],
-                &hex[12..16],
-                &hex[16..20],
-                &hex[20..]
-            ));
-        }
-        self.share_usage = enabled;
-        Ok(())
+        self.cleanup.enabled
     }
 
     pub fn load(paths: &AppPaths) -> Result<(Self, Option<String>)> {
