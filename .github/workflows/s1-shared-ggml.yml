@@ -1,0 +1,50 @@
+name: S1 shared ggml linkage
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - vendor/llama-cpp-sys/**
+      - .github/workflows/s1-shared-ggml.yml
+permissions:
+  contents: read
+jobs:
+  link:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            backend: vulkan
+          - os: windows-latest
+            backend: vulkan
+          - os: macos-latest
+            backend: metal
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake libvulkan-dev glslc spirv-headers
+      - name: Install Windows Vulkan SDK
+        if: runner.os == 'Windows'
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.4.309.0
+          cache: true
+      - name: Install Windows SPIRV-Headers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install spirv-headers:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Content $env:GITHUB_ENV "CMAKE_PREFIX_PATH=$("$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows" -replace '\\','/')"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vendor/llama-cpp-sys
+      - name: Link both native libraries against one ggml
+        run: cargo build --locked -j4 --manifest-path vendor/llama-cpp-sys/Cargo.toml --example s1_cleanup --features ${{ matrix.backend }}
+      - name: Verify executable starts
+        run: cargo run --locked --manifest-path vendor/llama-cpp-sys/Cargo.toml --example s1_cleanup --features ${{ matrix.backend }} -- --help

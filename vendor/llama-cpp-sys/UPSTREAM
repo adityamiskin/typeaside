@@ -1,0 +1,36 @@
+llama.cpp: https://github.com/ggml-org/llama.cpp
+commit: c06f84160a30c66d7b5a2829ae9b3ea15275cbc3 (2026-10-05, sync : ggml)
+license: llama/LICENSE (MIT)
+vendored: unmodified src/ and include/ only. No common/, ggml/, tools or server.
+
+This sync uses ggml 0.26.0. All public ggml headers match the published
+transcribe-cpp-sys 0.4.1 headers byte-for-byte except ggml-backend.h, whose
+only difference is transcribe's additive backend registration filter API.
+transcribe pins ggml d7cb574130e6f01ad25b3289685489200febcd74 and applies
+its downstream patches; llama is compiled against the installed, patched
+transcribe headers, never against a separately vendored ggml.
+
+transcribe-cpp-sys 0.4.1 already has links=transcribe and emits include_dir
+and lib_dir metadata, so no upstream patch is required. DEP_TRANSCRIBE_INCLUDE_DIR
+is used by CMake and bindgen. Its transitive rustc-link-lib directives supply
+the static transcribe, ggml, backend and ggml-base archives plus system libraries.
+This crate builds only a static llama archive. Static source builds are the
+supported posture; shared/dynamic-backends need separate packaging validation.
+
+Run independently of the app's Cargo graph:
+  CMAKE_ARGS=-DTRANSCRIBE_VULKAN=OFF cargo run --release -j8 \
+    --manifest-path vendor/llama-cpp-sys/Cargo.toml --example s1_cleanup -- \
+    /path/to/s1-mini-q4_k_m.gguf /path/to/silero-vad-v6.2-F32.gguf
+
+Enable --features vulkan on Linux/Windows or --features metal on macOS.
+These forward exclusively to transcribe-cpp-sys. Initialize transcribe backends
+before loading either model; llama sees the same process-global ggml registry.
+The example defaults to 99 GPU layers (CPU fallback when no GPU is registered).
+Optional positional arguments select thread count and GPU layer count.
+
+S1-mini by Superwhisper is not bundled. Its required LICENSE and NOTICE are
+retained under examples/S1-mini-{LICENSE,NOTICE}. The example uses its exact
+system prompt, styling controls and Qwen3 non-thinking prefix, greedy decoding,
+a 1024-token context and a 512-token output limit. The twelve inputs reproduce
+/home/aditya/Projects/.s1-exp/run_cases.py. Silero VAD runs before and after
+cleanup with both models resident, checking identical silence probabilities.
