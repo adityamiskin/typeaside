@@ -21,9 +21,18 @@ Get the package for your computer from [Downloads](/download).
 
 ### Linux
 
-1. Download the AppImage or Debian package for your Wayland desktop.
-2. Make the AppImage executable before launching it, or install the Debian package with your package manager.
-3. Check [Linux permissions](/docs/permissions#linux) for keyboard input and paste access.
+On Linux x86_64, install without root access:
+
+```sh
+curl -fsSL https://typeaside.app/install.sh | sh
+```
+
+The installer verifies the AppImage's signature and adds TypeAside to your applications menu.
+It installs the app under `~/.local/share/typeaside` (or `$XDG_DATA_HOME/typeaside`) and the command at `~/.local/bin/typeaside`.
+Run the same command again to reinstall the latest release.
+
+You can also install an [AppImage, Debian or RPM package](/download).
+Check [Linux permissions](/docs/permissions#linux) for keyboard input and paste access.
 
 ## First dictation
 
