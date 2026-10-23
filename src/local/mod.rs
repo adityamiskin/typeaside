@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
-        OnceLock,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -547,6 +547,29 @@ pub fn transcribe_model(model: ModelId, language: Option<String>, audio: &[f32])
 pub struct Stream {
     released: Option<mpsc::Receiver<std::result::Result<String, String>>>,
 }
+
+type Feed = Arc<dyn Fn(&[f32]) + Send + Sync>;
+
+/// Sends recorder samples to a live consumer in fixed-size blocks.
+#[derive(Clone)]
+pub struct AudioSink {
+    pub block: usize,
+    send: Feed,
+}
+
+impl AudioSink {
+    pub(crate) fn new(block: usize, send: impl Fn(&[f32]) + Send + Sync + 'static) -> Self {
+        Self {
+            block,
+            send: Arc::new(send),
+        }
+    }
+
+    pub fn send(&self, samples: &[f32]) {
+        (self.send)(samples);
+    }
+}
+
 impl Stream {
     pub fn start(config: &crate::config::AppConfig) -> Option<Self> {
         let model = config.local_model.available()?;
@@ -555,8 +578,8 @@ impl Stream {
             .ok()?;
         Some(Self { released: None })
     }
-    pub fn audio(&self) -> crate::stream::AudioSink {
-        crate::stream::AudioSink::new(16_000 * 160 / 1000, |samples| {
+    pub fn audio(&self) -> AudioSink {
+        AudioSink::new(16_000 * 160 / 1000, |samples| {
             let _ = sender().send(Request::Feed(samples.to_vec()));
         })
     }

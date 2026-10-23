@@ -1,9 +1,0 @@
-<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-  android:minWidth="203dp" android:minHeight="130dp"
-  android:minResizeWidth="130dp" android:minResizeHeight="130dp"
-  android:maxResizeWidth="400dp" android:maxResizeHeight="400dp"
-  android:targetCellWidth="3" android:targetCellHeight="2"
-  android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen"
-  android:updatePeriodMillis="0" android:initialLayout="@layout/glance_default_loading_layout"
-  android:previewLayout="@layout/typeaside_notes_preview"
-  android:description="@string/typeaside_notes_description" />

@@ -56,7 +56,7 @@ pub fn request_one(index: usize) {
                 let completion = block2::RcBlock::new(|_: objc2::runtime::Bool| {});
                 AVCaptureDevice::requestAccessForMediaType_completionHandler(audio, &completion);
             } else if !statuses()[0] {
-                let _ = typeaside::account::open(
+                let _ = typeaside::web::open(
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
                 );
             }
@@ -64,7 +64,7 @@ pub fn request_one(index: usize) {
         1 => {
             // The prompt lists TypeAside in Settings but only appears once, so also open the pane.
             prompt_accessibility();
-            let _ = typeaside::account::open(
+            let _ = typeaside::web::open(
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
             );
         }

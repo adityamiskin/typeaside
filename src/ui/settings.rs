@@ -69,7 +69,6 @@ pub(super) enum Toggle {
     AutoLearn,
     ScreenContext,
     Login,
-    ShareUsage,
 }
 
 pub struct SettingsInputs {
@@ -342,7 +341,7 @@ impl MainWindow {
                 }
                 if !editing
                     && !this.state.read(cx).config.onboarded
-                    && this.state.read(cx).onboarding_step == super::onboarding::Step::Account
+                    && this.state.read(cx).onboarding_step == super::onboarding::Step::ApiKey
                 {
                     if matches!(event, InputEvent::PressEnter { .. }) {
                         this.onboarding_next(false, w, cx);
@@ -765,13 +764,6 @@ impl MainWindow {
                             Toggle::SendCommand => s.config.send_command = !on,
                             Toggle::AutoLearn => s.config.auto_learn = !on,
                             Toggle::ScreenContext => s.config.screen_context = !on,
-                            Toggle::ShareUsage => {
-                                if let Err(error) = s.config.set_share_usage(!on) {
-                                    s.save_error = Some(error.to_string());
-                                    cx.notify();
-                                    return;
-                                }
-                            }
                             Toggle::Login => {
                                 if !s.is_demo
                                     && let Err(e) = typeaside::autostart::set_enabled(!on)
@@ -789,204 +781,6 @@ impl MainWindow {
                     });
                 })),
         )
-    }
-    pub(super) fn sign_in(&mut self, cx: &mut Context<Self>) {
-        if self.state.read(cx).signing_in.is_some() {
-            return;
-        }
-        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        self.state.update(cx, |s, cx| {
-            s.account_revision += 1;
-            s.signing_in = Some(cancel.clone());
-            s.save_error = None;
-            cx.notify();
-        });
-        let demo = self.state.read(cx).is_demo;
-        let task_cancel = cancel.clone();
-        let task = cx.background_executor().spawn(async move {
-            if demo {
-                return Err(anyhow::anyhow!("Sign in is unavailable in demo mode"));
-            }
-            typeaside::account::sign_in(&task_cancel)
-        });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                this.state.update(cx, |s, cx| {
-                    if !s
-                        .signing_in
-                        .as_ref()
-                        .is_some_and(|active| std::sync::Arc::ptr_eq(active, &cancel))
-                    {
-                        return;
-                    }
-                    s.signing_in = None;
-                    match result {
-                        Ok(account) => {
-                            s.account_revision += 1;
-                            s.account = Some(account);
-                            let _ = s.notes_sync.try_send(());
-                            s.config.transcription = Source::Hosted;
-                            s.persist();
-                        }
-                        Err(error) => s.save_error = Some(error.to_string()),
-                    }
-                    cx.notify();
-                });
-            });
-        })
-        .detach();
-    }
-    pub fn account_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = palette(cx);
-        page(
-            FORM_WIDTH,
-            header("Account"),
-            div().id("account-scroll").child(
-                column(FORM_WIDTH)
-                    .pt(px(14.))
-                    .child(panel(self.account(cx), p)),
-            ),
-            p,
-        )
-    }
-    fn account(&self, cx: &mut Context<Self>) -> Vec<Setting> {
-        let p = palette(cx);
-        let s = self.state.read(cx);
-        if s.signing_in.is_some() {
-            return vec![
-                Setting::new("Account")
-                    .child(div().text_color(p.muted).child("Waiting for browser..."))
-                    .child(
-                        button("Cancel", false, p)
-                            .id("cancel-sign-in")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.state.update(cx, |s, cx| {
-                                    if let Some(cancel) = s.signing_in.take() {
-                                        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-                                    }
-                                    cx.notify();
-                                });
-                            })),
-                    ),
-            ];
-        }
-        let Some(account) = &s.account else {
-            return vec![
-                Setting::new("Account")
-                    .description("Sign in to use hosted transcription and sync.")
-                    .child(
-                        button("Sign in", true, p)
-                            .id("sign-in")
-                            .on_click(cx.listener(|this, _, _, cx| this.sign_in(cx))),
-                    ),
-            ];
-        };
-        let limit = account.at_limit();
-        let plan = if account.billing_issue {
-            "Payment failed. Update your card to keep Pro.".into()
-        } else if limit {
-            let resets = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
-                .map(|date| {
-                    date.with_timezone(&chrono::Local)
-                        .format(&format!("%a {}", super::clock::time_format()))
-                        .to_string()
-                })
-                .unwrap_or_default();
-            format!("Weekly limit reached, resets {resets}")
-        } else if account.plan == typeaside::account::Plan::Pro {
-            account
-                .current_period_end
-                .and_then(chrono::DateTime::from_timestamp_millis)
-                .map(|date| {
-                    format!(
-                        "Pro, renews {}",
-                        date.with_timezone(&chrono::Local).format("%b %-d, %Y")
-                    )
-                })
-                .unwrap_or_else(|| "Pro".into())
-        } else {
-            format!(
-                "Free, {} of {} words this week",
-                grouped(account.usage.words),
-                grouped(account.usage.cap.unwrap_or(2000))
-            )
-        };
-        vec![
-            Setting::new("Plan")
-                .description(
-                    div()
-                        .when(limit || account.billing_issue, |plan| {
-                            plan.text_color(p.red)
-                        })
-                        .child(plan),
-                )
-                .child(
-                    button(
-                        if account.billing_issue {
-                            "Fix billing"
-                        } else if account.plan == typeaside::account::Plan::Free {
-                            "Upgrade"
-                        } else {
-                            "Manage"
-                        },
-                        false,
-                        p,
-                    )
-                    .id("manage-account")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if this.state.read(cx).is_demo {
-                            return;
-                        }
-                        cx.background_executor()
-                            .spawn(async {
-                                let _ = typeaside::account::open(format!(
-                                    "{}/account",
-                                    typeaside::account::web_url()
-                                ));
-                            })
-                            .detach();
-                    })),
-                ),
-            Setting::new("Sync")
-                .description("Dictionary, snippets and styles sync across your devices."),
-            Setting::new("Email")
-                .description(account.email.clone().unwrap_or_else(|| "Signed in".into()))
-                .child(
-                    button("Sign out", false, p)
-                        .id("sign-out")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.state.update(cx, |s, _| s.account_revision += 1);
-                            let mut config = this.state.read(cx).config.clone();
-                            let demo = this.state.read(cx).is_demo;
-                            let task = cx.background_executor().spawn(async move {
-                                if !demo {
-                                    typeaside::account::sign_out(&mut config)?;
-                                }
-                                Ok::<_, anyhow::Error>(config.transcription)
-                            });
-                            cx.spawn(async move |this, cx| {
-                                let result = task.await;
-                                let _ = this.update(cx, |this, cx| {
-                                    this.state.update(cx, |s, cx| {
-                                        match result {
-                                            Ok(source) => {
-                                                s.account_revision += 1;
-                                                s.account = None;
-                                                s.config.settings_sync = None;
-                                                s.config.transcription = source;
-                                                s.persist();
-                                            }
-                                            Err(error) => s.save_error = Some(error.to_string()),
-                                        }
-                                        cx.notify();
-                                    });
-                                });
-                            })
-                            .detach();
-                        })),
-                ),
-        ]
     }
     fn download_model(&mut self, model: ModelId, cx: &mut Context<Self>) {
         if self.state.read(cx).model_cancel.is_some() {
@@ -1065,11 +859,7 @@ impl MainWindow {
                             s.config.local_model = remaining;
                             s.persist();
                         } else if s.config.transcription == Source::Local {
-                            s.config.transcription = if s.account.is_some() {
-                                Source::Hosted
-                            } else {
-                                Source::OwnKey
-                            };
+                            s.config.transcription = Source::OwnKey;
                             s.persist();
                         }
                     }
@@ -1101,8 +891,6 @@ impl MainWindow {
         let level = s.level;
         let statuses = s.models;
         let downloading = s.model_cancel.is_some();
-        // Account users get transcription and editing handled for them; the knobs sit behind Customize.
-        let signed_in = s.account.is_some();
         let theme = segmented(
             [
                 (Theme::System, "System"),
@@ -1199,12 +987,9 @@ impl MainWindow {
             })
             .collect::<Vec<_>>();
         let source = segmented(
-            [
-                (Source::Hosted, "TypeAside account"),
-                (Source::OwnKey, "Own key"),
-            ]
-            .into_iter()
-            .chain(active.map(|_| (Source::Local, "On device"))),
+            [(Source::OwnKey, "Own key")]
+                .into_iter()
+                .chain(active.map(|_| (Source::Local, "On device"))),
             c.transcription,
             p,
             cx,
@@ -1223,7 +1008,7 @@ impl MainWindow {
         );
         let own_key = c.transcription == Source::OwnKey;
         let mut models = Vec::new();
-        if !signed_in {
+        {
             let mut transcription = vec![
                 Setting::new("Source")
                     .when(c.transcription == Source::Local, |row| {
@@ -1255,15 +1040,8 @@ impl MainWindow {
                 ]);
             }
             models.push(panel(transcription, p));
-        } else if typeaside::local::AVAILABLE {
-            let mut local = vec![
-                Setting::new("On-device models")
-                    .description("Dictate offline and past the weekly limit."),
-            ];
-            local.extend(model_rows);
-            models.push(panel(local, p));
         }
-        if c.transcription != Source::Hosted {
+        {
             let mut editing = vec![
                 Setting::new("AI editing")
                     .description("Clean up fillers, punctuation and lists.")
@@ -1393,9 +1171,6 @@ impl MainWindow {
                     .description("Start hidden when you log in.")
                     .child(self.toggle("login", c.launch_at_login, Toggle::Login, cx)),
                 Setting::new("Keep history").child(select(&self.settings.history_retention, p)),
-                Setting::new("Share anonymous usage stats")
-                    .description("Counts and timings only, never text or audio.")
-                    .child(self.toggle("share-usage", c.share_usage, Toggle::ShareUsage, cx)),
                 Setting::new("Version")
                     .description(env!("CARGO_PKG_VERSION"))
                     .child(
@@ -1405,7 +1180,7 @@ impl MainWindow {
                                 let folder = this.state.read(cx).paths.config_dir.clone();
                                 cx.background_executor()
                                     .spawn(async move {
-                                        let _ = typeaside::account::open(folder);
+                                        let _ = typeaside::web::open(folder);
                                     })
                                     .detach();
                             })),
@@ -1494,21 +1269,6 @@ pub fn meter(level: f32, bars: usize, height: f32, p: Palette) -> impl IntoEleme
                 .bg(p.accent)
         }))
 }
-
-pub(super) fn grouped(value: u64) -> String {
-    let digits = value.to_string();
-    digits
-        .chars()
-        .enumerate()
-        .fold(String::new(), |mut result, (index, ch)| {
-            if index > 0 && (digits.len() - index).is_multiple_of(3) {
-                result.push(',');
-            }
-            result.push(ch);
-            result
-        })
-}
-
 fn segmented<T: Copy + PartialEq + 'static>(
     options: impl IntoIterator<Item = (T, &'static str)>,
     current: T,

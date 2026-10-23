@@ -2,15 +2,12 @@ use super::{AppState, motion::Spring, theme::*};
 #[cfg(target_os = "linux")]
 use gpui::layer_shell::*;
 use gpui::{
-    App, AppContext, Bounds, BoxShadow, Context, Entity, FontWeight, PathBuilder, Render, TextRun,
-    Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
-    canvas, div, fill, font, point, prelude::*, px, relative, size,
+    App, AppContext, Bounds, BoxShadow, Context, Entity, PathBuilder, Render, TextRun, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div,
+    fill, font, point, prelude::*, px, size,
 };
 use std::time::{Duration, Instant};
-use typeaside::{
-    account::Usage,
-    engine::{Command, Mode, Phase},
-};
+use typeaside::engine::{Command, Mode, Phase};
 
 #[derive(Clone, PartialEq)]
 enum Visual {
@@ -21,11 +18,6 @@ enum Visual {
     Cancel,
     Error(String),
     Notice(&'static str, String, Vec<String>),
-    Upgrade {
-        title: String,
-        detail: String,
-        used: f32,
-    },
     Exit,
 }
 
@@ -112,18 +104,6 @@ impl Overlay {
             }
             Phase::Transcribing | Phase::Cleaning => Visual::Processing,
             Phase::Error(message) => Visual::Error(message),
-            Phase::LimitReached { resets_at } => Visual::Upgrade {
-                title: "Weekly limit reached".into(),
-                detail: if typeaside::local::AVAILABLE {
-                    format!(
-                        "Resets {}. This recording is saved. Add an on-device model in Settings to keep dictating.",
-                        resets(resets_at)
-                    )
-                } else {
-                    format!("Resets {}. This recording is saved.", resets(resets_at))
-                },
-                used: 1.,
-            },
             Phase::Idle if matches!(self.phase, Visual::Listening | Visual::Paused) => {
                 Visual::Cancel
             }
@@ -135,25 +115,6 @@ impl Overlay {
 
     pub fn success(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.set(Visual::Success, window, cx);
-    }
-
-    pub fn usage_warning(&mut self, usage: &Usage, window: &mut Window, cx: &mut Context<Self>) {
-        let cap = usage.cap.unwrap_or(usage.words).max(1);
-        self.set(
-            Visual::Upgrade {
-                title: format!(
-                    "{} words left this week",
-                    super::settings::grouped(cap.saturating_sub(usage.words))
-                ),
-                detail: format!(
-                    "Resets {}. Pro has no weekly limit.",
-                    resets(usage.resets_at)
-                ),
-                used: (usage.words as f32 / cap as f32).min(1.),
-            },
-            window,
-            cx,
-        );
     }
 
     pub fn warning(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -220,7 +181,6 @@ impl Overlay {
                 cx.notify();
                 return false;
             }
-            let _ = s.sync.try_send(());
             s.command(Command::Unlearn(words));
             cx.notify();
             true
@@ -270,9 +230,6 @@ impl Overlay {
             self.scale = Spring::new(1.);
             self.bars = [Spring::new(0.); BARS];
         }
-        if matches!(self.phase, Visual::Upgrade { .. }) {
-            self.width.target = 450.;
-        }
         let text = match &self.phase {
             Visual::Error(message) => Some(text_width(message, window, cx)),
             Visual::Notice(label, text, words) => {
@@ -301,7 +258,6 @@ impl Overlay {
             Visual::Error(_) => Some(ERROR_HOLD),
             Visual::Notice(_, _, ref words) if !words.is_empty() => Some(LEARNED_HOLD),
             Visual::Notice(..) => Some(COPIED_HOLD),
-            Visual::Upgrade { used, .. } if used < 1. => Some(LEARNED_HOLD),
             _ => None,
         };
         if let Some(hold) = hold {
@@ -359,7 +315,7 @@ impl Overlay {
             Visual::Processing => self.width.target = WORK_WIDTH,
             Visual::Success => self.width.target = PILL_HEIGHT,
             Visual::Paused | Visual::Cancel | Visual::Exit => {}
-            Visual::Error(_) | Visual::Notice(..) | Visual::Upgrade { .. } => {}
+            Visual::Error(_) | Visual::Notice(..) => {}
         }
         let mut moving = self.width.step(dt, PILL_STIFFNESS, PILL_DAMPING);
         moving |= self.rise.step(dt, PILL_STIFFNESS, PILL_DAMPING);
@@ -429,7 +385,6 @@ impl Render for Overlay {
             Visual::Success => "success",
             Visual::Error(_) => "error",
             Visual::Notice(..) => "notice",
-            Visual::Upgrade { .. } => "upgrade",
             Visual::Cancel => "cancel",
             Visual::Exit => "exit",
         };
@@ -451,14 +406,7 @@ impl Render for Overlay {
 
         let scale = self.scale.value;
         let width = self.width.value * scale;
-        // The limit card's detail wraps to a second line.
-        let card_height = if matches!(self.phase, Visual::Upgrade { used, .. } if used >= 1.) {
-            148.
-        } else if matches!(self.phase, Visual::Upgrade { .. }) {
-            132.
-        } else {
-            PILL_HEIGHT
-        };
+        let card_height = PILL_HEIGHT;
         let height = card_height * scale;
         let shake = if matches!(self.phase, Visual::Error(_)) && elapsed < SHAKE_TIME {
             (elapsed / SHAKE_TIME * std::f32::consts::TAU * 3.).sin()
@@ -467,8 +415,7 @@ impl Render for Overlay {
         } else {
             0.
         };
-        let clickable = matches!(self.phase, Visual::Upgrade { .. })
-            || matches!(&self.phase, Visual::Notice(_, _, words) if !words.is_empty());
+        let clickable = matches!(&self.phase, Visual::Notice(_, _, words) if !words.is_empty());
         // Each region change commits the surface, so only send it when actions appear or go.
         #[cfg(target_os = "linux")]
         if self.clickable != Some((clickable, self.width.target, card_height)) {
@@ -490,11 +437,7 @@ impl Render for Overlay {
             .top(px(SURFACE_HEIGHT - SHADOW_SPACE - height + self.rise.value))
             .w(px(width))
             .h(px(height))
-            .rounded(px(if matches!(self.phase, Visual::Upgrade { .. }) {
-                12.
-            } else {
-                height / 2.
-            }))
+            .rounded(px(height / 2.))
             .bg(p.pill)
             .border_1()
             .border_color(p.pill_border)
@@ -510,72 +453,7 @@ impl Render for Overlay {
             .items_center()
             .justify_center()
             .overflow_hidden();
-        if let Visual::Upgrade {
-            title,
-            detail,
-            used,
-        } = &self.phase
-        {
-            let fill = if *used >= 1. { p.red } else { p.fg };
-            pill = pill.child(
-                div()
-                    .size_full()
-                    .px(px(16.))
-                    .py(px(14.))
-                    .flex()
-                    .flex_col()
-                    .text_size(px(13.))
-                    .text_color(p.fg)
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_baseline()
-                            .child(div().font_weight(FontWeight::MEDIUM).child(title.clone()))
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(p.muted)
-                                    .child(format!("{}% used", (used * 100.).round())),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .mt(px(8.))
-                            .h(px(4.))
-                            .rounded_full()
-                            .bg(p.border)
-                            .child(div().h_full().w(relative(*used)).rounded_full().bg(fill)),
-                    )
-                    .child(
-                        div()
-                            .mt(px(8.))
-                            .text_size(px(12.))
-                            .text_color(p.muted)
-                            .child(detail.clone()),
-                    )
-                    .child(
-                        div()
-                            .mt_auto()
-                            .flex()
-                            .gap(px(8.))
-                            .child(button("Upgrade to Pro", true, p).id("upgrade").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    if !this.state.read(cx).is_demo {
-                                        cx.open_url(&format!(
-                                            "{}/account?upgrade=1",
-                                            typeaside::account::web_url()
-                                        ));
-                                    }
-                                    this.exit(window, cx);
-                                }),
-                            ))
-                            .child(button("Not now", false, p).id("dismiss-upgrade").on_click(
-                                cx.listener(|this, _, window, cx| this.exit(window, cx)),
-                            )),
-                    ),
-            );
-        } else if self.phase == Visual::Paused {
+        if self.phase == Visual::Paused {
             pill = pill.child(div().text_color(p.fg).text_size(px(13.)).child("Ⅱ Paused"));
         } else if let Visual::Error(message) | Visual::Notice(_, message, _) = &self.phase {
             let label = match self.phase {
@@ -1159,14 +1037,4 @@ pub fn open_answer(
     #[cfg(target_os = "macos")]
     handle.update(cx, |_, window, _| borderless(window))?;
     Ok(handle)
-}
-
-fn resets(at: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(at)
-        .map(|date| {
-            date.with_timezone(&chrono::Local)
-                .format(&format!("%a {}", super::clock::time_format()))
-                .to_string()
-        })
-        .unwrap_or_default()
 }

@@ -67,7 +67,6 @@ pub enum Phase {
     Transcribing,
     Cleaning,
     Error(String),
-    LimitReached { resets_at: i64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,7 +103,6 @@ pub enum Event {
     /// Mic level in 0.0..=1.0, sent at ~30 Hz while listening.
     Level(f32),
     Done(Dictation),
-    Usage(crate::account::Usage),
     Copied(String),
     Reply {
         prompt: String,
@@ -484,10 +482,7 @@ enum Message {
     Hotkey(u64, HotkeyEvent),
     Recorded(Recorded),
     Cleaning(u64),
-    Finished(
-        u64,
-        Result<(Dictation, Delivery, Option<crate::account::Usage>)>,
-    ),
+    Finished(u64, Result<(Dictation, Delivery)>),
     Shutdown,
 }
 
@@ -497,7 +492,7 @@ struct Recorded {
     context: (Mode, Option<FocusedApp>, String),
     names: Option<mpsc::Receiver<Vec<String>>>,
     caret: Option<(String, String)>,
-    stream: Option<crate::stream::Streaming>,
+    stream: Option<crate::local::Stream>,
     retrying: Option<SystemTime>,
 }
 
@@ -841,49 +836,45 @@ fn run(
                 let pipeline_config = config.clone();
                 let pipeline_tx = tx.clone();
                 let (mode, app, selection) = busy_context.clone();
-                let caret = around.clone();
                 let spawned = thread::Builder::new()
                     .name("typeaside-transcription".into())
                     .spawn(move || {
                         let tx = pipeline_tx;
-                        let result =
-                            (|| -> Result<(Dictation, Delivery, Option<crate::account::Usage>)> {
-                                let started = Instant::now();
-                                let names = names
-                                    .and_then(|names| names.try_recv().ok())
-                                    .unwrap_or_default();
-                                let output = crate::pipeline::run(
-                                    &pipeline_config,
-                                    &audio,
-                                    app.as_ref(),
+                        let result = (|| -> Result<(Dictation, Delivery)> {
+                            let started = Instant::now();
+                            let names = names
+                                .and_then(|names| names.try_recv().ok())
+                                .unwrap_or_default();
+                            let output = crate::pipeline::run(
+                                &pipeline_config,
+                                &audio,
+                                app.as_ref(),
+                                mode,
+                                &selection,
+                                &names,
+                                stream,
+                                || {
+                                    let _ = tx.send(Message::Cleaning(id));
+                                },
+                            )?;
+                            Ok((
+                                Dictation {
+                                    at: SystemTime::now(),
+                                    raw: output.raw,
+                                    cleaned: output.text,
+                                    app_id: app.and_then(|app| app.id),
+                                    audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX))
+                                        as u32,
+                                    latency_ms: started
+                                        .elapsed()
+                                        .as_millis()
+                                        .min(u128::from(u32::MAX))
+                                        as u32,
                                     mode,
-                                    &selection,
-                                    &names,
-                                    caret.as_ref(),
-                                    stream,
-                                    || {
-                                        let _ = tx.send(Message::Cleaning(id));
-                                    },
-                                )?;
-                                Ok((
-                                    Dictation {
-                                        at: SystemTime::now(),
-                                        raw: output.raw,
-                                        cleaned: output.text,
-                                        app_id: app.and_then(|app| app.id),
-                                        audio_ms: (audio.len() as u64 / 16).min(u64::from(u32::MAX))
-                                            as u32,
-                                        latency_ms: started
-                                            .elapsed()
-                                            .as_millis()
-                                            .min(u128::from(u32::MAX))
-                                            as u32,
-                                        mode,
-                                    },
-                                    output.delivery,
-                                    output.usage,
-                                ))
-                            })();
+                                },
+                                output.delivery,
+                            ))
+                        })();
                         let _ = tx.send(Message::Finished(id, result));
                     });
                 if let Err(error) = spawned {
@@ -910,9 +901,8 @@ fn run(
                 }
                 busy = None;
                 let audio = pending_audio.take();
-                let mut usage = None;
                 match result {
-                    Ok((dictation, delivery, _))
+                    Ok((dictation, delivery))
                         if dictation.cleaned.is_empty() && delivery != Delivery::Submit =>
                     {
                         if let Some(at) = retrying {
@@ -922,11 +912,8 @@ fn run(
                             let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
                         }
                     }
-                    Ok((dictation, delivery, metered)) => {
+                    Ok((dictation, delivery)) => {
                         last_dictation = Some(dictation.cleaned.clone());
-                        if dictation.mode == Mode::Dictate {
-                            usage = metered;
-                        }
                         deliver_and_record(
                             &paths,
                             &dictation,
@@ -1023,33 +1010,15 @@ fn run(
                         }
                     }
                     Err(error) => {
-                        let limit =
-                            error
-                                .downcast_ref::<crate::http::HostedError>()
-                                .and_then(|error| match error {
-                                    crate::http::HostedError::Limit { resets_at } => {
-                                        Some(*resets_at)
-                                    }
-                                    _ => None,
-                                });
-                        let mut recording_saved = retrying.is_some();
                         if retrying.is_none()
-                            && (busy_context.0 == Mode::Dictate || limit.is_some())
+                            && busy_context.0 == Mode::Dictate
                             && let Some(audio) = audio
+                            && let Err(error) = save_failed(&paths, &audio)
                         {
-                            let saved = save_failed(&paths, &audio);
-                            recording_saved = saved.is_ok();
-                            if let Err(error) = saved {
-                                eprintln!("typeaside: cannot save failed recording: {error:#}");
-                            }
+                            eprintln!("typeaside: cannot save failed recording: {error:#}");
                         }
                         let _ = events.try_send(Event::Failed(failed_recordings(&paths, None)));
-                        if let Some(resets_at) = limit.filter(|_| recording_saved) {
-                            phase(&events, Phase::LimitReached { resets_at });
-                            phase(&events, Phase::Idle);
-                        } else {
-                            report_error(&events, error);
-                        }
+                        report_error(&events, error);
                         if config.sounds {
                             crate::cues::play(crate::cues::Cue::Error);
                         }
@@ -1057,9 +1026,6 @@ fn run(
                     }
                 }
                 phase(&events, Phase::Idle);
-                if let Some(usage) = usage {
-                    let _ = events.try_send(Event::Usage(usage));
-                }
                 continue;
             }
         };
@@ -1080,12 +1046,7 @@ fn run(
                 }
                 monitor = None;
                 stream = match config.transcription {
-                    crate::config::Source::Hosted => crate::stream::Session::start()
-                        .ok()
-                        .map(crate::stream::Streaming::Hosted),
-                    crate::config::Source::Local => {
-                        crate::local::Stream::start(&config).map(crate::stream::Streaming::Local)
-                    }
+                    crate::config::Source::Local => crate::local::Stream::start(&config),
                     crate::config::Source::OwnKey => None,
                 };
                 let capture = ready
@@ -1093,7 +1054,7 @@ fn run(
                     .filter(|capture| capture.take_error().is_none())
                     .and_then(|capture| {
                         capture
-                            .begin(stream.as_ref().map(crate::stream::Streaming::audio))
+                            .begin(stream.as_ref().map(|stream| stream.audio()))
                             .ok()
                             .map(|()| capture)
                     })
@@ -1133,9 +1094,7 @@ fn run(
                             String::new()
                         };
                         context = (start_mode, app, selection);
-                        if config.transcription == crate::config::Source::Local
-                            || crate::http::past_limit()
-                        {
+                        if config.transcription == crate::config::Source::Local {
                             crate::local::prewarm(&config);
                         }
                         crate::http::prewarm(&config);
@@ -1200,7 +1159,6 @@ fn run(
                                         mode: Mode::File,
                                     },
                                     Delivery::Insert,
-                                    None,
                                 ))
                             });
                         let _ = worker_tx.send(Message::Finished(id, result));
@@ -1307,7 +1265,7 @@ fn run(
                         audio
                     }
                 };
-                if let Some(crate::stream::Streaming::Local(stream)) = &mut stream {
+                if let Some(stream) = &mut stream {
                     stream.release();
                 }
                 pending.recordings.push_back(Recorded {

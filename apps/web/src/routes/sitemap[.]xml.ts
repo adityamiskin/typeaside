@@ -9,7 +9,6 @@ export const Route = createFileRoute("/sitemap.xml")({
         const paths = [
           "/",
           "/download",
-          "/features/notes",
           ...source.getPages().map((page) => page.url),
           "/privacy",
           "/terms",

@@ -8,8 +8,6 @@ pub fn config() -> AppConfig {
     AppConfig {
         transcription: if std::env::var("TYPEASIDE_DEMO_MODEL").as_deref() == Ok("installed") {
             typeaside::config::Source::Local
-        } else if account().is_some() {
-            typeaside::config::Source::Hosted
         } else {
             typeaside::config::Source::OwnKey
         },
@@ -26,7 +24,7 @@ pub fn config() -> AppConfig {
             "Priya Raman",
             "Zapsight",
             "Tauri",
-            "Convex",
+            "Zed",
             "Groq",
             "CachyOS",
             "Kubernetes",
@@ -138,7 +136,6 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                 Event::CloseCapture
                 | Event::Capture { .. }
                 | Event::CaptureText(_)
-                | Event::Usage(_)
                 | Event::Reply { .. }
                 | Event::Notice(_)
                 | Event::Open(_)
@@ -183,10 +180,6 @@ pub fn spawn() -> async_channel::Receiver<Event> {
                     std::env::var("TYPEASIDE_DEMO_TEXT")
                         .unwrap_or_else(|_| "See you Thursday".into()),
                 ),
-                "approaching" => Event::Usage(typeaside::account::Usage { words: 1640, cap: Some(2000), resets_at: (chrono::Local::now() + chrono::Duration::days(3)).timestamp_millis() }),
-                "limit" => Event::Phase(Phase::LimitReached {
-                    resets_at: (chrono::Local::now() + chrono::Duration::days(3)).timestamp_millis(),
-                }),
                 "error" => Event::Phase(Phase::Error("No speech detected".into())),
                 "reply" => Event::Reply {
                     open: false,
@@ -259,30 +252,6 @@ fn speech(tick: u32) -> f32 {
     (0.5 + 0.22 * (t * 0.37).sin() + 0.17 * (t * 1.23).sin()).clamp(0.08, 1.)
 }
 
-pub fn account() -> Option<typeaside::account::Account> {
-    use typeaside::account::{Account, Plan, Usage};
-    let value = std::env::var("TYPEASIDE_DEMO_ACCOUNT").ok()?;
-    if !["free", "pro", "limit", "billing", "signed-in"].contains(&value.as_str()) {
-        return None;
-    }
-    Some(Account {
-        email: Some("aditya@example.com".into()),
-        plan: if value == "pro" {
-            Plan::Pro
-        } else {
-            Plan::Free
-        },
-        current_period_end: (value == "pro")
-            .then(|| (chrono::Local::now() + chrono::Duration::days(20)).timestamp_millis()),
-        billing_issue: value == "billing",
-        usage: Usage {
-            words: if value == "limit" { 2000 } else { 1240 },
-            cap: if value == "pro" { None } else { Some(2000) },
-            resets_at: (chrono::Local::now() + chrono::Duration::days(3)).timestamp_millis(),
-        },
-    })
-}
-
 pub fn intro_time() -> Option<f32> {
     std::env::var("TYPEASIDE_DEMO_INTRO")
         .ok()?
@@ -321,18 +290,15 @@ pub fn notes() -> typeaside::notes::Store {
     }
     let today = Local::now().date_naive();
     let notes = [
-        ("Launch checklist #work\n- [ ] Review privacy page\n- [x] Check rate limits\n- [ ] Tell Leo about the Linux build.", 2, 10, 0, true),
+        ("Launch checklist #work\n- [ ] Review the changelog\n- [x] Update the screenshots\n- [ ] Tell Leo about the Linux build.", 2, 10, 0, true),
         ("Call the bank about the card limit before Friday", 0, 14, 32, false),
-        ("\"Convex rate limiter supports token buckets per key\"\ncheck this for the notes endpoint, maybe 120/min", 0, 14, 2, false),
-        ("Ideas for onboarding #idea\nShow the shortcut on the first screen, not the third. Let people try a dictation before signing in.", 0, 11, 48, false),
+        ("\"The VAD gate misses quiet speech below 0.003 RMS\"\ncheck the release tail padding, maybe 200ms", 0, 14, 2, false),
+        ("Ideas for onboarding #idea\nShow the shortcut on the first screen, not the third. Let people try a dictation first.", 0, 11, 48, false),
         ("Buy: oat milk, coffee filters, AA batteries", 0, 9, 15, false),
-        ("Ask Riya for the Figma file with the pricing page #work", 1, 18, 40, false),
+        ("Ask Riya for the Figma file with the docs page #work", 1, 18, 40, false),
     ].into_iter().enumerate().map(|(i, (text, ago, h, m, pinned))| {
         let at = Local.from_local_datetime(&(today - chrono::Duration::days(ago)).and_hms_opt(h,m,0).unwrap()).earliest().unwrap().timestamp_millis();
         typeaside::notes::Note { id: format!("demo-{i}"), text: text.into(), pinned, archived: i == 5, color: if i == 0 { typeaside::notes::NoteColor::Sky } else { typeaside::notes::NoteColor::None }, created_at: at, updated_at: at }
     }).collect();
-    typeaside::notes::Store {
-        notes,
-        pending: Vec::new(),
-    }
+    typeaside::notes::Store { notes }
 }

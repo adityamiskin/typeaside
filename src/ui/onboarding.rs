@@ -6,7 +6,7 @@ use super::{
 };
 use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, img, prelude::*, px};
 use gpui_kit::component::input::Input;
-use std::{sync::atomic::Ordering, time::Instant};
+use std::time::Instant;
 use typeaside::{
     config::{RecordingMode, Source},
     engine::{Command, Phase},
@@ -15,7 +15,7 @@ use typeaside::{
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Welcome,
-    Account,
+    ApiKey,
     Permissions,
     Microphone,
     Practice,
@@ -27,7 +27,7 @@ impl Step {
             return Self::Welcome;
         }
         match std::env::var("TYPEASIDE_DEMO_STEP").as_deref() {
-            Ok("1") => Self::Account,
+            Ok("1") => Self::ApiKey,
             Ok("2") => Self::Permissions,
             Ok("3") => Self::Microphone,
             Ok("4") => Self::Practice,
@@ -51,7 +51,7 @@ pub struct Onboarding {
 }
 impl Onboarding {
     pub fn visible_steps(demo: bool) -> Vec<Step> {
-        let mut steps = vec![Step::Welcome, Step::Account];
+        let mut steps = vec![Step::Welcome, Step::ApiKey];
         let permissions = demo && std::env::var("TYPEASIDE_DEMO_STEP").as_deref() == Ok("2");
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         let permissions = permissions || !super::permissions::statuses().into_iter().all(|s| s);
@@ -146,13 +146,8 @@ impl MainWindow {
         if self.state.read(cx).is_demo {
             self.onboarding.intro_time = super::demo::intro_time();
             self.state.update(cx, |s, _| {
-                s.onboarding_own_key =
-                    std::env::var("TYPEASIDE_DEMO_ACCOUNT").as_deref() != Ok("signed-in");
-                s.config.transcription = if s.onboarding_own_key {
-                    Source::OwnKey
-                } else {
-                    Source::Hosted
-                };
+                s.onboarding_own_key = true;
+                s.config.transcription = Source::OwnKey;
                 if s.onboarding_step == Step::Practice {
                     if std::env::var("TYPEASIDE_DEMO_PRACTICE").as_deref() == Ok("listening") {
                         s.phase = Phase::Listening(typeaside::engine::Mode::Dictate);
@@ -193,13 +188,8 @@ impl MainWindow {
     fn onboarding_ready(&self, cx: &Context<Self>) -> bool {
         let s = self.state.read(cx);
         match s.onboarding_step {
-            Step::Account => {
-                if s.onboarding_own_key {
-                    !self.settings.key.read(cx).value().is_empty()
-                        || s.key_hint == "Saved in keyring"
-                } else {
-                    s.account.is_some()
-                }
+            Step::ApiKey => {
+                !self.settings.key.read(cx).value().is_empty() || s.key_hint == "Saved in keyring"
             }
             Step::Permissions => self.permission_status(cx).into_iter().all(|s| s),
             Step::Microphone => s.onboarding_heard,
@@ -247,7 +237,7 @@ impl MainWindow {
             self.finish_onboarding(w, cx);
             return;
         }
-        if step == Step::Account && self.state.read(cx).onboarding_own_key {
+        if step == Step::ApiKey && self.state.read(cx).onboarding_own_key {
             if !self.settings.key.read(cx).value().is_empty() {
                 self.onboarding.pending_key = true;
                 self.save_key(false, w, cx);
@@ -257,7 +247,7 @@ impl MainWindow {
                 return;
             }
         }
-        if step == Step::Account {
+        if step == Step::ApiKey {
             self.state.update(cx, |s, _| s.persist());
         }
         if let Some(index) = self.onboarding.steps.iter().position(|s| *s == step)
@@ -484,145 +474,23 @@ impl MainWindow {
                         .top(px(10. * (1. - reveal(2.6))))
                         .opacity(reveal(2.6)),
                 ),
-            Step::Account => {
-                let own = s.onboarding_own_key;
-                let waiting = s.signing_in.is_some();
-                let email = s
-                    .account
-                    .as_ref()
-                    .map(|a| a.email.clone().unwrap_or_else(|| "Signed in".into()));
-                col.child(title("How should TypeAside listen?", p))
-                    .child(sub("You can change this anytime in Settings.", p))
+            Step::ApiKey => {
+                col.child(title("Add a speech API key", p))
+                    .child(sub(
+                        "Bring a key from Groq or any OpenAI-compatible endpoint. You can also run a model on this computer, later in Settings.",
+                        p,
+                    ))
                     .child(
-                        div()
-                            .flex()
-                            .gap(px(16.))
-                            .mt(px(32.))
-                            .children([false, true].map(|key| {
-                                let selected = key == own;
-                                let status = if key {
-                                    "Unlimited, billed by provider".into()
-                                } else if waiting {
-                                    "Waiting for browser".into()
-                                } else {
-                                    email
-                                        .clone()
-                                        .unwrap_or_else(|| "Free · 2,000 words a week".into())
-                                };
-                                div()
-                                    .id(if key { "own-key" } else { "typeaside-account" })
-                                    .w(px(212.))
-                                    .h(px(132.))
-                                    .p(px(18.))
-                                    .rounded(px(14.))
-                                    .border_1()
-                                    .border_color(if selected { p.blue } else { p.border })
-                                    .when(selected, |d| d.bg(p.tint))
-                                    .flex()
-                                    .flex_col()
-                                    .text_left()
-                                    .cursor_pointer()
-                                    .child(icon(
-                                        if key {
-                                            "icons/key-round.svg"
-                                        } else {
-                                            "icons/sparkles.svg"
-                                        },
-                                        18.,
-                                        if key { p.lilac } else { p.blue },
-                                    ))
-                                    .child(
-                                        text(
-                                            if key {
-                                                "Your own key"
-                                            } else {
-                                                "TypeAside account"
-                                            },
-                                            14.,
-                                            p.fg,
-                                        )
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .mt(px(12.)),
-                                    )
-                                    .child(
-                                        text(
-                                            if key {
-                                                "Groq or any OpenAI-compatible endpoint."
-                                            } else {
-                                                "No setup. Sign in with your browser."
-                                            },
-                                            12.,
-                                            p.muted,
-                                        )
-                                        .line_height(px(18.))
-                                        .mt(px(4.)),
-                                    )
-                                    .child(div().flex_1())
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap(px(4.))
-                                            .text_size(px(12.))
-                                            .text_color(if !key && email.is_some() {
-                                                p.green
-                                            } else {
-                                                p.muted
-                                            })
-                                            .when(!key && email.is_some(), |d| {
-                                                d.child(icon("icons/check.svg", 14., p.green))
-                                            })
-                                            .child(status)
-                                            .when(!key && waiting, |d| {
-                                                d.child(
-                                                    text("Cancel", 12., p.muted)
-                                                        .id("cancel-onboarding-signin")
-                                                        .on_click(cx.listener(|this, _, _, cx| {
-                                                            cx.stop_propagation();
-                                                            this.state.update(cx, |s, cx| {
-                                                                if let Some(cancel) =
-                                                                    s.signing_in.take()
-                                                                {
-                                                                    cancel.store(
-                                                                        true,
-                                                                        Ordering::SeqCst,
-                                                                    );
-                                                                }
-                                                                cx.notify();
-                                                            });
-                                                        })),
-                                                )
-                                            }),
-                                    )
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.state.update(cx, |s, cx| {
-                                            s.onboarding_own_key = key;
-                                            s.config.transcription =
-                                                if key { Source::OwnKey } else { Source::Hosted };
-                                            if key && let Some(cancel) = s.signing_in.take() {
-                                                cancel.store(true, Ordering::SeqCst);
-                                            }
-                                            cx.notify();
-                                        });
-                                        if !key && this.state.read(cx).account.is_none() {
-                                            this.sign_in(cx);
-                                        }
-                                    }))
-                            })),
+                        div().w(px(360.)).mt(px(24.)).child(
+                            Input::new(&self.settings.key)
+                                .min_h(px(34.))
+                                .max_h(px(34.))
+                                .w_full()
+                                .rounded(px(8.))
+                                .text_size(px(13.))
+                                .bg(p.bg),
+                        ),
                     )
-                    .when(own, |d| {
-                        d.child(
-                            div().w_full().mt(px(16.)).child(
-                                Input::new(&self.settings.key)
-                                    .min_h(px(34.))
-                                    .max_h(px(34.))
-                                    .w_full()
-                                    .rounded(px(8.))
-                                    .text_size(px(13.))
-                                    .bg(p.bg),
-                            ),
-                        )
-                    })
             }
             Step::Permissions => {
                 let statuses = self.permission_status(cx);
@@ -882,7 +750,6 @@ impl MainWindow {
             }
             Step::Done => {
                 let login = s.config.launch_at_login;
-                let usage = s.config.share_usage;
                 let scale = 0.6 + 0.4 * self.onboarding.slide.value;
                 col.child(
                     div()
@@ -944,20 +811,6 @@ impl MainWindow {
                                 .child(text("Open at login", 13., p.fg))
                                 .child(self.toggle("onboarding-login", login, Toggle::Login, cx)),
                         )
-                        .child(
-                            div()
-                                .h(px(40.))
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .child(text("Share anonymous usage stats", 13., p.fg))
-                                .child(self.toggle(
-                                    "onboarding-usage",
-                                    usage,
-                                    Toggle::ShareUsage,
-                                    cx,
-                                )),
-                        ),
                 )
                 .child(
                     div().mt(px(28.)).child(

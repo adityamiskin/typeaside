@@ -18,7 +18,6 @@ pub enum Page {
     Snippets,
     Style,
     Settings,
-    Account,
     Onboarding,
 }
 impl Page {
@@ -29,7 +28,6 @@ impl Page {
             Ok("snippets") => Self::Snippets,
             Ok("style") => Self::Style,
             Ok("settings") => Self::Settings,
-            Ok("account") => Self::Account,
             Ok("onboarding") => Self::Onboarding,
             _ => Self::Home,
         }
@@ -86,20 +84,6 @@ impl MainWindow {
         cx.observe_window_appearance(window, |this, window, cx| {
             theme::apply(this.state.read(cx).config.theme, window.appearance(), cx);
             cx.notify();
-        })
-        .detach();
-        cx.observe_window_activation(window, |this, window, cx| {
-            if window.is_window_active() {
-                this.state.update(cx, |s, _| {
-                    let _ = s.notes_sync.try_send(());
-                    if s.sync_focus_at
-                        .is_none_or(|at| at.elapsed().as_secs() >= 60)
-                    {
-                        s.sync_focus_at = Some(std::time::Instant::now());
-                        let _ = s.sync.try_send(());
-                    }
-                });
-            }
         })
         .detach();
         let config = state.read(cx).config.clone();
@@ -285,21 +269,14 @@ impl MainWindow {
                 this.edit_snippet(Some(1), window, cx);
             }
         }
-        if matches!(page, Page::Settings | Page::Account) {
-            super::refresh_account(&this.state, cx);
-        }
         this.init_onboarding(window, cx);
         this
     }
     pub fn set_page(&mut self, page: Page, _: &mut Window, cx: &mut Context<Self>) {
         if page == Page::Settings {
-            super::refresh_account(&self.state, cx);
             super::refresh_devices(&self.state, cx);
         }
         self.save_note(cx);
-        if page == Page::Notes {
-            let _ = self.state.read(cx).notes_sync.try_send(());
-        }
         self.page = page;
         self.state.update(cx, |s, _| s.initial_page = page);
         self.capture = None;
@@ -361,95 +338,6 @@ impl Render for MainWindow {
         let permission_help = super::permissions::help(state);
         let onboarding = !state.config.onboarded;
         let save_error = state.save_error.clone();
-        let account_label = state
-            .account
-            .as_ref()
-            .map_or("Sign in".to_owned(), |account| {
-                account.email.clone().unwrap_or_else(|| "Account".into())
-            });
-        let usage = state
-            .account
-            .as_ref()
-            .filter(|account| {
-                account.plan == typeaside::account::Plan::Free
-                    && state.config.transcription == typeaside::config::Source::Hosted
-            })
-            .map(|account| {
-                let cap = account.usage.cap.unwrap_or(2000);
-                let limit = account.at_limit();
-                let label = if limit {
-                    let weekday = chrono::DateTime::from_timestamp_millis(account.usage.resets_at)
-                        .map(|date| date.with_timezone(&chrono::Local).format("%a").to_string())
-                        .unwrap_or_default();
-                    format!("Limit reached · resets {weekday}")
-                } else {
-                    format!(
-                        "{} / {} words",
-                        super::settings::grouped(account.usage.words),
-                        super::settings::grouped(cap)
-                    )
-                };
-                let fraction = if cap == 0 {
-                    1.
-                } else {
-                    (account.usage.words as f32 / cap as f32).min(1.)
-                };
-                div()
-                    .px(px(10.))
-                    .pb(px(8.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap(px(8.))
-                            .text_size(px(12.))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_ellipsis()
-                                    .text_color(if limit { p.red } else { p.muted })
-                                    .child(label),
-                            )
-                            .child(
-                                div()
-                                    .id("sidebar-upgrade")
-                                    .flex_shrink_0()
-                                    .text_color(p.blue)
-                                    .cursor_pointer()
-                                    .child("Upgrade")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        if this.state.read(cx).is_demo {
-                                            return;
-                                        }
-                                        cx.background_executor()
-                                            .spawn(async {
-                                                let _ = typeaside::account::open(format!(
-                                                    "{}/account",
-                                                    typeaside::account::web_url()
-                                                ));
-                                            })
-                                            .detach();
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .mt(px(6.))
-                            .h(px(2.))
-                            .w_full()
-                            .rounded_full()
-                            .bg(p.divider)
-                            .child(
-                                div()
-                                    .h_full()
-                                    .w(gpui::relative(fraction))
-                                    .rounded_full()
-                                    .bg(if limit { p.red } else { p.blue }),
-                            ),
-                    )
-            });
         let side = div()
             .w(px(SIDEBAR))
             .flex_shrink_0()
@@ -524,68 +412,6 @@ impl Render for MainWindow {
                 }),
             )
             .child(div().flex_1())
-            .when_some(usage, |side, usage| side.child(usage))
-            .child(
-                div()
-                    .id("feedback")
-                    .h(px(30.))
-                    .flex_shrink_0()
-                    .px(px(10.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .text_color(p.muted)
-                    .cursor_pointer()
-                    .hover(|s| s.bg(p.hover))
-                    .child(
-                        gpui::svg()
-                            .path("icons/message-square.svg")
-                            .size(px(15.))
-                            .text_color(p.muted),
-                    )
-                    .child("Feedback")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if this.state.read(cx).is_demo {
-                            return;
-                        }
-                        cx.background_executor()
-                            .spawn(async {
-                                let _ = typeaside::account::open(format!(
-                                    "{}/feedback?version={}&os={}",
-                                    typeaside::account::web_url(),
-                                    env!("CARGO_PKG_VERSION"),
-                                    std::env::consts::OS
-                                ));
-                            })
-                            .detach();
-                    })),
-            )
-            .child({
-                let selected = self.page == Page::Account;
-                div()
-                    .id("account")
-                    .h(px(30.))
-                    .flex_shrink_0()
-                    .px(px(10.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .cursor_pointer()
-                    .when(selected, |row| row.bg(p.tint))
-                    .text_color(if selected { p.fg } else { p.muted })
-                    .hover(|s| s.bg(p.hover))
-                    .child(
-                        gpui::svg()
-                            .path("icons/circle-user.svg")
-                            .size(px(15.))
-                            .flex_shrink_0()
-                            .text_color(if selected { p.blue } else { p.muted }),
-                    )
-                    .child(div().min_w_0().text_ellipsis().child(account_label))
-                    .on_click(cx.listener(|this, _, w, cx| this.set_page(Page::Account, w, cx)))
-            })
             .when_some(save_error, |side, error| {
                 side.child(
                     div()
@@ -606,7 +432,6 @@ impl Render for MainWindow {
                 Page::Dictionary => self.dictionary(cx).into_any_element(),
                 Page::Snippets => self.snippets(cx).into_any_element(),
                 Page::Style => self.style(cx).into_any_element(),
-                Page::Account => self.account_page(cx).into_any_element(),
                 Page::Settings | Page::Onboarding => self.settings(cx).into_any_element(),
             }
         };

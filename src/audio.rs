@@ -98,14 +98,14 @@ impl AudioRecorder {
         Self::open(config, false, None)
     }
 
-    pub fn start_streaming(config: &AppConfig, sink: crate::stream::AudioSink) -> Result<Self> {
+    pub fn start_streaming(config: &AppConfig, sink: crate::local::AudioSink) -> Result<Self> {
         Self::open(config, true, Some(sink))
     }
 
     fn open(
         config: &AppConfig,
         retain: bool,
-        sink: Option<crate::stream::AudioSink>,
+        sink: Option<crate::local::AudioSink>,
     ) -> Result<Self> {
         let (device, external) = Self::devices(config)?;
         if let Some(external) = external
@@ -144,7 +144,7 @@ impl AudioRecorder {
     fn open_device(
         device: &cpal::Device,
         retain: bool,
-        sink: Option<crate::stream::AudioSink>,
+        sink: Option<crate::local::AudioSink>,
     ) -> Result<Self> {
         let supported = device.default_input_config()?;
         let stream_config = supported.config();
@@ -217,7 +217,7 @@ impl AudioRecorder {
             .is_ok_and(|id| id == self.device_id)
     }
 
-    pub(crate) fn begin(&self, sink: Option<crate::stream::AudioSink>) -> Result<()> {
+    pub(crate) fn begin(&self, sink: Option<crate::local::AudioSink>) -> Result<()> {
         let mut buffer = self
             .buffer
             .lock()
@@ -449,7 +449,7 @@ fn resample_from(samples: &[f32], rate: u32, offset: usize, flush: bool) -> Vec<
 }
 
 struct Realtime {
-    sink: crate::stream::AudioSink,
+    sink: crate::local::AudioSink,
     emitted: usize,
     pending: Vec<f32>,
 }

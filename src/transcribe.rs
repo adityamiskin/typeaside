@@ -15,9 +15,10 @@ pub(crate) fn has_speech(audio: &[f32]) -> bool {
 }
 
 pub(crate) fn transcribe(config: &AppConfig, audio: &[f32], names: &[String]) -> Result<String> {
-    let file = multipart::Part::bytes(encode_wav(audio)?)
-        .file_name("dictation.wav")
-        .mime_str("audio/wav")?;
+    // Half the size of WAV, which matters on high-latency uploads.
+    let file = multipart::Part::bytes(encode_flac(audio)?)
+        .file_name("dictation.flac")
+        .mime_str("audio/flac")?;
     request(
         config,
         file,
@@ -30,7 +31,7 @@ pub(crate) fn transcribe(config: &AppConfig, audio: &[f32], names: &[String]) ->
 pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
     anyhow::ensure!(
         config.transcription != crate::config::Source::Local,
-        "File transcription needs a TypeAside account or your own key"
+        "File transcription needs your own API key"
     );
     let extension = path
         .extension()
@@ -48,7 +49,7 @@ pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
         "webm" => "video/webm",
         _ => anyhow::bail!("Unsupported file type"),
     };
-    // Convex HTTP actions, which back the hosted route, reject bodies over 20 MB.
+    // OpenAI-compatible providers reject large bodies; keep uploads bounded.
     anyhow::ensure!(
         std::fs::metadata(path)?.len() <= 20_000_000,
         "Files up to 20 MB"
@@ -62,18 +63,6 @@ pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
                 .into_owned(),
         )
         .mime_str(mime)?;
-    if config.transcription == crate::config::Source::Hosted {
-        return Ok(crate::pipeline::hosted(
-            config,
-            Some(file),
-            None,
-            crate::engine::Mode::File,
-            "",
-            &[],
-            None,
-        )?
-        .text);
-    }
     let raw = request(
         config,
         file,
@@ -125,6 +114,7 @@ fn request(
     Ok(response.text.trim().to_owned())
 }
 
+/// The uploaded dictation is FLAC; the raw recording fallback and file transcription use WAV bytes.
 pub(crate) fn encode_wav(audio: &[f32]) -> Result<Vec<u8>> {
     let bytes = u32::try_from(audio.len().checked_mul(2).context("audio too large")?)?;
     let riff_size = bytes.checked_add(36).context("audio too large")?;
@@ -147,7 +137,7 @@ pub(crate) fn encode_wav(audio: &[f32]) -> Result<Vec<u8>> {
     Ok(wav)
 }
 
-/// Half the size of WAV, which matters on high-latency uploads to the hosted route.
+/// Half the size of raw WAV.
 pub(crate) fn encode_flac(audio: &[f32]) -> Result<Vec<u8>> {
     use flacenc::{component::BitRepr, error::Verify};
     let samples: Vec<i32> = audio

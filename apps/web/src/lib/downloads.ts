@@ -22,8 +22,8 @@ export const downloads = {
   },
 } as const;
 export const comingSoon = {
-  Android: "A floating mic for any app, plus your notes.",
-  iOS: "The TypeAside keyboard, plus your notes.",
+  Android: "A floating mic for any app.",
+  iOS: "The TypeAside keyboard.",
 } as const;
 export const downloadFiles = Object.values(downloads).flatMap(({ files }) => [...files]);
 export const releaseFiles = new Set([
