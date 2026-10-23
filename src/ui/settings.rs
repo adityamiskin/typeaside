@@ -874,7 +874,7 @@ impl MainWindow {
     /// Sets the offset directly rather than through `scroll_to_top_of_item`, which applies after
     /// this frame renders and would leave the old link highlighted. The clicked group stays
     /// highlighted until the offset changes, since a group near the end may not reach the top.
-    fn jump(&mut self, group: usize, cx: &mut Context<Self>) {
+    pub(super) fn jump(&mut self, group: usize, cx: &mut Context<Self>) {
         let scroll = &self.settings_scroll;
         if let Some(bounds) = scroll.bounds_for_item(group) {
             let y = (scroll.bounds().top() - bounds.top()).clamp(-scroll.max_offset().y, px(0.));

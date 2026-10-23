@@ -253,7 +253,7 @@ impl MainWindow {
                                 .iter()
                                 .position(|group| group.eq_ignore_ascii_case(&scroll))
                             {
-                                this.settings_scroll.scroll_to_top_of_item(group);
+                                this.jump(group, cx);
                             } else if scroll == "bottom" {
                                 this.settings_scroll.scroll_to_bottom();
                             }
