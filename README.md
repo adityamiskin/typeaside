@@ -25,7 +25,7 @@ Hold a key, speak, and the text lands where your cursor is. No account, no serve
 
 ## Features
 
-- **On-device models.** Parakeet v3, Whisper, Cohere and Bark run entirely on your computer, with GPU acceleration on every platform and silence gating built in.
+- **On-device models.** Parakeet v3, Parakeet Unified, Whisper and Cohere run entirely on your computer, with GPU acceleration on every platform and silence gating built in.
 - **Bring your own key.** Point the app at any OpenAI-compatible speech endpoint (Groq works well). Your key lives in the system keychain.
 - **AI editing.** Optional cleanup removes fillers and false starts. Command mode edits selected text or answers a spoken question. Translate into any language.
 - **Works everywhere you type.** evdev hotkeys and a layer-shell overlay on Wayland, CGEventTap on macOS, a low-level hook on Windows. Injected text is verified against the field and falls back to the clipboard, so a dictation is never lost.
