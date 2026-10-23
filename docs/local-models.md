@@ -2,24 +2,24 @@
 
 Settings → Dictation lists the available models. Download several, then use **Use** to switch. The dot marks the active model; its action is **Remove**. To remove another installed model, select it first. Only one download runs at a time. Source → On device appears when a model is installed.
 
-| Model key             | Languages                                          | Assets   | Engine                                   |
-| --------------------- | -------------------------------------------------- | -------- | ---------------------------------------- |
-| `parakeet-v3`         | 25 European languages                              | 671 MB   | ONNX, int8 TDT                           |
-| `parakeet-unified-en` | English                                            | 732 MB   | transcribe.cpp, Q8_0 GGUF, GPU           |
-| `cohere`              | 14, including Arabic, Chinese, Japanese and Korean | 2,128 MB | ONNX, q4, float32 activations and caches |
-| `whisper-turbo`       | 99                                                 | 620 MB   | transcribe.cpp, Q5_K_M GGUF, GPU         |
+| Model key             | Languages                                          | Assets   | Engine                           |
+| --------------------- | -------------------------------------------------- | -------- | -------------------------------- |
+| `parakeet-v3`         | 25 European languages                              | 486 MB   | transcribe.cpp, Q4_K_M GGUF      |
+| `parakeet-unified-en` | English                                            | 732 MB   | transcribe.cpp, Q8_0 GGUF, GPU   |
+| `cohere`              | 14, including Arabic, Chinese, Japanese and Korean | 1,559 MB | transcribe.cpp, Q4_K_M GGUF      |
+| `whisper-turbo`       | 99                                                 | 620 MB   | transcribe.cpp, Q5_K_M GGUF, GPU |
 
-Sizes use decimal MB and exclude the shared ONNX runtime, which every model downloads for the VAD. Every model asset is pinned to a Hugging Face commit with its byte size and SHA-256 in `src/local/assets.rs`. All 35 catalog entries were checked against downloaded bytes, including Cohere's external weight files.
+Sizes use decimal MB and exclude the 1.24 MB Silero VAD downloaded alongside each model. Every asset is pinned to a Hugging Face commit with its exact byte size and SHA-256 in `src/local/assets.rs`.
 
-Cohere uses the **Spoken language** setting; Auto uses English. Whisper detects the language when Auto is selected. Parakeet v3 detects language itself. Every local model gets the same preprocessing from [Silero VAD](https://github.com/snakers4/silero-vad) v6.2.3 (MIT), installed into the shared runtime directory with any model and pinned to its upstream commit, byte size and SHA-256. The worker trims non-speech edges, keeping 200 ms of padding so the engine's release tail and optional pre-roll still reach the model, and returns an empty transcript when it finds no speech. That replaces the energy gate's "No speech detected" for local dictation, since the VAD hears quiet speech the gate rejects. Recordings longer than 25 s are split at the longest pause in the 10 s before each boundary, or at the least speech-like frame when there is none, and chunks without speech are skipped. Whisper decodes with segment timestamps so it keeps seeking within a chunk instead of stopping after its first segments.
+Cohere uses **Spoken language**; Auto uses English. Whisper detects language in Auto. Parakeet v3 detects language itself. All models use transcribe.cpp's Silero VAD v6.2 GGUF on the CPU. Each recording starts with fresh VAD state. The worker trims non-speech edges with 200 ms padding, returns an empty transcript without speech, and splits recordings longer than 25 s at the longest pause in the preceding 10 s, or the least speech-like frame. Chunks without speech are skipped. Whisper uses segment timestamps to keep seeking within a chunk.
 
-Existing configurations default to Parakeet v3. The ONNX runtime and VAD live in shared storage and count toward each model's installation marker, so models installed before the VAD shipped show as not installed until downloaded again, which fetches only the 2.3 MB VAD. Removing a model preserves the shared runtime and other models. When Source is On device, the selected model loads in the background at launch and after a model or language change. **Unload when idle** (5 min, 30 min, Never) frees the worker after that long unused. The default, 30 min, keeps a working session warm while returning the roughly 1.3 GB a loaded Parakeet v3 worker holds on 8 to 16 GB laptops. Switching Source away unloads it. ONNX models run no warm-up inference: the first transcription after loading measured the same as later ones. GGUF models transcribe 1.5 s of silence while loading so the GPU compiles its kernels before the first dictation.
+Each model's installation marker covers its GGUF and VAD. Stale ONNX installations show as not installed. No shared runtime download is needed. When Source is On device the selected model loads in the background; switching models or language replaces the worker. **Unload when idle** defaults to 30 min. Each GGUF model runs 1.5 s of silence at load to compile GPU kernels before dictation.
 
 ## GPU acceleration
 
-`parakeet-unified-en` and `whisper-turbo` run on [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) 0.2.4 (ggml): Vulkan on Linux x86_64 and Windows x64, Metal on macOS, CPU elsewhere. The worker prefers an integrated GPU, then a discrete one, then the CPU. A discrete laptop GPU powers down about 25 s after use even with the model loaded, so every dictation after a pause pays its wake-up: on this machine a 4.9 s clip took 1,060 to 1,120 ms on the RTX 4060 after 35 s idle, against 170 to 210 ms on the Radeon 780M. `TYPEASIDE_LOCAL_DEVICE=gpu` prefers the discrete GPU (desktops) and `=cpu` forces the CPU. If the GPU fails to load the model or to run the warm-up, the worker reloads it on the CPU. GPU sessions use one CPU thread for the per-token decoder. Each run gets a fresh session so a long recording's scratch memory is released.
+Every on-device model runs on [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) 0.4.1 (ggml): Vulkan on Linux x86_64 and Windows x64, Metal on macOS, CPU elsewhere. The worker prefers an integrated GPU, then a discrete one, then the CPU. A discrete laptop GPU powers down about 25 s after use even with the model loaded, so every dictation after a pause pays its wake-up: on this machine a 4.9 s clip took 1,060 to 1,120 ms on the RTX 4060 after 35 s idle, against 170 to 210 ms on the Radeon 780M. `TYPEASIDE_LOCAL_DEVICE=gpu` prefers the discrete GPU (desktops) and `=cpu` forces the CPU. If the GPU fails to load the model or to run the warm-up, the worker reloads it on the CPU. GPU sessions use one CPU thread for the per-token decoder. Each run gets a fresh session so a long recording's scratch memory is released.
 
-ONNX Parakeet v3 stays: its GGUF conversion (`handy-computer/parakeet-tdt-0.6b-v3-gguf`, Q8_0) measured faster on the GPU (`long-en` 1,007 ms on the RTX 4060 and 1,257 ms on the 780M against 1,999 ms ONNX) with WER 0.066 against 0.096, but 3x slower on the CPU (median RTF 0.112 against 0.034), and ONNX Runtime is still needed for Cohere and the VAD. Whisper moved because whisper-rs and transcribe.cpp each link their own ggml and cannot share a binary; its CPU speed is close to whisper-rs and its GPU speed is new.
+Parakeet v3 and Cohere now use Q4_K_M GGUF, replacing ONNX Runtime completely, including the VAD. The CPU gap measured with transcribe.cpp 0.2.4 no longer justifies keeping a second inference stack. CPU sessions use half the logical CPUs, capped at eight; GPU decoder sessions use one. Parakeet's upstream LibriSpeech test-clean WER is 1.98% at Q4_K_M against 1.95% at F32. See the migration measurements below for this machine's worker timings.
 
 Building needs CMake, the Vulkan headers and loader, `glslc` and SPIRV-Headers on Linux and Windows (Arch: `vulkan-headers spirv-headers shaderc vulkan-icd-loader`; Ubuntu 24.04: `libvulkan-dev glslc spirv-headers`; Windows: the LunarG SDK plus `vcpkg install spirv-headers`). The binary links the Vulkan loader; Windows delay-loads it so the app starts without one, but on such a machine the worker cannot load GGUF models.
 
@@ -34,7 +34,7 @@ Release finalizes the stream immediately, so it ends before a later capture open
 The example requires an explicit isolated home. It never reads the daily-driver config or model directory. Its child workers inherit that home. It asserts that a pre-selection config still selects v3, transcribes the fixed clips with every installed model, prints cold-load-inclusive timings, and exercises switching models/languages within one parent process.
 
 ```bash
-export TYPEASIDE_HOME="$(mktemp -d /tmp/typeaside-models.XXXXXX)"
+export TYPEASIDE_HOME="$(mktemp -d -p ~/.cache typeaside-models.XXXXXX)"
 cargo build --example local_models
 for model in parakeet-v3 cohere whisper-turbo; do
   target/debug/examples/local_models --download "$model"
@@ -59,7 +59,47 @@ ffmpeg -i /tmp/local-en.wav -ar 16000 -ac 1 tests/fixtures/local-models-en.wav
 ffmpeg -i /tmp/local-fr.wav -ar 16000 -ac 1 tests/fixtures/local-models-fr.wav
 ```
 
-## Benchmark
+## ggml 0.4.1 migration verification
+
+Linux x86_64, Ryzen 9 8945HS (16 logical CPUs), release `local_models` binary using the real `--local-worker` protocol, CPU forced, eight inference threads. All models and workers use an isolated `TYPEASIDE_HOME` and `XDG_RUNTIME_DIR`. All three new HF assets were downloaded and matched their exact byte sizes and SHA-256 values. The example's `--download` installed Parakeet and Cohere from those verified files; Whisper and Unified English were installed through the downloader too.
+
+The worker benchmark concatenates the English fixture two or six times and runs five warm requests after measuring ten seconds idle. Medians:
+
+| Audio   | ONNX baseline latency (4 threads) | GGUF latency (8 threads) | GGUF CPU-seconds | Loaded PSS | PSS after runs | Peak RSS |
+| ------- | --------------------------------: | -----------------------: | ---------------: | ---------: | -------------: | -------: |
+| 9.75 s  |                            280 ms |                   325 ms |           2.46 s |    850 MiB |        864 MiB |  908 MiB |
+| 29.25 s |                            950 ms |                 1,006 ms |           7.72 s |    851 MiB |        891 MiB |  998 MiB |
+
+GGUF idle CPU was 0%, load was 0.22 s, and swap was zero. Baseline ONNX PSS supplied for this migration was 1.37 to 1.53 GB; it was not rerun. Earlier GGUF runs overlapped another worktree's compilation and were discarded after latency rose to 552/2,284 ms. The final measurements above ran after those compiler processes exited. This full worker path includes VAD, 25 s chunking, and session rotation; standalone upstream inference timings exclude those costs. Downloads shrink from 671 MB to 485,425,504 bytes for Parakeet and from 2,128 MB to 1,558,162,944 bytes for Cohere.
+
+Final worker latency samples were `[325, 316, 335, 339, 320]` and `[987, 1026, 1006, 1022, 999]` ms. CPU samples were `[2.46, 2.41, 2.56, 2.59, 2.43]` and `[7.54, 7.87, 7.72, 7.85, 7.66]` seconds.
+
+```bash
+TYPEASIDE_LOCAL_DEVICE=cpu python3 -I /home/aditya/Projects/.ta-scripts/worker_bench.py "$BINARY" parakeet-v3 tests/fixtures/local-models-en.wav 2
+TYPEASIDE_LOCAL_DEVICE=cpu python3 -I /home/aditya/Projects/.ta-scripts/worker_bench.py "$BINARY" parakeet-v3 tests/fixtures/local-models-en.wav 6
+```
+
+English and French fixture transcripts (4.875/4.987 s audio), with the spoken language set to en/fr:
+
+```text
+parakeet-v3 en: The meeting is tomorrow at 3 in the afternoon. Please bring your notes.
+parakeet-v3 fr: Bonjour, la réunion est demain à 3h. Merci de préparer vos notes.
+cohere en: The meeting is tomorrow at 3 in the afternoon. Please bring your notes.
+cohere fr: Bonjour, la réunion est demain à trois heures. Merci de préparer vos notes.
+whisper-turbo en: The meeting is tomorrow at 3 in the afternoon. Please bring your notes.
+whisper-turbo fr: Bonjour, la réunion est demain à 3h. Merci de préparer vos notes.
+parakeet-unified-en en: The meeting is tomorrow at 3 in the afternoon. Please bring your notes
+```
+
+Cold-load-inclusive timings were 438/492 ms for Parakeet, 1,554/1,566 ms for Cohere, and 7,249/7,448 ms for Whisper. Unified English took 394 ms for English. Its French probe returned `Boujour, La Mel de Martoiser. Merci de Prespar note.` (388 ms), as expected outside its supported English language. These are single runs, not accuracy benchmarks.
+
+Both Parakeet and Cohere returned `""` for six seconds of digital silence. With two seconds leading and three seconds trailing silence, both returned `The meeting is tomorrow at three in the afternoon. Please bring your notes.` VAD selected samples `29568..107648`, retaining 200 ms padding. A 63 s clip of eight identical English fixtures separated by three-second gaps split into `0..323200`, `375680..705664`, and `753536..957568`, all under 25 s. Parakeet retained all eight sentences; Cohere retained three (one per chunk), a limitation on this synthetic repetition clip. VAD took 53/68 ms respectively; chunks without speech were skipped.
+
+Local checks: `cargo check --all-targets`, `cargo test` (38 passed, one ignored), `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `bun run build`, and `bun run check` passed. Rust commands used `CMAKE_ARGS=-DTRANSCRIBE_VULKAN=OFF` and a separate target directory. GPU execution and macOS/Windows transcription remain unverified locally.
+
+## Historical benchmarks before the 0.4.1 migration
+
+These results describe earlier engines and assets, not the current catalog.
 
 `--bench MANIFEST OUT.jsonl` builds each clip in `tests/fixtures/local-models-bench.json` from the two fixtures (trimmed, repeated with silence gaps) and, per model and clip, runs one cold load plus `iterations` warm runs. Each run writes a JSONL record with `audio_ms`, `phase`, `elapsed_ms`, `rtf` and `wer`. WER is word Levenshtein distance over lowercase words with punctuation removed, so `3` for "three" counts as an error. Release replay trims the clip to its last non-silent sample, then cuts 0, 100 and 200 ms more, and records whether the reference's final word is still the transcript's final word. A summary record per model gives warm median RTF, p95 warm latency, mean warm WER and release survival.
 
@@ -153,31 +193,14 @@ The silent warm-up at load matters on the dGPU: the first Whisper transcription 
 
 Release-to-text no longer grows with the recording on a GPU; at 10 s the offline run is already short, so streaming only helps the iGPU. On the CPU the stream is declined and the offline fallback adds nothing measurable. Feeding a stream should also keep the dGPU awake while recording, so a streamed dictation would not pay its idle wake-up at release; that was not measured. Whisper, which cannot stream, declined in 0 ms at release and fell back. An 8 s warm-up stream loaded in 3,013 ms on the iGPU against 503 ms for 1 s, with the same first-dictation latency (short-en 139 against 126 ms), so the warm-up is 1 s. The finalize-deadline fallback was not triggered in these runs.
 
-## Verification on Linux x86_64
-
-Debug build, CPU ONNX Runtime 1.24.4, four inference threads. English audio: 4,875 ms; French audio: 4,987 ms. These are single-run timings, including model loading, not a comparative accuracy benchmark.
-
-```text
-parakeet-v3 en: "The meeting is tomorrow at 3 in the afternoon. Please bring your notes." | audio=4875ms elapsed=3625ms (cold load included)
-parakeet-v3 fr: "Bonjour, la réunion est demain à 3h. Merci de préparer vos notes." | audio=4987ms elapsed=1761ms (cold load included)
-cohere en: "The meeting is tomorrow at 3 in the afternoon. Please bring your notes." | audio=4875ms elapsed=3847ms (cold load included)
-cohere fr: "Bonjour, la réunion est demain à trois heures. Merci de préparer vos notes." | audio=4987ms elapsed=3234ms (cold load included)
-```
-
-Cancellation after 500 ms returned `Download cancelled` and left all models uninstalled in a separate fresh home.
-
-Checks: `cargo build`, `cargo clippy`, `cargo test`, `bun run build`, and `bun run check` passed. Cargo currently discovers zero tests; the transcription example supplies the exercised runtime verification. No E2E suite ran.
-
-The real GPUI app was launched with `--demo`, `TYPEASIDE_HOME=/tmp/typeaside-model-verification`, `TYPEASIDE_DEMO_PAGE=settings`, `TYPEASIDE_DEMO_SETTINGS_SCROLL=Dictation`, `TYPEASIDE_DEMO_MODEL=installed`, and `TYPEASIDE_THEME=dark`. Demo actions are read-only and its instance socket is separate. The screenshot shows v3 installed and the other download actions using the demo fixture.
-
-![On-device model settings in the real app](assets/settings.png)
-
-Unverified: macOS/Windows runtime execution, other supported languages, VAD chunking on real (non-synthetic) long recordings, and live UI download/selection/removal interactions.
-
 ## Attribution
 
-The Cohere feature extractor matches the upstream Hugging Face processor's framing, Slaney filter normalization and per-feature variance. Whisper and Parakeet Unified English run on [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) (MIT, built on MIT ggml), built for a portable x86 baseline (AVX2, FMA, F16C) without system BLAS via `.cargo/config.toml`.
+All inference uses [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) 0.4.1 (MIT) and ggml (MIT). Portable CPU build flags and system BLAS exclusion live in `.cargo/config.toml`.
 
-Parakeet Unified English is NVIDIA's [parakeet-unified-en-0.6b](https://huggingface.co/nvidia/parakeet-unified-en-0.6b), CC-BY-4.0, used as handy-computer's [Q8_0 GGUF conversion](https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf) at commit `7e948f21`. Whisper large-v3-turbo is OpenAI's, MIT, used as handy-computer's [Q5_K_M GGUF conversion](https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf) at commit `18ada752`.
+- Parakeet v3: NVIDIA weights, CC-BY-4.0, [Q4_K_M conversion](https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf), commit `d8d8c32cb2017c57e5307767343e97870f8a7f53`.
+- Cohere Transcribe: Apache-2.0 weights, [Q4_K_M conversion](https://huggingface.co/handy-computer/cohere-transcribe-03-2026-gguf), commit `7353b6040bdc1be9e5a3823d99d5fe12afe88264`.
+- Silero VAD v6.2: MIT, [F32 conversion](https://huggingface.co/handy-computer/silero-vad-v6.2-gguf), commit `a9b2d61c20ae4ddf3644edb34969e8185a485448`.
+- Parakeet Unified English: NVIDIA, CC-BY-4.0, Q8_0 at commit `7e948f21`.
+- Whisper large-v3-turbo: OpenAI, MIT, Q5_K_M at commit `18ada752`.
 
 Implemented by Codex GPT-6.1-Sol via T3 Code.

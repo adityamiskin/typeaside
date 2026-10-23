@@ -41,29 +41,27 @@ impl Model {
         let cpu = ModelOptions {
             backend: Backend::Cpu,
             device: None,
+            ..Default::default()
         };
-        let options = preferred
+        for device in preferred
             .iter()
-            .find_map(|kind| devices.iter().find(|d| d.device_type == *kind))
-            .map_or_else(
-                || cpu.clone(),
-                |device| ModelOptions {
-                    backend: if device.kind == "metal" {
-                        Backend::Metal
-                    } else {
-                        Backend::Vulkan
-                    },
-                    device: Some(device.clone()),
+            .flat_map(|kind| devices.iter().filter(move |d| d.device_type == *kind))
+        {
+            let options = ModelOptions {
+                backend: if device.kind == "metal" {
+                    Backend::Metal
+                } else {
+                    Backend::Vulkan
                 },
-            );
-        match Self::open(path, language, &options) {
-            Ok(model) => Ok(model),
-            Err(error) if options.backend != Backend::Cpu => {
-                eprintln!("typeaside local: GPU unavailable, using CPU: {error:#}");
-                Self::open(path, language, &cpu)
+                device: Some(device.clone()),
+                ..Default::default()
+            };
+            match Self::open(path, language, &options) {
+                Ok(model) => return Ok(model),
+                Err(error) => eprintln!("typeaside local: GPU unavailable: {error:#}"),
             }
-            Err(error) => Err(error),
         }
+        Self::open(path, language, &cpu)
     }
 
     fn open(path: &Path, language: Option<&str>, options: &ModelOptions) -> Result<Self> {
@@ -75,9 +73,15 @@ impl Model {
                 n_threads: 1,
                 ..Default::default()
             },
-            _ => SessionOptions::default(),
+            _ => SessionOptions {
+                // Half the logical CPUs, capped at eight, leaves room for other apps while
+                // avoiding the measured CPU latency penalty of four threads on a 16-thread CPU.
+                n_threads: std::thread::available_parallelism()
+                    .map_or(4, |n| n.get().div_ceil(2).min(8)) as i32,
+                ..Default::default()
+            },
         };
-        let capabilities = model.capabilities();
+        let capabilities = model.capabilities()?;
         let language = language
             .filter(|language| capabilities.languages.iter().any(|l| l == language))
             .map(str::to_owned);
@@ -87,7 +91,13 @@ impl Model {
             session_options,
             options: RunOptions {
                 language,
-                timestamps: transcribe_cpp::TimestampKind::Segment,
+                timestamps: if capabilities.max_timestamp_kind
+                    == transcribe_cpp::TimestampKind::None
+                {
+                    transcribe_cpp::TimestampKind::None
+                } else {
+                    transcribe_cpp::TimestampKind::Segment
+                },
                 ..Default::default()
             },
             max_samples: usize::try_from(capabilities.max_audio_ms)
