@@ -429,7 +429,7 @@ impl Render for MainWindow {
                     .text_size(px(12.))
                     .line_height(px(17.4))
                     .text_color(p.muted)
-                    .child(concat!("v", env!("CARGO_PKG_VERSION"))),
+                    .child(concat!("Version ", env!("CARGO_PKG_VERSION"))),
             );
         let content = if onboarding {
             self.onboarding(window, cx).into_any_element()
