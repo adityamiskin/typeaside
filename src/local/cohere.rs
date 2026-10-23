@@ -1,5 +1,3 @@
-// Decoder and KV-cache handling adapted from voxtype's moonshine.rs and cohere.rs.
-// MIT, Copyright 2025 Peter Jackson. See licenses/voxtype-MIT.txt.
 use super::features::Features;
 use anyhow::{Context, Result, ensure};
 use ort::{
