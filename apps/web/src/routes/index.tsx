@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, type CSSProperties } from "react";
 import { DownloadButton } from "../components/site";
+import { InstallCommand } from "../components/install-command";
+import { useOS } from "../lib/downloads";
 import { BillingToggle, CheckoutButton, type Interval } from "../components/billing";
 import { HeroScene } from "../components/hero-scene";
 import { AppMarquee, LandingApps } from "../components/landing-apps";
@@ -73,6 +75,7 @@ const faqs = [
   ],
 ] as const;
 function Landing() {
+  const os = useOS();
   const [interval, setInterval] = useState<Interval>("monthly");
   const yearly = interval === "yearly";
   return (
@@ -85,6 +88,7 @@ function Landing() {
             whatever app you're typing in.
           </p>
           <DownloadButton />
+          {os === "Linux" && <InstallCommand />}
           <p className="avail">
             Free to start. Linux, macOS and Windows. Android and iOS coming soon.
           </p>
