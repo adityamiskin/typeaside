@@ -1,4 +1,4 @@
-use super::{AVAILABLE, assets::S1_MINI, download_assets, inventory_assets};
+use super::{AVAILABLE, ModelId, assets::S1_MINI, download_assets, inventory_assets};
 use crate::config::{AppCategory, AppConfig, Tone};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -58,14 +58,14 @@ impl CleanupModel {
 #[serde(rename_all = "kebab-case")]
 pub enum Styling {
     Casual,
-    SemiCasual,
+    SemiFormal,
     Formal,
 }
 impl Styling {
     fn key(self) -> &'static str {
         match self {
             Self::Casual => "casual",
-            Self::SemiCasual => "semi-casual",
+            Self::SemiFormal => "semi-formal",
             Self::Formal => "formal",
         }
     }
@@ -77,19 +77,27 @@ pub struct CleanupSettings {
     email: bool,
 }
 impl CleanupSettings {
-    pub fn for_app(config: &AppConfig, app_id: Option<&str>) -> Option<Self> {
-        let english = config
-            .language
-            .as_deref()
-            .and_then(|s| s.split(['-', '_']).next())
-            .is_some_and(|s| s.eq_ignore_ascii_case("en"));
+    pub fn for_app(config: &AppConfig, app_id: Option<&str>, text: &str) -> Option<Self> {
+        // S1-mini is English-only. Parakeet v3 reports no detected language, so Auto checks the
+        // transcript itself; Cohere's Auto and Parakeet Unified always transcribe English.
+        let english = match config.language.as_deref() {
+            Some(language) => language
+                .split(['-', '_'])
+                .next()
+                .is_some_and(|s| s.eq_ignore_ascii_case("en")),
+            None => {
+                matches!(
+                    config.local_model,
+                    ModelId::Cohere | ModelId::ParakeetUnifiedEn
+                ) || whatlang::detect_lang(text) == Some(whatlang::Lang::Eng)
+            }
+        };
         let category = AppCategory::of(app_id);
-        // Auto can transcribe any language; require explicit English for an English-only model.
         (config.editing() && english && category != AppCategory::Code && CleanupModel::installed())
             .then(|| Self {
                 styling: match config.styles.get(category) {
                     Tone::Formal => Styling::Formal,
-                    Tone::Casual => Styling::SemiCasual,
+                    Tone::Casual => Styling::SemiFormal,
                     Tone::VeryCasual => Styling::Casual,
                 },
                 email: category == AppCategory::Email,

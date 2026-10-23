@@ -81,7 +81,7 @@ fn main() -> Result<()> {
     }
     let mut config = AppConfig {
         transcription: Source::Local,
-        language: Some("en".into()),
+        language: None,
         ..Default::default()
     };
     config.cleanup.enabled = true;
@@ -95,9 +95,11 @@ fn main() -> Result<()> {
         output.llm.as_millis()
     );
     ensure!(
-        output.text == "the meeting is tomorrow at 3 in the afternoon. please bring your notes",
+        output.text == "The meeting is tomorrow at 3 in the afternoon. Please bring your notes.",
         "Unexpected fixture text"
     );
+    // The fixture above ran on Auto, the default; the cases pin English so fillers strip too.
+    config.language = Some("en".into());
     for (index, (text, tone, app)) in CASES.iter().enumerate() {
         *config
             .styles
@@ -117,6 +119,20 @@ fn main() -> Result<()> {
             ensure!(!output.contains("\n-"), "Prose became a list");
         }
     }
+    config.language = None;
+    let english = local::cleanup_text(&config, CASES[0].0, None, Arc::new(AtomicBool::new(false)));
+    ensure!(
+        english == "Can you send me the deck before the 3pm call?",
+        "Auto must clean English"
+    );
+    let french = "Bonjour, la réunion est demain à trois heures. Merci de préparer vos notes.";
+    let output = local::cleanup_text(&config, french, None, Arc::new(AtomicBool::new(false)));
+    ensure!(
+        output == french,
+        "Auto must leave non-English text to the speech model"
+    );
+    println!("auto: english cleaned {english:?}, french untouched");
+    config.language = Some("en".into());
     let code = CASES[6].0;
     let output = local::cleanup_text(
         &config,

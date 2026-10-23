@@ -629,7 +629,7 @@ pub fn cleanup_text(
 ) -> String {
     // S1-mini sometimes keeps "um"; stripping first also makes filler-only input empty.
     let text = crate::cleanup::remove_fillers(text, config.language.as_deref());
-    match CleanupSettings::for_app(config, app_id) {
+    match CleanupSettings::for_app(config, app_id, &text) {
         Some(settings) if !text.is_empty() => {
             crate::cleanup::checked_output(&text, clean(&text, settings, cancel), false)
         }

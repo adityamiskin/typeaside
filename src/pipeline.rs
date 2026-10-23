@@ -151,8 +151,12 @@ pub(crate) fn run_cancellable(
     } else if local {
         anyhow::ensure!(!cancel.load(Ordering::Relaxed), "Dictation cancelled");
         let text = if config.transcription == Source::Local {
-            if crate::local::CleanupSettings::for_app(config, app.and_then(|a| a.id.as_deref()))
-                .is_some()
+            if crate::local::CleanupSettings::for_app(
+                config,
+                app.and_then(|a| a.id.as_deref()),
+                text,
+            )
+            .is_some()
             {
                 cleaning();
             }
