@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 const release = "/releases/";
 export const downloads = {
   macOS: {
-    requirement: "macOS 13+. Apple silicon and Intel.",
+    requirement: "macOS 13+ on Apple silicon.",
     files: [{ slug: "mac", label: "Download for macOS", href: `${release}TypeAside.dmg` }],
   },
   Windows: {

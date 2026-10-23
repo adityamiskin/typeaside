@@ -1,6 +1,12 @@
 name: Release
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: stable publishes; staging uploads under staging/<run-id>/ and skips the AUR push
+        type: choice
+        options: [stable, staging]
+        default: stable
 permissions:
   contents: read
 concurrency:
@@ -11,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      prefix: ${{ steps.version.outputs.prefix }}
     steps:
       - uses: actions/checkout@v4
       - name: Require main and read version
@@ -23,10 +30,13 @@ jobs:
           fi
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
           echo "version=$version" >> "$GITHUB_OUTPUT"
-  ci:
-    uses: ./.github/workflows/ci.yml
+          if [[ "$CHANNEL" == staging ]]; then
+            echo "prefix=staging/$GITHUB_RUN_ID/" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          CHANNEL: ${{ inputs.channel }}
   build:
-    needs: [version, ci]
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -89,15 +99,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.platform }}
-      - name: Build Linux and Windows
-        if: runner.os != 'macOS'
-        run: cargo build --locked --release
-      - name: Build universal macOS binary
-        if: runner.os == 'macOS'
-        run: |
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          cargo build --locked --release --target aarch64-apple-darwin
-          cargo build --locked --release --target x86_64-apple-darwin
+      - run: cargo build --locked --release
       - name: Package macOS
         if: runner.os == 'macOS'
         env:
@@ -146,6 +148,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VERSION: ${{ needs.version.outputs.version }}
+          PREFIX: ${{ needs.version.outputs.prefix }}
         run: packaging/upload.sh
   aur:
     needs: [version, upload]
@@ -162,6 +165,7 @@ jobs:
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           VERSION: ${{ needs.version.outputs.version }}
+          PUSH: ${{ inputs.channel == 'stable' }}
         run: |
           pacman -Syu --noconfirm --needed git openssh
           useradd -m builder
@@ -170,4 +174,4 @@ jobs:
           ssh-keyscan aur.archlinux.org > /home/builder/.ssh/known_hosts
           chown -R builder /home/builder/.ssh && chmod 600 /home/builder/.ssh/id_ed25519
           # makepkg refuses to run as root.
-          su builder -c "VERSION=$VERSION DEB=$PWD/dist/typeaside.deb packaging/aur/publish.sh"
+          su builder -c "VERSION=$VERSION PUSH=$PUSH DEB=$PWD/dist/typeaside.deb packaging/aur/publish.sh"
