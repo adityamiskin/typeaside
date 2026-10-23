@@ -4,7 +4,7 @@
 
 Bun monorepo:
 
-- TanStack Start in `apps/web`, deployed to Cloudflare Workers through Wrangler (`apps/web/wrangler.jsonc`)
+- TanStack Start in `apps/web`, deployed to Cloudflare Workers through Wrangler (`apps/web/wrangler.jsonc`). Workers Builds runs `bun run build:prod` then `bun run deploy` from `apps/web` on pushes to `main`
 - Tailwind CSS v4 and shadcn/ui primitives in `packages/ui`
 - Vite+ (`vp`) for dev, build, lint, format, and type checks. Lint and format config lives in the root `vite.config.ts`
 
