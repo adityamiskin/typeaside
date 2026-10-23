@@ -118,7 +118,7 @@ export function CaptureBox({
   );
 }
 
-const quote = "Riya has the final pricing Figma and needs comments by noon.";
+const quote = "Riya has the final launch Figma and needs comments by noon.";
 export function NotesStage({
   text = "Block 11:00 for this",
   selection = quote,
