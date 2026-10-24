@@ -187,10 +187,12 @@ async fn download_assets(
     Ok(())
 }
 
+/// A speech model and its language; a worker without one only hosts cleanup.
+type Speech = (ModelId, Option<String>);
+
 struct Worker {
     child: Child,
-    model: ModelId,
-    language: Option<String>,
+    speech: Option<Speech>,
     requests: Option<mpsc::Sender<Job>>,
     responses: mpsc::Receiver<Result<String, String>>,
     io: Option<std::thread::JoinHandle<()>>,
@@ -206,17 +208,18 @@ impl Drop for Worker {
     }
 }
 impl Worker {
-    fn start(model: ModelId, language: Option<String>) -> Result<Self> {
+    fn start(speech: Option<Speech>) -> Result<Self> {
         let started = std::time::Instant::now();
         let executable = std::env::current_exe()?;
         let mut child = Command::new(executable)
             .arg("--local-worker")
-            .args(["--local-model", model.key()])
-            .args(
-                language
-                    .iter()
-                    .flat_map(|lang| ["--local-language", lang.as_str()]),
-            )
+            .args(speech.iter().flat_map(|(model, language)| {
+                ["--local-model", model.key()].into_iter().chain(
+                    language
+                        .iter()
+                        .flat_map(|lang| ["--local-language", lang.as_str()]),
+                )
+            }))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
@@ -258,8 +261,7 @@ impl Worker {
         });
         let worker = Self {
             child,
-            model,
-            language,
+            speech,
             requests: Some(requests),
             responses,
             io: Some(io),
@@ -268,7 +270,10 @@ impl Worker {
         if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
             eprintln!(
                 "typeaside local: loaded {} in {} ms",
-                model.key(),
+                worker
+                    .speech
+                    .as_ref()
+                    .map_or(CleanupModel::LABEL, |(model, _)| model.key()),
                 started.elapsed().as_millis()
             );
         }
@@ -366,26 +371,19 @@ fn read_job(input: &mut impl Read) -> Result<Option<(u8, Vec<f32>)>> {
 type Reply = mpsc::SyncSender<std::result::Result<String, String>>;
 enum Request {
     Idle(Option<Duration>),
-    Warm(ModelId, Option<String>),
-    Transcribe(ModelId, Option<String>, Vec<f32>, Reply),
-    Begin(ModelId, Option<String>),
+    Warm(Option<Speech>),
+    Transcribe(Speech, Vec<f32>, Reply),
+    Begin(Speech),
     Feed(Vec<f32>),
     End(Reply),
     Cancel,
     Clean(String, CleanupSettings, Arc<AtomicBool>, Reply),
     Unload(Option<mpsc::SyncSender<()>>),
 }
-fn ensure(
-    worker: &mut Option<Worker>,
-    model: ModelId,
-    language: Option<String>,
-) -> Result<&mut Worker> {
-    if worker
-        .as_ref()
-        .is_none_or(|w| w.model != model || w.language != language)
-    {
+fn ensure(worker: &mut Option<Worker>, speech: Option<Speech>) -> Result<&mut Worker> {
+    if worker.as_ref().is_none_or(|w| w.speech != speech) {
         drop(worker.take());
-        *worker = Some(Worker::start(model, language)?);
+        *worker = Some(Worker::start(speech)?);
     }
     worker.as_mut().context("missing worker")
 }
@@ -404,21 +402,21 @@ fn sender() -> &'static mpsc::Sender<Request> {
                 };
                 match request {
                     Ok(Request::Idle(after)) => idle = after,
-                    Ok(Request::Warm(model, language)) => {
-                        if !streaming && ensure(&mut worker, model, language).is_err() {
+                    Ok(Request::Warm(speech)) => {
+                        if !streaming && ensure(&mut worker, speech).is_err() {
                             worker = None;
                         }
                     }
-                    Ok(Request::Transcribe(model, language, audio, reply)) => {
-                        let result = ensure(&mut worker, model, language)
+                    Ok(Request::Transcribe(speech, audio, reply)) => {
+                        let result = ensure(&mut worker, Some(speech))
                             .and_then(|worker| worker.transcribe(&audio));
                         if result.is_err() {
                             worker = None;
                         }
                         let _ = reply.send(result.map_err(|e: anyhow::Error| e.to_string()));
                     }
-                    Ok(Request::Begin(model, language)) => {
-                        streaming = ensure(&mut worker, model, language)
+                    Ok(Request::Begin(speech)) => {
+                        streaming = ensure(&mut worker, Some(speech))
                             .and_then(|worker| worker.send(Job::Begin))
                             .is_ok();
                     }
@@ -452,7 +450,11 @@ fn sender() -> &'static mpsc::Sender<Request> {
                     Ok(Request::Clean(text, settings, cancel, reply)) => {
                         let result = (|| -> Result<Result<String, String>> {
                             ensure!(!cancel.load(Ordering::Relaxed), "Cleanup cancelled");
-                            let live = worker.as_ref().context("Speech worker is not loaded")?;
+                            // Any loaded worker can clean; otherwise start one without speech.
+                            if worker.is_none() {
+                                worker = Some(Worker::start(None)?);
+                            }
+                            let live = worker.as_ref().context("missing worker")?;
                             live.send(Job::Clean(text, settings))?;
                             let started = std::time::Instant::now();
                             loop {
@@ -492,14 +494,27 @@ fn sender() -> &'static mpsc::Sender<Request> {
     })
 }
 
+/// Loads what the configured stages run on this computer: the speech model, or only S1-mini
+/// when speech uses a key.
 pub fn prewarm(config: &crate::config::AppConfig) {
-    if let Some(model) = config.local_model.available() {
-        let _ = sender().send(Request::Warm(model, config.language.clone()));
+    let warm = match config.transcription {
+        crate::config::Source::Local => config
+            .local_model
+            .available()
+            .map(|model| Some((model, config.language.clone()))),
+        crate::config::Source::OwnKey => {
+            (config.local_editing() && CleanupModel::installed()).then_some(None)
+        }
+    };
+    if let Some(speech) = warm {
+        let _ = sender().send(Request::Warm(speech));
     }
 }
 pub fn apply(config: &crate::config::AppConfig) {
     let _ = sender().send(Request::Idle(config.local_unload.after()));
-    if config.transcription == crate::config::Source::Local {
+    if config.transcription == crate::config::Source::Local
+        || (config.local_editing() && CleanupModel::installed())
+    {
         prewarm(config);
     } else {
         let _ = sender().send(Request::Unload(None));
@@ -523,13 +538,13 @@ pub fn transcribe(config: &crate::config::AppConfig, audio: &[f32]) -> Result<St
     let model = config
         .local_model
         .available()
-        .context("Download an on-device model in Settings first")?;
+        .context(crate::pipeline::NO_SPEECH_MODEL)?;
     transcribe_model(model, config.language.clone(), audio)
 }
 pub fn transcribe_model(model: ModelId, language: Option<String>, audio: &[f32]) -> Result<String> {
     ensure!(model.installed(), "Model is not installed");
     let (tx, rx) = mpsc::sync_channel(1);
-    sender().send(Request::Transcribe(model, language, audio.to_vec(), tx))?;
+    sender().send(Request::Transcribe((model, language), audio.to_vec(), tx))?;
     rx.recv()?.map_err(anyhow::Error::msg)
 }
 
@@ -565,7 +580,7 @@ impl Stream {
     pub fn start(config: &crate::config::AppConfig) -> Option<Self> {
         let model = config.local_model.available()?;
         sender()
-            .send(Request::Begin(model, config.language.clone()))
+            .send(Request::Begin((model, config.language.clone())))
             .ok()?;
         Some(Self { released: None })
     }
@@ -645,11 +660,38 @@ fn clean(text: &str, settings: CleanupSettings, cancel: Arc<AtomicBool>) -> Resu
 
 pub fn worker_main() -> Result<()> {
     let option = |flag: &str| std::env::args().skip_while(|arg| arg != flag).nth(1);
-    let model: ModelId = option("--local-model")
-        .map(|key| key.parse())
-        .transpose()?
-        .unwrap_or_default();
-    let language = option("--local-language");
+    let mut speech = option("--local-model")
+        .map(|key| load_speech(key.parse()?, option("--local-language")))
+        .transpose()?;
+    let mut cleanup = match speech {
+        Some(_) => None,
+        None => Some(cleanup::Model::load()?),
+    };
+    let mut output = std::io::stdout().lock();
+    writeln!(
+        output,
+        "{}",
+        serde_json::to_string(&Ok::<_, String>("ready"))?
+    )?;
+    output.flush()?;
+    let mut input = std::io::stdin().lock();
+    while let Some((tag, samples)) = read_job(&mut input)? {
+        let result = match (tag, &mut speech) {
+            (TRANSCRIBE, Some((model, vad))) => Some(transcribe_speech(model, vad, &samples)),
+            (BEGIN, Some((model, _))) => stream(model, &mut input, &mut cleanup, &mut output),
+            (CLEAN, _) => Some(cleanup_job(&mut input, &mut cleanup)),
+            _ => anyhow::bail!("Unexpected message outside a stream"),
+        };
+        if let Some(result) = result {
+            let result = result.map_err(|e| e.to_string());
+            writeln!(output, "{}", serde_json::to_string(&result)?)?;
+            output.flush()?;
+        }
+    }
+    Ok(())
+}
+
+fn load_speech(model: ModelId, language: Option<String>) -> Result<(gguf::Model, vad::Vad)> {
     let language = if model == ModelId::Cohere {
         let language = language.unwrap_or_else(|| "en".to_owned());
         ensure!(
@@ -668,34 +710,11 @@ pub fn worker_main() -> Result<()> {
         model.installed(),
         "On-device model is missing or has changed; download it again"
     );
-    let mut model = gguf::Model::load(&dir.join(model.assets()[0].name), language.as_deref())?;
+    let speech = gguf::Model::load(&dir.join(model.assets()[0].name), language.as_deref())?;
     if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
-        eprintln!("typeaside local: device {}", model.device());
+        eprintln!("typeaside local: device {}", speech.device());
     }
-    let mut vad = vad::Vad::load(&dir.join(SILERO_VAD.name))?;
-    let mut output = std::io::stdout().lock();
-    writeln!(
-        output,
-        "{}",
-        serde_json::to_string(&Ok::<_, String>("ready"))?
-    )?;
-    output.flush()?;
-    let mut cleanup = None;
-    let mut input = std::io::stdin().lock();
-    while let Some((tag, samples)) = read_job(&mut input)? {
-        let result = match tag {
-            TRANSCRIBE => Some(transcribe_speech(&mut model, &mut vad, &samples)),
-            BEGIN => stream(&mut model, &mut input, &mut cleanup, &mut output),
-            CLEAN => Some(cleanup_job(&mut input, &mut cleanup)),
-            _ => anyhow::bail!("Unexpected message outside a stream"),
-        };
-        if let Some(result) = result {
-            let result = result.map_err(|e| e.to_string());
-            writeln!(output, "{}", serde_json::to_string(&result)?)?;
-            output.flush()?;
-        }
-    }
-    Ok(())
+    Ok((speech, vad::Vad::load(&dir.join(SILERO_VAD.name))?))
 }
 
 // No speech yields no chunks and an empty transcript, which the engine discards quietly.

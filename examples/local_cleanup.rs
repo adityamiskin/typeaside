@@ -85,6 +85,7 @@ fn main() -> Result<()> {
         ..Default::default()
     };
     config.cleanup.enabled = true;
+    config.cleanup.source = Source::Local;
     let audio = wav::read_wav(Path::new("tests/fixtures/local-models-en.wav"))?;
     let output = pipeline::run(&config, &audio, None, Mode::Dictate, "", &[], None, || {})?;
     println!(
@@ -218,13 +219,15 @@ fn main() -> Result<()> {
         output.text,
         output.llm.as_millis()
     );
+    // No key is ever saved for this host, so commands and translation must refuse to run.
+    config.cleanup.endpoint.base_url = "https://keyless.invalid/v1".into();
     for mode in [Mode::Command, Mode::Translate] {
         ensure!(
             pipeline::run(&config, &[], None, mode, "selected text", &[], None, || {}).is_err(),
-            "On-device commands and translation must stay unavailable"
+            "Commands and translation without a key must stay unavailable"
         );
     }
-    println!("commands and selected-text translation: rejected for On device");
+    println!("commands and selected-text translation: rejected without an API key");
     local::unload();
     Ok(())
 }

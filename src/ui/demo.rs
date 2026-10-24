@@ -1,15 +1,31 @@
 use std::time::{Duration, Instant, SystemTime};
 use typeaside::{
-    config::{AppConfig, AppInstruction, Snippet},
+    config::{AppConfig, AppInstruction, Snippet, Source},
     engine::{Dictation, Event, FailedRecording, Mode, Phase},
 };
 
+/// `TYPEASIDE_DEMO_SPEECH` and `TYPEASIDE_DEMO_EDITING` pick `key` or `local`; editing also
+/// accepts `off`. Speech defaults to local when `TYPEASIDE_DEMO_MODEL=installed`.
+fn source(name: &str, local: bool) -> Source {
+    match std::env::var(name).as_deref() {
+        Ok("local") => Source::Local,
+        Ok("key") => Source::OwnKey,
+        _ if local => Source::Local,
+        _ => Source::OwnKey,
+    }
+}
+
 pub fn config() -> AppConfig {
+    let editing = std::env::var("TYPEASIDE_DEMO_EDITING");
     AppConfig {
-        transcription: if std::env::var("TYPEASIDE_DEMO_MODEL").as_deref() == Ok("installed") {
-            typeaside::config::Source::Local
-        } else {
-            typeaside::config::Source::OwnKey
+        transcription: source(
+            "TYPEASIDE_DEMO_SPEECH",
+            std::env::var("TYPEASIDE_DEMO_MODEL").as_deref() == Ok("installed"),
+        ),
+        cleanup: typeaside::config::Cleanup {
+            enabled: editing.as_deref() != Ok("off"),
+            source: source("TYPEASIDE_DEMO_EDITING", false),
+            ..Default::default()
         },
         onboarded: std::env::var("TYPEASIDE_DEMO_PAGE").as_deref() != Ok("onboarding"),
         theme: match std::env::var("TYPEASIDE_DEMO_THEME").as_deref() {
@@ -97,6 +113,15 @@ pub fn model() -> typeaside::local::Status {
         Ok("installed") => Status::Installed,
         Ok("failed") => Status::Failed,
         _ => Status::NotInstalled,
+    }
+}
+
+/// S1-mini follows `TYPEASIDE_DEMO_MODEL` when editing is on device.
+pub fn cleanup_model() -> typeaside::local::Status {
+    if std::env::var("TYPEASIDE_DEMO_EDITING").as_deref() == Ok("local") {
+        model()
+    } else {
+        typeaside::local::Status::NotInstalled
     }
 }
 

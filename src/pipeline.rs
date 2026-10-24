@@ -15,8 +15,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const LOCAL_COMMAND: &str = "Commands need your own API key";
-pub const LOCAL_TRANSLATE: &str = "Translation needs your own API key";
+pub const COMMAND_NEEDS_KEY: &str = "Commands need your own API key";
+pub const TRANSLATE_NEEDS_KEY: &str = "Translation needs your own API key";
+pub const NO_SPEECH_MODEL: &str = "Download a speech model in Settings first";
+
+/// Why this mode cannot start: commands and translation always use the editing endpoint's key,
+/// and on-device speech needs an installed model.
+pub fn unavailable(config: &AppConfig, mode: Mode) -> Option<&'static str> {
+    let keyless = || crate::credentials::endpoint_key(&config.cleanup.endpoint.base_url).is_err();
+    match mode {
+        Mode::Command if keyless() => Some(COMMAND_NEEDS_KEY),
+        Mode::Translate if keyless() => Some(TRANSLATE_NEEDS_KEY),
+        Mode::Dictate | Mode::Command
+            if config.transcription == Source::Local
+                && config.local_model.available().is_none() =>
+        {
+            Some(NO_SPEECH_MODEL)
+        }
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -110,12 +128,8 @@ pub(crate) fn run_cancellable(
     cancel: Arc<AtomicBool>,
 ) -> Result<Output> {
     let started = Instant::now();
-    if config.transcription == Source::Local {
-        match mode {
-            Mode::Command => anyhow::bail!(LOCAL_COMMAND),
-            Mode::Translate => anyhow::bail!(LOCAL_TRANSLATE),
-            _ => {}
-        }
+    if let Some(error) = unavailable(config, mode) {
+        anyhow::bail!(error);
     }
     if mode == Mode::Translate && audio.is_empty() {
         cleaning();
@@ -127,8 +141,9 @@ pub(crate) fn run_cancellable(
             llm: started.elapsed(),
         });
     }
-    let (raw, local) = match config.transcription {
-        Source::Local => (crate::local::finish(config, audio, stream)?.0, true),
+    // True when speech fell back on-device because the provider was unreachable.
+    let (raw, offline) = match config.transcription {
+        Source::Local => (crate::local::finish(config, audio, stream)?.0, false),
         Source::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),
             Err(error)
@@ -148,35 +163,29 @@ pub(crate) fn run_cancellable(
             delivery: Delivery::Insert,
             text: String::new(),
         }
-    } else if local {
+    } else if mode == Mode::Command {
+        cleaning();
+        cleanup::command(config, &corrected, selection)?
+    } else if mode != Mode::Translate && config.cleanup.source == Source::Local {
+        let app_id = app.and_then(|a| a.id.as_deref());
         anyhow::ensure!(!cancel.load(Ordering::Relaxed), "Dictation cancelled");
-        let text = if config.transcription == Source::Local {
-            if crate::local::CleanupSettings::for_app(
-                config,
-                app.and_then(|a| a.id.as_deref()),
-                text,
-            )
-            .is_some()
-            {
-                cleaning();
-            }
-            crate::local::cleanup_text(
-                config,
-                text,
-                app.and_then(|a| a.id.as_deref()),
-                cancel.clone(),
-            )
-        } else {
-            cleanup::remove_fillers(text, config.language.as_deref())
-        };
+        if crate::local::CleanupSettings::for_app(config, app_id, text).is_some() {
+            cleaning();
+        }
+        let text = crate::local::cleanup_text(config, text, app_id, cancel.clone());
         anyhow::ensure!(!cancel.load(Ordering::Relaxed), "Dictation cancelled");
         Answer {
             delivery: Delivery::Insert,
             text: snippets::expand(&text, &config.snippets),
         }
-    } else if mode == Mode::Command {
-        cleaning();
-        cleanup::command(config, &corrected, selection)?
+    } else if offline {
+        Answer {
+            delivery: Delivery::Insert,
+            text: snippets::expand(
+                &cleanup::remove_fillers(text, config.language.as_deref()),
+                &config.snippets,
+            ),
+        }
     } else {
         if config.editing() || mode == Mode::Translate {
             cleaning();
