@@ -678,7 +678,11 @@ fn run(
             Message::Command(Command::Stop)
         } else {
             let received = if recorder.is_some() || monitor.is_some() {
-                rx.recv_timeout(Duration::from_millis(33).saturating_sub(tick.elapsed()))
+                let mut timeout = Duration::from_millis(33).saturating_sub(tick.elapsed());
+                if let Some(tail) = &release_tail {
+                    timeout = timeout.min(tail.deadline.saturating_duration_since(Instant::now()));
+                }
+                rx.recv_timeout(timeout)
             } else if config.keep_microphone_ready {
                 rx.recv_timeout(READY_CHECK.saturating_sub(ready_check.elapsed()))
             } else {

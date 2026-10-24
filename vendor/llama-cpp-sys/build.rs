@@ -19,7 +19,7 @@ fn main() {
     let bindings = bindgen::Builder::default()
         .header("llama/include/llama.h")
         .clang_arg(format!("-I{include}"))
-        .allowlist_function("llama_(log_set|backend_init|model_default_params|context_default_params|model_load_from_file|model_free|init_from_model|free|model_get_vocab|get_memory|memory_clear|tokenize|batch_get_one|decode|sampler_init_greedy|sampler_sample|sampler_free|vocab_is_eog|token_to_piece)")
+        .allowlist_function("llama_(log_set|backend_init|model_default_params|context_default_params|model_load_from_file|model_free|init_from_model|free|model_get_vocab|get_memory|memory_clear|memory_seq_rm|tokenize|batch_get_one|decode|sampler_init_greedy|sampler_sample|sampler_free|vocab_is_eog|token_to_piece)")
         .layout_tests(false)
         .generate_comments(false)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
