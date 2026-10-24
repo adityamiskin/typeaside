@@ -197,6 +197,25 @@ fn speech_download(s: &AppState) -> Option<Status> {
     (s.config.transcription == Source::Local && !s.models.contains(&Status::Installed))
         .then(|| s.models[s.config.local_model.index()])
 }
+/// Names only the edits that happened; capitalization or punctuation alone earns no caption.
+fn practice_caption(raw: &str, cleaned: &str) -> Option<&'static str> {
+    let words = |text: &str| {
+        text.split(|c: char| !c.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>()
+    };
+    let filler = |word: &String| matches!(word.as_str(), "um" | "uh" | "er");
+    let (raw, cleaned) = (words(raw), words(cleaned));
+    let filler_removed = raw.iter().any(filler) && !cleaned.iter().any(filler);
+    let corrected = raw.iter().filter(|word| !filler(word)).count() > cleaned.len();
+    match (filler_removed, corrected) {
+        (true, true) => Some("Filler removed. Your correction kept."),
+        (true, false) => Some("Filler removed."),
+        (false, true) => Some("Your correction kept."),
+        (false, false) => None,
+    }
+}
 fn bars(level: f32, height: f32, count: usize, p: Palette) -> gpui::Div {
     const SHAPE: [f32; 28] = [
         0.15, 0.25, 0.4, 0.55, 0.7, 0.85, 0.95, 1., 0.9, 0.8, 0.95, 0.75, 0.6, 0.8, 0.7, 0.55,
@@ -948,7 +967,7 @@ impl MainWindow {
                     .onboarding_raw
                     .as_ref()
                     .zip(s.onboarding_transcript.as_ref())
-                    .is_some_and(|(a, b)| a != b);
+                    .and_then(|(raw, cleaned)| practice_caption(raw, cleaned));
                 col.child(
                     div()
                         .h(px(56.))
@@ -1056,9 +1075,7 @@ impl MainWindow {
                         .mt(px(10.))
                         .flex()
                         .gap(px(6.))
-                        .when(caption, |d| {
-                            d.child(text("Filler removed. Your correction kept.", 12., p.muted))
-                        })
+                        .children(caption.map(|caption| text(caption, 12., p.muted)))
                         .when(has_result, |d| {
                             d.child(
                                 text("Try again", 12., p.blue)

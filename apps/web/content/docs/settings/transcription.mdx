@@ -15,7 +15,7 @@ Select **On device** and download a model from the list. Speech can be switched 
 2. Set **Endpoint** to your provider's OpenAI-compatible base URL, including its API prefix, such as `https://api.groq.com/openai/v1`.
 3. Enter the **Model** and **API key**. Leave the key field or press Enter to save it.
 
-The speech endpoint must accept `/audio/transcriptions`; the editing endpoint must accept `/chat/completions`. Check model names with your provider. BYOK requests go directly from TypeAside to the configured provider. **Ask anything** and **Translate** always use the editing endpoint and its key, even when AI editing runs on device.
+The speech endpoint must accept `/audio/transcriptions`; the editing endpoint must accept `/chat/completions`. Check model names with your provider. BYOK requests go directly from TypeAside to the configured provider. **Ask anything** and **Translate** always use the editing endpoint and its key. When AI editing runs on device or is off, set them under **Ask anything and Translate** in the same section.
 
 ## Key storage
 
