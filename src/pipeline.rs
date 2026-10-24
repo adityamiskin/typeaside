@@ -158,48 +158,52 @@ pub(crate) fn run_cancellable(
     let started = Instant::now();
     let corrected = crate::replacements::apply(&raw, &config.replacements);
     let (text, submit) = dictation_text(config, mode, &corrected);
-    let answer = if text.is_empty() {
-        Answer {
-            delivery: Delivery::Insert,
-            text: String::new(),
-        }
+    let insert = |text: String| Answer {
+        delivery: Delivery::Insert,
+        text,
+    };
+    let (answer, edited_by) = if text.is_empty() {
+        (insert(String::new()), "none")
     } else if mode == Mode::Command {
         cleaning();
-        cleanup::command(config, &corrected, selection)?
+        (cleanup::command(config, &corrected, selection)?, "api")
     } else if mode != Mode::Translate && config.cleanup.source == Source::Local {
         let app_id = app.and_then(|a| a.id.as_deref());
         anyhow::ensure!(!cancel.load(Ordering::Relaxed), "Dictation cancelled");
-        if crate::local::CleanupSettings::for_app(config, app_id, text).is_some() {
+        let model = crate::local::CleanupSettings::for_app(config, app_id, text).is_some();
+        if model {
             cleaning();
         }
         let text = crate::local::cleanup_text(config, text, app_id, cancel.clone());
         anyhow::ensure!(!cancel.load(Ordering::Relaxed), "Dictation cancelled");
-        Answer {
-            delivery: Delivery::Insert,
-            text: snippets::expand(&text, &config.snippets),
-        }
+        (
+            insert(snippets::expand(&text, &config.snippets)),
+            if model { "on-device" } else { "fillers" },
+        )
     } else if offline {
-        Answer {
-            delivery: Delivery::Insert,
-            text: snippets::expand(
-                &cleanup::remove_fillers(text, config.language.as_deref()),
-                &config.snippets,
-            ),
-        }
+        let text = cleanup::remove_fillers(text, config.language.as_deref());
+        (insert(snippets::expand(&text, &config.snippets)), "fillers")
     } else {
-        if config.editing() || mode == Mode::Translate {
+        let api = config.editing() || mode == Mode::Translate;
+        if api {
             cleaning();
         }
-        Answer {
-            delivery: Delivery::Insert,
-            text: snippets::expand(
-                &cleanup::cleanup(config, text, app, names, mode == Mode::Translate),
-                &config.snippets,
-            ),
-        }
+        let text = cleanup::cleanup(config, text, app, names, mode == Mode::Translate);
+        (
+            insert(snippets::expand(&text, &config.snippets)),
+            if api { "api" } else { "off" },
+        )
     };
     let llm = started.elapsed();
     if std::env::var_os("TYPEASIDE_TRACE").is_some_and(|value| value == "1") {
+        eprintln!(
+            "typeaside: speech={} editing={edited_by}",
+            match (config.transcription, offline) {
+                (Source::Local, _) => "on-device",
+                (Source::OwnKey, true) => "on-device fallback",
+                (Source::OwnKey, false) => "api",
+            }
+        );
         eprintln!(
             "typeaside: stt={}ms llm={}ms",
             stt.as_millis(),
