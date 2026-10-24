@@ -1,5 +1,5 @@
 use super::{AVAILABLE, ModelId, assets::S1_MINI, download_assets, inventory_assets};
-use crate::config::{AppCategory, AppConfig, Tone};
+use crate::config::{AppCategory, AppConfig, Source, Tone};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -78,18 +78,21 @@ pub struct CleanupSettings {
 }
 impl CleanupSettings {
     pub fn for_app(config: &AppConfig, app_id: Option<&str>, text: &str) -> Option<Self> {
-        // S1-mini is English-only. Parakeet v3 reports no detected language, so Auto checks the
-        // transcript itself; Cohere's Auto and Parakeet Unified always transcribe English.
+        // S1-mini is English-only. Parakeet v3 and API speech report no detected language, so
+        // Auto checks the transcript itself; Cohere's Auto and Parakeet Unified always
+        // transcribe English.
         let english = match config.language.as_deref() {
             Some(language) => language
                 .split(['-', '_'])
                 .next()
                 .is_some_and(|s| s.eq_ignore_ascii_case("en")),
             None => {
-                matches!(
-                    config.local_model,
-                    ModelId::Cohere | ModelId::ParakeetUnifiedEn
-                ) || whatlang::detect_lang(text) == Some(whatlang::Lang::Eng)
+                (config.transcription == Source::Local
+                    && matches!(
+                        config.local_model,
+                        ModelId::Cohere | ModelId::ParakeetUnifiedEn
+                    ))
+                    || whatlang::detect_lang(text) == Some(whatlang::Lang::Eng)
             }
         };
         let category = AppCategory::of(app_id);
@@ -148,7 +151,6 @@ impl Model {
                 .to_str()
                 .context("Invalid model path")?,
         )?;
-        // Speech initializes the shared ggml registry before cleanup can be requested.
         unsafe {
             llama_log_set(Some(discard_log), std::ptr::null_mut());
             llama_backend_init();

@@ -23,8 +23,8 @@ use typeaside::{
     local::{CleanupModel, ModelId, Status},
 };
 
-#[derive(Clone, Copy)]
-enum DownloadTarget {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum DownloadTarget {
     Speech(ModelId),
     Cleanup,
 }
@@ -214,16 +214,17 @@ impl SettingsInputs {
         let s = state.read(cx);
         let stt = s.key_hint.clone();
         let editing = s.editing_key_hint.clone();
-        let endpoints = (s.config.transcription == Source::OwnKey).then(|| {
-            [
-                (false, s.config.stt.base_url.clone(), stt.clone()),
+        let endpoints = [
+            (s.config.transcription == Source::OwnKey)
+                .then(|| (false, s.config.stt.base_url.clone(), stt.clone())),
+            (s.config.cleanup.source == Source::OwnKey).then(|| {
                 (
                     true,
                     s.config.cleanup.endpoint.base_url.clone(),
                     editing.clone(),
-                ),
-            ]
-        });
+                )
+            }),
+        ];
         let available: Vec<_> = s
             .devices
             .iter()
@@ -332,6 +333,13 @@ impl MainWindow {
             cx.subscribe(entity, move |this, input, event, cx| {
                 if matches!(event, InputEvent::Change) {
                     let value = input.read(cx).value().to_string();
+                    if let TextField::Endpoint | TextField::EditingEndpoint = field {
+                        this.refresh_key_hint(
+                            matches!(field, TextField::EditingEndpoint),
+                            value.clone(),
+                            cx,
+                        );
+                    }
                     this.state.update(cx, |s, cx| {
                         match field {
                             TextField::Endpoint => s.config.stt.base_url = value,
@@ -359,10 +367,7 @@ impl MainWindow {
                 if matches!(event, InputEvent::Change) {
                     cx.notify();
                 }
-                if !editing
-                    && !this.state.read(cx).config.onboarded
-                    && this.state.read(cx).onboarding_step == super::onboarding::Step::ApiKey
-                {
+                if !this.state.read(cx).config.onboarded {
                     if matches!(event, InputEvent::PressEnter { .. }) {
                         this.onboarding_next(false, w, cx);
                     }
@@ -456,6 +461,32 @@ impl MainWindow {
             .detach();
         }
         self.settings.refresh(&self.state, window, cx);
+    }
+    /// The keyring hint follows the endpoint, since keys are stored per host.
+    fn refresh_key_hint(&self, editing: bool, endpoint: String, cx: &mut Context<Self>) {
+        if self.state.read(cx).is_demo {
+            return;
+        }
+        let task = cx.background_executor().spawn({
+            let endpoint = endpoint.clone();
+            async move { super::key_hint(&endpoint) }
+        });
+        let state = self.state.clone();
+        cx.spawn(async move |_, cx| {
+            let hint = task.await;
+            state.update(cx, |s, cx| {
+                let (current, slot) = if editing {
+                    (&s.config.cleanup.endpoint.base_url, &mut s.editing_key_hint)
+                } else {
+                    (&s.config.stt.base_url, &mut s.key_hint)
+                };
+                if *current == endpoint {
+                    *slot = hint;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
     fn update_microphones(
         &mut self,
@@ -581,12 +612,14 @@ impl MainWindow {
             }
             Ok::<_, anyhow::Error>(host)
         });
-        if !editing {
-            self.state.update(cx, |s, _| {
+        self.state.update(cx, |s, _| {
+            if editing {
+                s.editing_key_hint = "Saving…".into();
+            } else {
                 s.key_hint = "Saving…".into();
-                s.save_error = None;
-            });
-        }
+            }
+            s.save_error = None;
+        });
         entity.update(cx, |input, cx| input.set_value("", window, cx));
         let state = self.state.clone();
         cx.spawn(async move |_, cx| {
@@ -609,6 +642,12 @@ impl MainWindow {
                     }
                     s.persist();
                 } else {
+                    let hint = if editing {
+                        &mut s.editing_key_hint
+                    } else {
+                        &mut s.key_hint
+                    };
+                    *hint = "Enter API key".into();
                     s.save_error = Some("Could not save API key in keyring".into());
                 }
                 cx.notify();
@@ -802,8 +841,14 @@ impl MainWindow {
                 })),
         )
     }
-    fn download_model(&mut self, model: DownloadTarget, cx: &mut Context<Self>) {
+    /// Downloads run one at a time; a request during another download waits its turn.
+    pub(super) fn download_model(&mut self, model: DownloadTarget, cx: &mut Context<Self>) {
         if self.state.read(cx).model_cancel.is_some() {
+            self.state.update(cx, |s, _| {
+                if !s.download_queue.contains(&model) {
+                    s.download_queue.push(model);
+                }
+            });
             return;
         }
         let cancel = Arc::new(AtomicBool::new(false));
@@ -822,7 +867,7 @@ impl MainWindow {
             cx.notify();
         });
         let state = self.state.clone();
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |this, cx| {
             while let Ok(percent) = progress_rx.recv().await {
                 state.update(cx, |s, cx| {
                     model.set_status(s, Status::Downloading(percent));
@@ -854,6 +899,12 @@ impl MainWindow {
                 model.set_status(s, status);
                 cx.notify();
             });
+            let next = state.update(cx, |s, _| {
+                (!s.download_queue.is_empty()).then(|| s.download_queue.remove(0))
+            });
+            if let Some(next) = next {
+                let _ = this.update(cx, |this, cx| this.download_model(next, cx));
+            }
         })
         .detach();
     }
@@ -880,9 +931,6 @@ impl MainWindow {
                             .find(|m| s.models[m.index()] == Status::Installed)
                         {
                             s.config.local_model = remaining;
-                            s.persist();
-                        } else if s.config.transcription == Source::Local {
-                            s.config.transcription = Source::OwnKey;
                             s.persist();
                         }
                     }
@@ -1029,15 +1077,19 @@ impl MainWindow {
                 )
             })
             .collect::<Vec<_>>();
-        let source = segmented(
-            [(Source::OwnKey, "Own key")]
-                .into_iter()
-                .chain(active.map(|_| (Source::Local, "On device"))),
-            c.transcription,
-            p,
-            cx,
-            |this, value, _, cx| this.state.update(cx, |s, _| s.config.transcription = value),
-        );
+        // Both stages share these labels, so each control needs its own id scope.
+        let source = |id: &'static str,
+                      current: Source,
+                      set: fn(&mut AppConfig, Source),
+                      cx: &mut Context<Self>| {
+            div().id(id).child(segmented(
+                [(Source::OwnKey, "API key"), (Source::Local, "On device")],
+                current,
+                p,
+                cx,
+                move |this, value, _, cx| this.state.update(cx, |s, _| set(&mut s.config, value)),
+            ))
+        };
         let unload = segmented(
             [
                 (LocalUnload::FiveMinutes, "5 min"),
@@ -1049,30 +1101,33 @@ impl MainWindow {
             cx,
             |this, value, _, cx| this.state.update(cx, |s, _| s.config.local_unload = value),
         );
-        let own_key = c.transcription == Source::OwnKey;
+        let available = typeaside::local::AVAILABLE;
+        let local_speech = available && c.transcription == Source::Local;
+        let local_editing = available && c.local_editing();
         let mut models = Vec::new();
         {
-            let mut transcription = vec![
-                Setting::new("Source")
-                    .when(c.transcription == Source::Local, |row| {
+            let mut speech = vec![
+                Setting::new("Speech")
+                    .when(local_speech && active.is_none(), |row| {
                         row.description(
-                            "Speech and AI editing stay on this computer. Commands and translation need your own key.",
+                            div()
+                                .text_color(p.red)
+                                .child("Download a model to dictate."),
                         )
                     })
-                    .child(source),
+                    .when(available, |row| {
+                        row.child(source(
+                            "speech-source",
+                            c.transcription,
+                            |c, v| c.transcription = v,
+                            cx,
+                        ))
+                    }),
             ];
-            if c.transcription == Source::Local {
-                transcription.push(
-                    Setting::new("Unload when idle")
-                        .description("Frees model memory after this long unused.")
-                        .child(unload),
-                );
-            }
-            if typeaside::local::AVAILABLE {
-                transcription.extend(model_rows);
-            }
-            if own_key {
-                transcription.extend([
+            if local_speech {
+                speech.extend(model_rows);
+            } else {
+                speech.extend([
                     Setting::new("Endpoint").child(input(&self.settings.endpoint, p)),
                     Setting::new("Model").child(model_field(
                         &self.settings.stt_models,
@@ -1082,19 +1137,22 @@ impl MainWindow {
                     Setting::new("API key").child(input(&self.settings.key, p)),
                 ]);
             }
-            models.push(panel(transcription, p));
+            models.push(panel(speech, p));
         }
         {
             let mut editing = vec![
                 Setting::new("AI editing")
-                    .description(if own_key {
-                        "Clean up fillers, punctuation and lists."
+                    .description(if local_editing {
+                        "English only. Skips code apps. Ask anything and Translate still use an API key."
                     } else {
-                        "English only. Skips code apps."
+                        "Fixes fillers, punctuation and lists."
+                    })
+                    .when(available && c.cleanup.enabled, |row| {
+                        row.child(source("editing-source", c.cleanup.source, |c, v| c.cleanup.source = v, cx))
                     })
                     .child(self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx)),
             ];
-            if !own_key && typeaside::local::AVAILABLE {
+            if local_editing {
                 let status = self.state.read(cx).cleanup_model;
                 let action = match status {
                     Status::Downloading(_) => "Cancel",
@@ -1109,7 +1167,11 @@ impl MainWindow {
                     Status::Failed => {
                         format!("English, {} MB. Download failed", CleanupModel::size_mb())
                     }
-                    _ => format!("English, {} MB", CleanupModel::size_mb()),
+                    Status::NotInstalled => format!(
+                        "English, {} MB. Until installed, only fillers are removed",
+                        CleanupModel::size_mb()
+                    ),
+                    Status::Installed => format!("English, {} MB", CleanupModel::size_mb()),
                 };
                 editing.push(
                     Setting::new(CleanupModel::LABEL)
@@ -1144,8 +1206,7 @@ impl MainWindow {
                                 })),
                         ),
                 );
-            }
-            if own_key {
+            } else if c.cleanup.enabled {
                 editing.extend([
                     Setting::new("Endpoint").child(input(&self.settings.cleanup_endpoint, p)),
                     Setting::new("Model").child(model_field(
@@ -1157,6 +1218,14 @@ impl MainWindow {
                 ]);
             }
             models.push(panel(editing, p));
+        }
+        if local_speech || local_editing {
+            models.push(panel(
+                [Setting::new("Unload when idle")
+                    .description("Frees on-device model memory after this long unused.")
+                    .child(unload)],
+                p,
+            ));
         }
         let shortcuts = vec![panel(
             [

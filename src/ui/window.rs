@@ -125,12 +125,18 @@ impl MainWindow {
         cx.observe_in(&state, window, |this, _, window, cx| {
             this.settings.refresh(&this.state, window, cx);
             this.sync_app_instructions(window, cx);
-            if this.onboarding.pending_key {
-                if this.state.read(cx).key_hint == "Saved in keyring" {
-                    this.onboarding.pending_key = false;
+            if let Some(editing) = this.onboarding.pending_key {
+                let s = this.state.read(cx);
+                let hint = if editing {
+                    &s.editing_key_hint
+                } else {
+                    &s.key_hint
+                };
+                if hint == "Saved in keyring" {
+                    this.onboarding.pending_key = None;
                     this.onboarding_next(false, window, cx);
-                } else if this.state.read(cx).save_error.is_some() {
-                    this.onboarding.pending_key = false;
+                } else if s.save_error.is_some() {
+                    this.onboarding.pending_key = None;
                 }
             }
             theme::apply(this.state.read(cx).config.theme, window.appearance(), cx);

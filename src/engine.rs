@@ -1047,15 +1047,9 @@ fn run(
                 reply_visible = false;
                 let _ = events.try_send(Event::DismissReply);
                 watch = None;
-                if config.transcription == crate::config::Source::Local {
-                    if start_mode == Mode::Command {
-                        report_error(&events, crate::pipeline::LOCAL_COMMAND);
-                        continue;
-                    }
-                    if start_mode == Mode::Translate {
-                        report_error(&events, crate::pipeline::LOCAL_TRANSLATE);
-                        continue;
-                    }
+                if let Some(error) = crate::pipeline::unavailable(&config, start_mode) {
+                    report_error(&events, error);
+                    continue;
                 }
                 monitor = None;
                 stream = match config.transcription {
@@ -1107,9 +1101,7 @@ fn run(
                             String::new()
                         };
                         context = (start_mode, app, selection);
-                        if config.transcription == crate::config::Source::Local {
-                            crate::local::prewarm(&config);
-                        }
+                        crate::local::prewarm(&config);
                         crate::http::prewarm(&config);
                         effects = crate::media::ListeningEffects::start(
                             config.sounds,

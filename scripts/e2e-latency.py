@@ -16,6 +16,9 @@ import subprocess
 import time
 
 
+SOURCES = {'local': 'local', 'key': 'ownkey'}
+
+
 def command(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
@@ -56,11 +59,13 @@ def prepare(args):
     edit('src/engine.rs', '    let tx = tx.clone();\n    match HotkeyService::start', '''    if std::env::var_os("TYPEASIDE_LATENCY_OUTPUT").is_some() { return None; }
     let tx = tx.clone();
     match HotkeyService::start''')
-    edit('src/local/mod.rs', '''    if config.transcription == crate::config::Source::Local {
-        prewarm(config);''', '''    if config.transcription == crate::config::Source::Local {
-        if std::env::var("TYPEASIDE_LATENCY_COLD").as_deref() != Ok("1") {
+    edit('src/local/mod.rs', '''        prewarm(config);
+    } else {
+        let _ = sender().send(Request::Unload(None));''', '''        if std::env::var("TYPEASIDE_LATENCY_COLD").as_deref() != Ok("1") {
             prewarm(config);
-        }''')
+        }
+    } else {
+        let _ = sender().send(Request::Unload(None));''')
     edit('src/local/mod.rs', '''        let mut child = Command::new(executable)
             .arg("--local-worker")''', '''        let mut child = Command::new(executable)
             .envs(std::env::var_os("TYPEASIDE_LATENCY_WORKER_ICD").into_iter().flat_map(|icd| [
@@ -118,9 +123,7 @@ def prepare(args):
                 let started = std::time::Instant::now();
                 let status = llama_decode(ctx, batch);
                 if prefill { eprintln!("PREFILL cached={} tokens={} ms={}", shared, tokens.len(), started.elapsed().as_micros() as f64 / 1000.0); }''')
-        edit('src/local/mod.rs', 'let mut cleanup = None;', '''let mut cleanup = if std::env::var("TA_PRELOAD_CLEANUP").as_deref() == Ok("1") {
-        Some(cleanup::Model::load()?)
-    } else { None };''')
+        edit('src/local/mod.rs', '        Some(_) => None,', '''        Some(_) if std::env::var("TA_PRELOAD_CLEANUP").as_deref() != Ok("1") => None,''')
     (args.scratch / 'instrumentation.patch').write_text(''.join(patches))
     (args.scratch / 'revision.txt').write_bytes(subprocess.check_output(['git', 'rev-parse', args.ref]))
     print(source)
@@ -169,8 +172,9 @@ def run(args):
     config_dir = home / 'config'
     config_dir.mkdir(exist_ok=True)
     config = dict(hotkey='LEFTCTRL+LEFTSHIFT+RIGHTALT+F24',
-                  transcription='local', local_model=args.model, language='en',
-                  input_devices=['default'], cleanup=dict(enabled=args.editing),
+                  transcription=SOURCES[args.speech], local_model=args.model, language='en',
+                  input_devices=['default'],
+                  cleanup=dict(enabled=args.editing, source=SOURCES[args.editing_source]),
                   sounds=False, media_control='off', auto_learn=False, screen_context=False,
                   auto_submit=False, send_command=False, onboarded=True, launch_at_login=False,
                   command_hotkey=None, translate_hotkey=None, note_hotkey=None,
@@ -207,16 +211,30 @@ def run(args):
         time.sleep(2)
 
     try:
-        bus_config = args.scratch / 'bus.conf'
-        bus_config.write_text(f'''<busconfig><type>session</type>
+        if args.speech == 'key' or (args.editing and args.editing_source == 'key'):
+            # API keys live in the user's keyring; the proxy exposes only the Secret Service.
+            proxy = runtime / 'bus'
+            proxy.unlink(missing_ok=True)
+            bus = subprocess.Popen(['xdg-dbus-proxy', os.environ['DBUS_SESSION_BUS_ADDRESS'],
+                                    str(proxy), '--filter', '--talk=org.freedesktop.secrets'],
+                                   stderr=log)
+            deadline = time.monotonic() + 5
+            while not proxy.exists():
+                if bus.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError('Keyring D-Bus proxy did not start')
+                time.sleep(.05)
+            address = f'unix:path={proxy}'
+        else:
+            bus_config = args.scratch / 'bus.conf'
+            bus_config.write_text(f'''<busconfig><type>session</type>
 <listen>unix:tmpdir={runtime}</listen><auth>EXTERNAL</auth>
 <policy context="default"><allow send_destination="*"/>
 <allow receive_sender="*"/><allow own="*"/></policy></busconfig>''')
-        bus = subprocess.Popen(['dbus-daemon', '--nofork', '--print-address=1',
-                                '--config-file=' + str(bus_config)], stdout=subprocess.PIPE, stderr=log)
-        address = bus.stdout.readline().decode().strip()
-        if not address:
-            raise RuntimeError('Private D-Bus session did not start')
+            bus = subprocess.Popen(['dbus-daemon', '--nofork', '--print-address=1',
+                                    '--config-file=' + str(bus_config)], stdout=subprocess.PIPE, stderr=log)
+            address = bus.stdout.readline().decode().strip()
+            if not address:
+                raise RuntimeError('Private D-Bus session did not start')
         env['DBUS_SESSION_BUS_ADDRESS'] = address
         for clip in args.clips:
             for iteration in range(args.runs + (not args.cold)):
@@ -271,6 +289,7 @@ def run(args):
                 result['vad_gate'] = re.findall(r'LATENCY vad_gate quiet=(true|false) elapsed_us=(\d+)', trace)
                 result.update(clip=clip.name, iteration=iteration, cold=args.cold,
                               editing=args.editing, device=args.device, model=args.model,
+                              speech=args.speech, editing_source=args.editing_source,
                               stop_ns=stop_ns, elapsed_ms=(result['delivered_ns'] - stop_ns) / 1e6,
                               warmup=not args.cold and iteration == 0,
                               settle_ms=args.settle_ms,
@@ -304,6 +323,8 @@ def main():
     parser.add_argument('--model', default='parakeet-v3')
     parser.add_argument('--icd', type=Path, help='Scope worker Vulkan enumeration; the UI keeps its default GPU')
     parser.add_argument('--editing', action='store_true')
+    parser.add_argument('--speech', choices=SOURCES, default='local')
+    parser.add_argument('--editing-source', choices=SOURCES, default='local')
     parser.add_argument('--cold', action='store_true', help='Restart with models unloaded until key press')
     parser.add_argument('--runs', type=int, default=5)
     parser.add_argument('--settle-ms', type=int, default=600, help='Capture settle time; 0 waits for the listening trace')

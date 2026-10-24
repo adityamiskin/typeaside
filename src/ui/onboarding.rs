@@ -1,21 +1,24 @@
 use super::{
+    AppState,
     motion::Spring,
-    settings::Toggle,
+    settings::{DownloadTarget, Toggle},
     theme::*,
     window::{MainWindow, Page, Shortcut},
 };
 use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, img, prelude::*, px};
-use gpui_kit::component::input::Input;
+use gpui_kit::component::input::{Input, InputState};
 use std::time::Instant;
 use typeaside::{
     config::{RecordingMode, Source},
     engine::{Command, Phase},
+    local::{CleanupModel, Status},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Welcome,
-    ApiKey,
+    Speech,
+    Editing,
     Permissions,
     Microphone,
     Practice,
@@ -27,18 +30,20 @@ impl Step {
             return Self::Welcome;
         }
         match std::env::var("TYPEASIDE_DEMO_STEP").as_deref() {
-            Ok("1") => Self::ApiKey,
-            Ok("2") => Self::Permissions,
-            Ok("3") => Self::Microphone,
-            Ok("4") => Self::Practice,
-            Ok("5") => Self::Done,
+            Ok("1") => Self::Speech,
+            Ok("2") => Self::Editing,
+            Ok("3") => Self::Permissions,
+            Ok("4") => Self::Microphone,
+            Ok("5") => Self::Practice,
+            Ok("6") => Self::Done,
             _ => Self::Welcome,
         }
     }
 }
 pub struct Onboarding {
     steps: Vec<Step>,
-    pub pending_key: bool,
+    /// The key being saved before Continue advances; true for the editing key.
+    pub pending_key: Option<bool>,
     slide: Spring,
     direction: f32,
     entered: Instant,
@@ -51,8 +56,8 @@ pub struct Onboarding {
 }
 impl Onboarding {
     pub fn visible_steps(demo: bool) -> Vec<Step> {
-        let mut steps = vec![Step::Welcome, Step::ApiKey];
-        let permissions = demo && std::env::var("TYPEASIDE_DEMO_STEP").as_deref() == Ok("2");
+        let mut steps = vec![Step::Welcome, Step::Speech, Step::Editing];
+        let permissions = demo && std::env::var("TYPEASIDE_DEMO_STEP").as_deref() == Ok("3");
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         let permissions = permissions || !super::permissions::statuses().into_iter().all(|s| s);
         if permissions {
@@ -65,7 +70,7 @@ impl Onboarding {
         let mut slide = Spring::new(0.);
         slide.target = 1.;
         Self {
-            pending_key: false,
+            pending_key: None,
             steps,
             slide,
             direction: 1.,
@@ -97,7 +102,7 @@ fn title(value: &'static str, p: Palette) -> gpui::Div {
         .line_height(px(34.))
         .font_weight(FontWeight::SEMIBOLD)
 }
-fn sub(value: &'static str, p: Palette) -> gpui::Div {
+fn sub(value: impl Into<gpui::SharedString>, p: Palette) -> gpui::Div {
     text(value, 14., p.muted)
         .line_height(px(21.))
         .max_w(px(380.))
@@ -119,6 +124,78 @@ fn pill(label: &'static str, primary: bool, big: bool, p: Palette) -> gpui::Div 
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
         .child(label)
+}
+fn choice(
+    id: &'static str,
+    selected: bool,
+    name: &'static str,
+    detail: impl Into<gpui::SharedString>,
+    aside: Option<String>,
+    p: Palette,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .h(px(60.))
+        .w_full()
+        .border_t_1()
+        .border_color(p.divider)
+        .flex()
+        .items_center()
+        .gap(px(14.))
+        .text_left()
+        .cursor_pointer()
+        .child(
+            div()
+                .size(px(18.))
+                .flex_shrink_0()
+                .rounded_full()
+                .border_1()
+                .border_color(if selected { p.blue } else { p.faint })
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(selected, |d| {
+                    d.child(div().size(px(10.)).rounded_full().bg(p.blue))
+                }),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(text(name, 14., p.fg).font_weight(FontWeight::SEMIBOLD))
+                .child(text(detail, 12., p.muted).mt(px(2.))),
+        )
+        .children(aside.map(|aside| text(aside, 12., p.muted)))
+}
+fn field(label: &'static str, input: &gpui::Entity<InputState>, p: Palette) -> gpui::Div {
+    div()
+        .w_full()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .child(text(label, 13., p.muted).w(px(64.)).text_left())
+        .child(
+            Input::new(input)
+                .min_h(px(34.))
+                .max_h(px(34.))
+                .flex_1()
+                .rounded(px(8.))
+                .text_size(px(13.))
+                .bg(p.bg),
+        )
+}
+fn download_aside(status: Status, size_mb: u64) -> String {
+    match status {
+        Status::Installed => "Installed".into(),
+        Status::Downloading(percent) => format!("{percent}%"),
+        Status::Failed => "Failed".into(),
+        Status::NotInstalled => format!("{size_mb} MB"),
+    }
+}
+/// The chosen model's status while on-device speech has nothing installed to dictate with.
+fn speech_download(s: &AppState) -> Option<Status> {
+    (s.config.transcription == Source::Local && !s.models.contains(&Status::Installed))
+        .then(|| s.models[s.config.local_model.index()])
 }
 fn bars(level: f32, height: f32, count: usize, p: Palette) -> gpui::Div {
     const SHAPE: [f32; 28] = [
@@ -143,12 +220,20 @@ impl MainWindow {
         if self.state.read(cx).config.onboarded {
             return;
         }
-        if self.state.read(cx).is_demo {
+        if !self.state.read(cx).is_demo {
+            let source = if typeaside::local::AVAILABLE {
+                Source::Local
+            } else {
+                Source::OwnKey
+            };
+            self.state.update(cx, |s, _| {
+                s.config.transcription = source;
+                s.config.cleanup.source = source;
+            });
+        } else {
             self.onboarding.intro_time = super::demo::intro_time();
             self.state.update(cx, |s, _| {
-                s.onboarding_own_key = true;
-                s.config.transcription = Source::OwnKey;
-                if s.onboarding_step == Step::Practice {
+                if s.onboarding_step == Step::Practice && speech_download(s).is_none() {
                     if std::env::var("TYPEASIDE_DEMO_PRACTICE").as_deref() == Ok("listening") {
                         s.phase = Phase::Listening(typeaside::engine::Mode::Dictate);
                     } else {
@@ -170,8 +255,11 @@ impl MainWindow {
         self.onboarding.slide = Spring::new(0.);
         self.onboarding.slide.target = 1.;
         self.capture = None;
-        self.onboarding.pending_key = false;
+        self.onboarding.pending_key = None;
         let step = self.state.read(cx).onboarding_step;
+        if step == Step::Practice {
+            self.start_downloads(true, cx);
+        }
         self.onboarding.welcome_intro = step == Step::Welcome && !self.onboarding.welcome_shown;
         self.state.update(cx, |s, cx| {
             s.mic_testing = step == Step::Microphone;
@@ -188,8 +276,14 @@ impl MainWindow {
     fn onboarding_ready(&self, cx: &Context<Self>) -> bool {
         let s = self.state.read(cx);
         match s.onboarding_step {
-            Step::ApiKey => {
+            Step::Speech if s.config.transcription == Source::OwnKey => {
                 !self.settings.key.read(cx).value().is_empty() || s.key_hint == "Saved in keyring"
+            }
+            Step::Editing
+                if s.config.cleanup.enabled && s.config.cleanup.source == Source::OwnKey =>
+            {
+                !self.settings.cleanup_key.read(cx).value().is_empty()
+                    || s.editing_key_hint == "Saved in keyring"
             }
             Step::Permissions => self.permission_status(cx).into_iter().all(|s| s),
             Step::Microphone => s.onboarding_heard,
@@ -237,17 +331,25 @@ impl MainWindow {
             self.finish_onboarding(w, cx);
             return;
         }
-        if step == Step::ApiKey && self.state.read(cx).onboarding_own_key {
-            if !self.settings.key.read(cx).value().is_empty() {
-                self.onboarding.pending_key = true;
-                self.save_key(false, w, cx);
+        if matches!(step, Step::Speech | Step::Editing) {
+            let editing = step == Step::Editing;
+            let c = &self.state.read(cx).config;
+            let uses_key = if editing {
+                c.cleanup.enabled && c.cleanup.source == Source::OwnKey
+            } else {
+                c.transcription == Source::OwnKey
+            };
+            let input = if editing {
+                &self.settings.cleanup_key
+            } else {
+                &self.settings.key
+            };
+            if uses_key && !input.read(cx).value().is_empty() {
+                self.onboarding.pending_key = Some(editing);
+                self.save_key(editing, w, cx);
                 return;
             }
-            if self.state.read(cx).key_hint != "Saved in keyring" {
-                return;
-            }
-        }
-        if step == Step::ApiKey {
+            self.start_downloads(editing, cx);
             self.state.update(cx, |s, _| s.persist());
         }
         if let Some(index) = self.onboarding.steps.iter().position(|s| *s == step)
@@ -256,6 +358,22 @@ impl MainWindow {
             self.state.update(cx, |s, _| s.onboarding_step = next);
             self.onboarding.direction = 1.;
             self.onboarding_enter(cx);
+        }
+    }
+    /// Starts the on-device downloads chosen so far; they continue through the later steps.
+    fn start_downloads(&mut self, cleanup: bool, cx: &mut Context<Self>) {
+        let s = self.state.read(cx);
+        if s.is_demo {
+            return;
+        }
+        let missing = |status| matches!(status, Status::NotInstalled | Status::Failed);
+        let speech = speech_download(s)
+            .filter(|status| missing(*status))
+            .map(|_| DownloadTarget::Speech(s.config.local_model));
+        let cleanup = (cleanup && s.config.local_editing() && missing(s.cleanup_model))
+            .then_some(DownloadTarget::Cleanup);
+        for target in speech.into_iter().chain(cleanup) {
+            self.download_model(target, cx);
         }
     }
     pub fn onboarding_back(&mut self, cx: &mut Context<Self>) {
@@ -474,22 +592,167 @@ impl MainWindow {
                         .top(px(10. * (1. - reveal(2.6))))
                         .opacity(reveal(2.6)),
                 ),
-            Step::ApiKey => {
-                col.child(title("Add a speech API key", p))
+            Step::Speech => {
+                let local = s.config.transcription == Source::Local;
+                let model = s.config.local_model;
+                let set = |source| {
+                    cx.listener(move |this, _, _, cx| {
+                        this.state.update(cx, |s, cx| {
+                            s.config.transcription = source;
+                            s.config.cleanup.source = source;
+                            cx.notify();
+                        });
+                    })
+                };
+                col.child(title("Where should speech run?", p))
+                    .child(sub("You can change this later in Settings.", p))
+                    .child(
+                        div()
+                            .w_full()
+                            .mt(px(28.))
+                            .border_b_1()
+                            .border_color(p.divider)
+                            .when(typeaside::local::AVAILABLE, |list| {
+                                list.child(
+                                    choice(
+                                        "speech-local",
+                                        local,
+                                        "On this computer",
+                                        format!(
+                                            "{}, {}. Private, works offline.",
+                                            model.label(),
+                                            model.description()
+                                        ),
+                                        Some(download_aside(
+                                            s.models[model.index()],
+                                            model.size_mb(),
+                                        )),
+                                        p,
+                                    )
+                                    .on_click(set(Source::Local)),
+                                )
+                            })
+                            .child(
+                                choice(
+                                    "speech-key",
+                                    !local,
+                                    "API key",
+                                    "Groq or any OpenAI-compatible endpoint.",
+                                    None,
+                                    p,
+                                )
+                                .on_click(set(Source::OwnKey)),
+                            ),
+                    )
+                    .child(if local {
+                        text(
+                            if s.models[model.index()] == Status::Installed {
+                                ""
+                            } else {
+                                "Downloads while you finish setup."
+                            },
+                            12.,
+                            p.faint,
+                        )
+                        .h(px(84.))
+                        .mt(px(14.))
+                    } else {
+                        div()
+                            .w_full()
+                            .h(px(84.))
+                            .mt(px(14.))
+                            .flex()
+                            .flex_col()
+                            .gap(px(8.))
+                            .child(field("Endpoint", &self.settings.endpoint, p))
+                            .child(field("API key", &self.settings.key, p))
+                    })
+            }
+            Step::Editing => {
+                let c = &s.config;
+                let local = c.cleanup.enabled && c.cleanup.source == Source::Local;
+                let key = c.cleanup.enabled && c.cleanup.source == Source::OwnKey;
+                let reuse = (s.editing_key_hint == "Saved in keyring")
+                    .then(|| {
+                        typeaside::credentials::endpoint_host(&c.cleanup.endpoint.base_url).ok()
+                    })
+                    .flatten();
+                let set = |source: Option<Source>| {
+                    cx.listener(move |this, _, _, cx| {
+                        this.state.update(cx, |s, cx| {
+                            s.config.cleanup.enabled = source.is_some();
+                            if let Some(source) = source {
+                                s.config.cleanup.source = source;
+                            }
+                            cx.notify();
+                        });
+                    })
+                };
+                col.child(title("AI editing", p))
                     .child(sub(
-                        "Bring a key from Groq or any OpenAI-compatible endpoint. You can also run a model on this computer, later in Settings.",
+                        "Fixes punctuation, fillers and lists after you speak.",
                         p,
                     ))
                     .child(
-                        div().w(px(360.)).mt(px(24.)).child(
-                            Input::new(&self.settings.key)
-                                .min_h(px(34.))
-                                .max_h(px(34.))
-                                .w_full()
-                                .rounded(px(8.))
-                                .text_size(px(13.))
-                                .bg(p.bg),
-                        ),
+                        div()
+                            .w_full()
+                            .mt(px(28.))
+                            .border_b_1()
+                            .border_color(p.divider)
+                            .when(typeaside::local::AVAILABLE, |list| {
+                                list.child(
+                                    choice(
+                                        "editing-local",
+                                        local,
+                                        "On this computer",
+                                        format!("{}. English only.", CleanupModel::LABEL),
+                                        Some(download_aside(
+                                            s.cleanup_model,
+                                            CleanupModel::size_mb(),
+                                        )),
+                                        p,
+                                    )
+                                    .on_click(set(Some(Source::Local))),
+                                )
+                            })
+                            .child(
+                                choice(
+                                    "editing-key",
+                                    key,
+                                    "API key",
+                                    match &reuse {
+                                        Some(host) => format!("Uses your saved key for {host}."),
+                                        None => "Any OpenAI-compatible endpoint.".into(),
+                                    },
+                                    None,
+                                    p,
+                                )
+                                .on_click(set(Some(Source::OwnKey))),
+                            )
+                            .child(
+                                choice(
+                                    "editing-off",
+                                    !c.cleanup.enabled,
+                                    "Off",
+                                    "Types the transcript as recognized.",
+                                    None,
+                                    p,
+                                )
+                                .on_click(set(None)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .h(px(84.))
+                            .mt(px(14.))
+                            .flex()
+                            .flex_col()
+                            .gap(px(8.))
+                            .when(key && reuse.is_none(), |d| {
+                                d.child(field("Endpoint", &self.settings.cleanup_endpoint, p))
+                                    .child(field("API key", &self.settings.cleanup_key, p))
+                            }),
                     )
             }
             Step::Permissions => {
@@ -615,8 +878,72 @@ impl MainWindow {
                             ))
                         }),
                 ),
+            Step::Practice if let Some(status) = speech_download(s) => {
+                let model = s.config.local_model;
+                let percent = match status {
+                    Status::Downloading(percent) => percent,
+                    _ => 0,
+                };
+                col.child(title("Getting speech ready", p))
+                    .child(sub(
+                        format!(
+                            "Practice starts when {} finishes downloading.",
+                            model.label()
+                        ),
+                        p,
+                    ))
+                    .child(
+                        div()
+                            .w(px(360.))
+                            .h(px(6.))
+                            .mt(px(32.))
+                            .rounded(px(3.))
+                            .bg(p.fg.opacity(0.14))
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(px(3.6 * f32::from(percent)))
+                                    .rounded(px(3.))
+                                    .bg(p.blue),
+                            ),
+                    )
+                    .child(match status {
+                        Status::Failed => div()
+                            .mt(px(12.))
+                            .flex()
+                            .gap(px(8.))
+                            .child(text("Download failed.", 12., p.red))
+                            .child(
+                                text("Retry", 12., p.blue)
+                                    .id("retry-download")
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.download_model(DownloadTarget::Speech(model), cx)
+                                    })),
+                            ),
+                        _ => text(
+                            format!("{percent}% of {} MB", model.size_mb()),
+                            12.,
+                            p.muted,
+                        )
+                        .mt(px(12.)),
+                    })
+            }
             Step::Practice => {
                 let listening = matches!(s.phase, Phase::Listening(_));
+                let cleanup_pending = (s.config.local_editing()
+                    && s.cleanup_model != Status::Installed)
+                    .then(|| match s.cleanup_model {
+                        Status::Downloading(percent) => format!(
+                            "AI editing starts once {} finishes downloading, {percent}%.",
+                            CleanupModel::LABEL
+                        ),
+                        Status::Failed => format!(
+                            "{} failed to download. Retry in Settings.",
+                            CleanupModel::LABEL
+                        ),
+                        _ => format!("AI editing starts once {} downloads.", CleanupModel::LABEL),
+                    });
                 let caption = s
                     .onboarding_raw
                     .as_ref()
@@ -747,6 +1074,9 @@ impl MainWindow {
                             )
                         }),
                 )
+                .children(
+                    cleanup_pending.map(|note| text(note, 12., p.muted).h(px(16.)).mt(px(6.))),
+                )
             }
             Step::Done => {
                 let login = s.config.launch_at_login;
@@ -810,7 +1140,7 @@ impl MainWindow {
                                 .justify_between()
                                 .child(text("Open at login", 13., p.fg))
                                 .child(self.toggle("onboarding-login", login, Toggle::Login, cx)),
-                        )
+                        ),
                 )
                 .child(
                     div().mt(px(28.)).child(

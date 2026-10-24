@@ -28,10 +28,10 @@ pub struct AppState {
     models: [typeaside::local::Status; typeaside::local::ModelId::ALL.len()],
     cleanup_model: typeaside::local::Status,
     model_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    download_queue: Vec<settings::DownloadTarget>,
     update: Option<typeaside::update::Release>,
     update_status: update::Toast,
     update_dismissed: bool,
-    onboarding_own_key: bool,
     config: AppConfig,
     paths: AppPaths,
     engine: Option<Engine>,
@@ -250,17 +250,17 @@ fn start_ui(
             }
         }),
         cleanup_model: if is_demo {
-            typeaside::local::Status::NotInstalled
+            demo::cleanup_model()
         } else if typeaside::local::CleanupModel::installed() {
             typeaside::local::Status::Installed
         } else {
             typeaside::local::Status::NotInstalled
         },
         model_cancel: None,
+        download_queue: Vec::new(),
         update,
         update_status,
         update_dismissed: false,
-        onboarding_own_key: false,
         config,
         paths,
         engine: None,

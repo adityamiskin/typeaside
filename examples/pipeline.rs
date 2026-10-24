@@ -389,6 +389,7 @@ fn main() -> Result<()> {
         }
         if flag == "--local" {
             config.transcription = typeaside::config::Source::Local;
+            config.cleanup.source = typeaside::config::Source::Local;
             continue;
         }
         if flag == "--file" {

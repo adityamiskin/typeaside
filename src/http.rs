@@ -14,18 +14,20 @@ pub(crate) fn client() -> &'static Client {
 }
 
 pub(crate) fn prewarm(config: &AppConfig) {
-    if config.transcription == crate::config::Source::Local {
-        return;
-    }
-    let endpoints: Vec<_> = [&config.stt, &config.cleanup.endpoint]
-        .into_iter()
-        .map(|endpoint| {
-            (
-                format!("{}/models", endpoint.base_url.trim_end_matches('/')),
-                endpoint.base_url.clone(),
-            )
-        })
-        .collect();
+    use crate::config::Source;
+    let endpoints: Vec<_> = [
+        (config.transcription == Source::OwnKey).then_some(&config.stt),
+        (config.cleanup.source == Source::OwnKey).then_some(&config.cleanup.endpoint),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|endpoint| {
+        (
+            format!("{}/models", endpoint.base_url.trim_end_matches('/')),
+            endpoint.base_url.clone(),
+        )
+    })
+    .collect();
     for (url, base_url) in endpoints {
         let _ = std::thread::Builder::new()
             .name("typeaside-prewarm".into())

@@ -1,16 +1,21 @@
 ---
 title: Transcription
-description: Run models on-device or connect your own provider.
+description: Run speech and AI editing on-device or through your own provider.
 ---
+
+TypeAside has two stages, and each runs either on this computer or through your API key. **Settings → Dictation** has a **Speech** panel and an **AI editing** panel, each with an **API key | On device** switch. Any combination works, for example speech through Groq with AI editing on device.
+
+## On device
+
+Select **On device** and download a model from the list. Speech can be switched to On device before a model is installed; dictation then asks you to download one. On-device AI editing uses S1-mini by Superwhisper, English only. **Unload when idle** frees model memory and appears whenever a stage runs on device.
 
 ## Bring your own key
 
-1. Select **Own key** under **Transcription → Source**.
+1. Select **API key** in the **Speech** or **AI editing** panel.
 2. Set **Endpoint** to your provider's OpenAI-compatible base URL, including its API prefix, such as `https://api.groq.com/openai/v1`.
-3. Enter the provider's transcription **Model** and **API key**. Leave the key field or press Enter to save it.
-4. If you use AI editing or voice commands, configure the **Editing** endpoint, model, and key too.
+3. Enter the **Model** and **API key**. Leave the key field or press Enter to save it.
 
-The transcription endpoint must accept `/audio/transcriptions`; the editing endpoint must accept `/chat/completions`. Check model names with your provider. BYOK requests go directly from TypeAside to the configured provider.
+The speech endpoint must accept `/audio/transcriptions`; the editing endpoint must accept `/chat/completions`. Check model names with your provider. BYOK requests go directly from TypeAside to the configured provider. **Ask anything** and **Translate** always use the editing endpoint and its key, even when AI editing runs on device.
 
 ## Key storage
 
