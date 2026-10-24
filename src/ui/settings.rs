@@ -1077,14 +1077,18 @@ impl MainWindow {
                 )
             })
             .collect::<Vec<_>>();
-        let source = |current: Source, set: fn(&mut AppConfig, Source), cx: &mut Context<Self>| {
-            segmented(
+        // Both stages share these labels, so each control needs its own id scope.
+        let source = |id: &'static str,
+                      current: Source,
+                      set: fn(&mut AppConfig, Source),
+                      cx: &mut Context<Self>| {
+            div().id(id).child(segmented(
                 [(Source::OwnKey, "API key"), (Source::Local, "On device")],
                 current,
                 p,
                 cx,
                 move |this, value, _, cx| this.state.update(cx, |s, _| set(&mut s.config, value)),
-            )
+            ))
         };
         let unload = segmented(
             [
@@ -1112,7 +1116,12 @@ impl MainWindow {
                         )
                     })
                     .when(available, |row| {
-                        row.child(source(c.transcription, |c, v| c.transcription = v, cx))
+                        row.child(source(
+                            "speech-source",
+                            c.transcription,
+                            |c, v| c.transcription = v,
+                            cx,
+                        ))
                     }),
             ];
             if local_speech {
@@ -1139,7 +1148,7 @@ impl MainWindow {
                         "Fixes fillers, punctuation and lists."
                     })
                     .when(available && c.cleanup.enabled, |row| {
-                        row.child(source(c.cleanup.source, |c, v| c.cleanup.source = v, cx))
+                        row.child(source("editing-source", c.cleanup.source, |c, v| c.cleanup.source = v, cx))
                     })
                     .child(self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx)),
             ];
