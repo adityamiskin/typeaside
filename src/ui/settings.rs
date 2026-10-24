@@ -217,13 +217,11 @@ impl SettingsInputs {
         let endpoints = [
             (s.config.transcription == Source::OwnKey)
                 .then(|| (false, s.config.stt.base_url.clone(), stt.clone())),
-            (s.config.cleanup.source == Source::OwnKey).then(|| {
-                (
-                    true,
-                    s.config.cleanup.endpoint.base_url.clone(),
-                    editing.clone(),
-                )
-            }),
+            Some((
+                true,
+                s.config.cleanup.endpoint.base_url.clone(),
+                editing.clone(),
+            )),
         ];
         let available: Vec<_> = s
             .devices
@@ -1143,12 +1141,17 @@ impl MainWindow {
             let mut editing = vec![
                 Setting::new("AI editing")
                     .description(if local_editing {
-                        "English only. Skips code apps. Ask anything and Translate still use an API key."
+                        "English only. Skips code apps."
                     } else {
                         "Fixes fillers, punctuation and lists."
                     })
                     .when(available && c.cleanup.enabled, |row| {
-                        row.child(source("editing-source", c.cleanup.source, |c, v| c.cleanup.source = v, cx))
+                        row.child(source(
+                            "editing-source",
+                            c.cleanup.source,
+                            |c, v| c.cleanup.source = v,
+                            cx,
+                        ))
                     })
                     .child(self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx)),
             ];
@@ -1206,18 +1209,32 @@ impl MainWindow {
                                 })),
                         ),
                 );
-            } else if c.cleanup.enabled {
-                editing.extend([
-                    Setting::new("Endpoint").child(input(&self.settings.cleanup_endpoint, p)),
-                    Setting::new("Model").child(model_field(
-                        &self.settings.cleanup_models,
-                        &self.settings.cleanup_model,
-                        p,
-                    )),
-                    Setting::new("API key").child(input(&self.settings.cleanup_key, p)),
-                ]);
             }
-            models.push(panel(editing, p));
+            // Ask anything and Translate always use this endpoint, so it stays reachable
+            // when AI editing runs on device or is off.
+            let chat = [
+                Setting::new("Endpoint").child(input(&self.settings.cleanup_endpoint, p)),
+                Setting::new("Model").child(model_field(
+                    &self.settings.cleanup_models,
+                    &self.settings.cleanup_model,
+                    p,
+                )),
+                Setting::new("API key").child(input(&self.settings.cleanup_key, p)),
+            ];
+            if c.cleanup.enabled && !local_editing {
+                editing.extend(chat);
+                models.push(panel(editing, p));
+            } else {
+                models.push(panel(editing, p));
+                models.push(panel(
+                    std::iter::once(
+                        Setting::new("Ask anything and Translate")
+                            .description("Run through this endpoint and key."),
+                    )
+                    .chain(chat),
+                    p,
+                ));
+            }
         }
         if local_speech || local_editing {
             models.push(panel(
