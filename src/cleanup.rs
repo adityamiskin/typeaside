@@ -78,6 +78,8 @@ pub(crate) fn remove_fillers(text: &str, language: Option<&str>) -> String {
         .join(" ")
 }
 
+pub(crate) const MAX_LENGTH_RATIO: f64 = 1.3;
+
 pub(crate) fn checked_output(raw: &str, output: Result<String>, translation: bool) -> String {
     let output = match output {
         Ok(output) => output,
@@ -95,7 +97,7 @@ pub(crate) fn checked_output(raw: &str, output: Result<String>, translation: boo
     let reply = ["sure", "here", "certainly", "of course", "as an ai"]
         .iter()
         .any(|prefix| lower.starts_with(prefix) && !raw_lower.starts_with(prefix));
-    if output.is_empty() || (!translation && !(0.25..=1.3).contains(&ratio)) || reply {
+    if output.is_empty() || (!translation && !(0.25..=MAX_LENGTH_RATIO).contains(&ratio)) || reply {
         raw.into()
     } else {
         output.into()

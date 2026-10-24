@@ -134,6 +134,7 @@ pub(super) struct Model {
     // Context must be freed before its weights.
     context: ContextHandle,
     weights: Weights,
+    prompt: Vec<llama_token>,
 }
 impl Model {
     pub fn load() -> Result<Self> {
@@ -172,7 +173,11 @@ impl Model {
                 NonNull::new(llama_init_from_model(weights.0.as_ptr(), params))
                     .context("Create S1-mini by Superwhisper context")?,
             );
-            Ok(Self { context, weights })
+            Ok(Self {
+                context,
+                weights,
+                prompt: Vec::new(),
+            })
         }
     }
 
@@ -200,13 +205,30 @@ impl Model {
                 "Transcript exceeds cleanup context budget"
             );
             tokens.truncate(count as usize);
-            llama_memory_clear(llama_get_memory(ctx), true);
+            let previous = std::mem::take(&mut self.prompt);
+            // Keep matching prompt KV, but decode the last token again to refresh logits.
+            let shared = previous
+                .iter()
+                .zip(&tokens)
+                .take_while(|(a, b)| a == b)
+                .count()
+                .min(tokens.len() - 1);
+            let memory = llama_get_memory(ctx);
+            let shared = if shared > 0 && llama_memory_seq_rm(memory, 0, shared as i32, -1) {
+                shared
+            } else {
+                llama_memory_clear(memory, true);
+                0
+            };
+            let prompt = tokens.clone();
+            tokens.drain(..shared);
             let sampler = Sampler(
                 NonNull::new(llama_sampler_init_greedy()).context("Create greedy sampler")?,
             );
             // English averages about 4 bytes per token and the output guard rejects anything
             // past 1.3x the input's length, so longer generation is wasted latency.
             let limit = (raw.len() / 2 + 32).min(MAX_OUTPUT);
+            let input_chars = raw.chars().count().max(1) as f64;
             let mut output = Vec::new();
             for _ in 0..limit {
                 let batch = llama_batch_get_one(tokens.as_mut_ptr(), tokens.len().try_into()?);
@@ -215,6 +237,9 @@ impl Model {
                     status == 0,
                     "S1-mini by Superwhisper decode failed: {status}"
                 );
+                if self.prompt.is_empty() {
+                    self.prompt.clone_from(&prompt);
+                }
                 let token = llama_sampler_sample(sampler.0.as_ptr(), ctx, -1);
                 if llama_vocab_is_eog(vocab, token) {
                     return Ok(String::from_utf8(output)?);
@@ -244,6 +269,14 @@ impl Model {
                 }
                 ensure!(n >= 0, "Token detokenization failed");
                 output.extend_from_slice(&piece[..n as usize]);
+                // An immutable prefix past the caller's length guard cannot become valid later.
+                ensure!(
+                    !std::str::from_utf8(&output).is_ok_and(|text| {
+                        text.trim().chars().count() as f64 / input_chars
+                            > crate::cleanup::MAX_LENGTH_RATIO
+                    }),
+                    "Cleanup output exceeds length guard"
+                );
                 tokens.clear();
                 tokens.push(token);
             }

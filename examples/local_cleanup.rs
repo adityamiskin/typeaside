@@ -211,10 +211,10 @@ fn main() -> Result<()> {
     )?;
     ensure!(
         output.text == output.raw,
-        "Generation-limit fallback must preserve the speech transcript"
+        "Cleanup-limit fallback must preserve the speech transcript"
     );
     println!(
-        "generation-limit fallback: {:?} | cleanup_ms={}",
+        "cleanup-limit fallback: {:?} | cleanup_ms={}",
         output.text,
         output.llm.as_millis()
     );
