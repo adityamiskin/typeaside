@@ -20,8 +20,28 @@ use typeaside::{
     config::{
         AppConfig, HistoryRetention, LocalUnload, MediaControl, RecordingMode, Source, Theme,
     },
-    local::{ModelId, Status},
+    local::{CleanupModel, ModelId, Status},
 };
+
+#[derive(Clone, Copy)]
+enum DownloadTarget {
+    Speech(ModelId),
+    Cleanup,
+}
+impl DownloadTarget {
+    fn set_status(self, state: &mut AppState, status: Status) {
+        match self {
+            Self::Speech(model) => state.models[model.index()] = status,
+            Self::Cleanup => state.cleanup_model = status,
+        }
+    }
+    fn download(self, cancel: &AtomicBool, progress: impl Fn(u8)) -> anyhow::Result<()> {
+        match self {
+            Self::Speech(model) => typeaside::local::download(model, cancel, progress),
+            Self::Cleanup => CleanupModel::download(cancel, progress),
+        }
+    }
+}
 
 const HISTORY_RETENTION: [(HistoryRetention, &str); 4] = [
     (HistoryRetention::Forever, "Until full"),
@@ -782,7 +802,7 @@ impl MainWindow {
                 })),
         )
     }
-    fn download_model(&mut self, model: ModelId, cx: &mut Context<Self>) {
+    fn download_model(&mut self, model: DownloadTarget, cx: &mut Context<Self>) {
         if self.state.read(cx).model_cancel.is_some() {
             return;
         }
@@ -791,13 +811,13 @@ impl MainWindow {
         let task = cx.background_executor().spawn({
             let cancel = cancel.clone();
             async move {
-                typeaside::local::download(model, &cancel, move |percent| {
+                model.download(&cancel, move |percent| {
                     let _ = progress_tx.try_send(percent);
                 })
             }
         });
         self.state.update(cx, |s, cx| {
-            s.models[model.index()] = Status::Downloading(0);
+            model.set_status(s, Status::Downloading(0));
             s.model_cancel = Some(cancel);
             cx.notify();
         });
@@ -805,7 +825,7 @@ impl MainWindow {
         cx.spawn(async move |_, cx| {
             while let Ok(percent) = progress_rx.recv().await {
                 state.update(cx, |s, cx| {
-                    s.models[model.index()] = Status::Downloading(percent);
+                    model.set_status(s, Status::Downloading(percent));
                     cx.notify();
                 });
             }
@@ -815,9 +835,11 @@ impl MainWindow {
                     .model_cancel
                     .take()
                     .is_some_and(|cancel| cancel.load(Ordering::Relaxed));
-                s.models[model.index()] = match result {
+                let status = match result {
                     Ok(()) => {
-                        if !s.config.local_model.installed() {
+                        if let DownloadTarget::Speech(model) = model
+                            && !s.config.local_model.installed()
+                        {
                             s.config.local_model = model;
                             s.persist();
                         }
@@ -829,6 +851,7 @@ impl MainWindow {
                         Status::Failed
                     }
                 };
+                model.set_status(s, status);
                 cx.notify();
             });
         })
@@ -863,6 +886,24 @@ impl MainWindow {
                             s.persist();
                         }
                     }
+                    Err(error) => s.save_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn remove_cleanup_model(&mut self, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async { CleanupModel::remove() });
+        cx.spawn(async move |_, cx| {
+            let result = task.await;
+            state.update(cx, |s, cx| {
+                match result {
+                    Ok(()) => s.cleanup_model = Status::NotInstalled,
                     Err(error) => s.save_error = Some(error.to_string()),
                 }
                 cx.notify();
@@ -979,7 +1020,9 @@ impl MainWindow {
                                         cx.notify();
                                     });
                                 }
-                                _ if !downloading => this.download_model(model, cx),
+                                _ if !downloading => {
+                                    this.download_model(DownloadTarget::Speech(model), cx)
+                                }
                                 _ => {}
                             }
                         })),
@@ -1013,7 +1056,7 @@ impl MainWindow {
                 Setting::new("Source")
                     .when(c.transcription == Source::Local, |row| {
                         row.description(
-                            "Audio never leaves this computer. Cleanup and translation are off.",
+                            "Speech and AI editing stay on this computer. Commands and translation need your own key.",
                         )
                     })
                     .child(source),
@@ -1044,9 +1087,64 @@ impl MainWindow {
         {
             let mut editing = vec![
                 Setting::new("AI editing")
-                    .description("Clean up fillers, punctuation and lists.")
+                    .description(if own_key {
+                        "Clean up fillers, punctuation and lists."
+                    } else {
+                        "English only. Skips code apps."
+                    })
                     .child(self.toggle("editing", c.cleanup.enabled, Toggle::Editing, cx)),
             ];
+            if !own_key && typeaside::local::AVAILABLE {
+                let status = self.state.read(cx).cleanup_model;
+                let action = match status {
+                    Status::Downloading(_) => "Cancel",
+                    Status::Installed => "Remove",
+                    Status::Failed => "Retry",
+                    Status::NotInstalled => "Download",
+                };
+                let description = match status {
+                    Status::Downloading(percent) => {
+                        format!("English, {} MB, {percent}%", CleanupModel::size_mb())
+                    }
+                    Status::Failed => {
+                        format!("English, {} MB. Download failed", CleanupModel::size_mb())
+                    }
+                    _ => format!("English, {} MB", CleanupModel::size_mb()),
+                };
+                editing.push(
+                    Setting::new(CleanupModel::LABEL)
+                        .description(
+                            div()
+                                .when(status == Status::Failed, |d| d.text_color(p.red))
+                                .child(description),
+                        )
+                        .child(
+                            button(action, false, p)
+                                .id("s1-mini")
+                                .when(
+                                    downloading
+                                        && !matches!(
+                                            status,
+                                            Status::Downloading(_) | Status::Installed
+                                        ),
+                                    |b| b.opacity(0.4),
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if this.state.read(cx).is_demo {
+                                        return;
+                                    }
+                                    match status {
+                                        Status::Downloading(_) => this.cancel_model(cx),
+                                        Status::Installed => this.remove_cleanup_model(cx),
+                                        _ if !downloading => {
+                                            this.download_model(DownloadTarget::Cleanup, cx)
+                                        }
+                                        _ => {}
+                                    }
+                                })),
+                        ),
+                );
+            }
             if own_key {
                 editing.extend([
                     Setting::new("Endpoint").child(input(&self.settings.cleanup_endpoint, p)),

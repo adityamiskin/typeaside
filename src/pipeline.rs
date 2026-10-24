@@ -7,7 +7,13 @@ use crate::{
     transcribe,
 };
 use anyhow::Result;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 pub const LOCAL_COMMAND: &str = "Commands need your own API key";
 pub const LOCAL_TRANSLATE: &str = "Translation needs your own API key";
@@ -78,7 +84,39 @@ pub fn run(
     stream: Option<crate::local::Stream>,
     cleaning: impl FnOnce(),
 ) -> Result<Output> {
+    run_cancellable(
+        config,
+        audio,
+        app,
+        mode,
+        selection,
+        names,
+        stream,
+        cleaning,
+        Arc::new(AtomicBool::new(false)),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_cancellable(
+    config: &AppConfig,
+    audio: &[f32],
+    app: Option<&FocusedApp>,
+    mode: Mode,
+    selection: &str,
+    names: &[String],
+    stream: Option<crate::local::Stream>,
+    cleaning: impl FnOnce(),
+    cancel: Arc<AtomicBool>,
+) -> Result<Output> {
     let started = Instant::now();
+    if config.transcription == Source::Local {
+        match mode {
+            Mode::Command => anyhow::bail!(LOCAL_COMMAND),
+            Mode::Translate => anyhow::bail!(LOCAL_TRANSLATE),
+            _ => {}
+        }
+    }
     if mode == Mode::Translate && audio.is_empty() {
         cleaning();
         return Ok(Output {
@@ -90,8 +128,6 @@ pub fn run(
         });
     }
     let (raw, local) = match config.transcription {
-        Source::Local if mode == Mode::Command => anyhow::bail!(LOCAL_COMMAND),
-        Source::Local if mode == Mode::Translate => anyhow::bail!(LOCAL_TRANSLATE),
         Source::Local => (crate::local::finish(config, audio, stream)?.0, true),
         Source::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),
@@ -113,12 +149,30 @@ pub fn run(
             text: String::new(),
         }
     } else if local {
+        anyhow::ensure!(!cancel.load(Ordering::Relaxed), "Dictation cancelled");
+        let text = if config.transcription == Source::Local {
+            if crate::local::CleanupSettings::for_app(
+                config,
+                app.and_then(|a| a.id.as_deref()),
+                text,
+            )
+            .is_some()
+            {
+                cleaning();
+            }
+            crate::local::cleanup_text(
+                config,
+                text,
+                app.and_then(|a| a.id.as_deref()),
+                cancel.clone(),
+            )
+        } else {
+            cleanup::remove_fillers(text, config.language.as_deref())
+        };
+        anyhow::ensure!(!cancel.load(Ordering::Relaxed), "Dictation cancelled");
         Answer {
             delivery: Delivery::Insert,
-            text: snippets::expand(
-                &cleanup::remove_fillers(text, config.language.as_deref()),
-                &config.snippets,
-            ),
+            text: snippets::expand(&text, &config.snippets),
         }
     } else if mode == Mode::Command {
         cleaning();

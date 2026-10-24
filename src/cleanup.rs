@@ -78,7 +78,7 @@ pub(crate) fn remove_fillers(text: &str, language: Option<&str>) -> String {
         .join(" ")
 }
 
-fn checked_output(raw: &str, output: Result<String>, translation: bool) -> String {
+pub(crate) fn checked_output(raw: &str, output: Result<String>, translation: bool) -> String {
     let output = match output {
         Ok(output) => output,
         Err(error) => {

@@ -30,6 +30,8 @@ chrono = "0.4"
 flacenc = { version = "0.5.1", default-features = false }
 minisign-verify = "0.3"
 transcribe-cpp = { version = "=0.4.1", default-features = false }
+typeaside-llama-cpp-sys = { path = "vendor/llama-cpp-sys" }
+whatlang = { version = "0.16", default-features = false }
 
 [target.'cfg(all(any(target_os = "linux", target_os = "windows"), target_arch = "x86_64"))'.dependencies]
 transcribe-cpp = { version = "=0.4.1", default-features = false, features = ["vulkan"] }

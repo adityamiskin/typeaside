@@ -26,6 +26,7 @@ use typeaside::{config::AppConfig, credentials, paths::AppPaths};
 
 pub struct AppState {
     models: [typeaside::local::Status; typeaside::local::ModelId::ALL.len()],
+    cleanup_model: typeaside::local::Status,
     model_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     update: Option<typeaside::update::Release>,
     update_status: update::Toast,
@@ -248,6 +249,13 @@ fn start_ui(
                 typeaside::local::Status::current(id)
             }
         }),
+        cleanup_model: if is_demo {
+            typeaside::local::Status::NotInstalled
+        } else if typeaside::local::CleanupModel::installed() {
+            typeaside::local::Status::Installed
+        } else {
+            typeaside::local::Status::NotInstalled
+        },
         model_cancel: None,
         update,
         update_status,
