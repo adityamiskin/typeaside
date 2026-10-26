@@ -115,6 +115,20 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             trace("application ready", started);
+            // Most systems do not have Inter installed, so the app ships its own.
+            if let Err(error) = cx.text_system().add_fonts(vec![
+                include_bytes!("../../assets/fonts/Inter-Regular.ttf")
+                    .as_slice()
+                    .into(),
+                include_bytes!("../../assets/fonts/Inter-Medium.ttf")
+                    .as_slice()
+                    .into(),
+                include_bytes!("../../assets/fonts/Inter-SemiBold.ttf")
+                    .as_slice()
+                    .into(),
+            ]) {
+                eprintln!("typeaside: cannot load Inter: {error:#}");
+            }
             #[cfg(target_os = "macos")]
             {
                 window::show_in_dock(false);
@@ -329,21 +343,26 @@ fn start_ui(
         .spawn(async move { tray::spawn(sender, paste_available) });
     #[cfg(not(target_os = "linux"))]
     let tray = tray::spawn(sender, paste_available);
+    // Tray registration waits on the status bar over D-Bus; a slow bar must not delay the window.
+    let (enable_paste, paste_enabled) = async_channel::unbounded::<()>();
+    cx.spawn(async move |_| {
+        #[cfg(target_os = "linux")]
+        let tray = tray.await;
+        let tray = tray.inspect_err(|e| eprintln!("typeaside: tray unavailable: {e:#}"));
+        while paste_enabled.recv().await.is_ok() {
+            if let Ok(tray) = &tray {
+                tray.enable_paste();
+            }
+        }
+    })
+    .detach();
     let tray_state = state.clone();
     cx.spawn(async move |cx| {
-        #[cfg(target_os = "linux")]
-        let _tray = tray
-            .await
-            .inspect_err(|e| eprintln!("typeaside: tray unavailable: {e:#}"));
-        #[cfg(not(target_os = "linux"))]
-        let _tray = tray.inspect_err(|e| eprintln!("typeaside: tray unavailable: {e:#}"));
         while let Ok(action) = actions.recv().await {
             cx.update(|cx| match action {
                 tray::Action::Quit => cx.quit(),
                 tray::Action::PasteAvailable => {
-                    if let Ok(tray) = &_tray {
-                        tray.enable_paste();
-                    }
+                    let _ = enable_paste.try_send(());
                 }
                 tray::Action::Command(command) => {
                     tray_state.update(cx, |s, _| {

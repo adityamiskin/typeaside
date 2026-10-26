@@ -36,6 +36,8 @@ struct WgpuAtlasTextures {
     storage: WgpuAtlasStorage,
     pending_uploads: Vec<PendingUpload>,
     next_texture_generation: u64,
+    /// Bumped whenever every tile is dropped, so windows sharing the atlas know to repaint.
+    epoch: u64,
 }
 
 pub struct WgpuTextureInfo {
@@ -59,6 +61,7 @@ impl WgpuAtlas {
             storage: WgpuAtlasStorage::default(),
             pending_uploads: Vec::new(),
             next_texture_generation: 0,
+            epoch: 0,
         })))
     }
 
@@ -94,13 +97,24 @@ impl WgpuAtlas {
         self.0.lock().clear(|textures| {
             textures.storage = WgpuAtlasStorage::default();
             textures.pending_uploads.clear();
+            textures.epoch += 1;
         });
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.0.lock().backend.epoch
     }
 
     /// Handles device lost by clearing all textures and cached tiles.
     /// The atlas will lazily recreate textures as needed on subsequent frames.
+    /// Every window sharing the atlas reports the loss; only the first one clears it.
     pub fn handle_device_lost(&self, context: &WgpuContext) {
-        self.0.lock().clear(|textures| {
+        let mut state = self.0.lock();
+        if Arc::ptr_eq(&state.backend.device, &context.device) {
+            return;
+        }
+        state.clear(|textures| {
+            textures.epoch += 1;
             textures.device = context.device.clone();
             textures.queue = context.queue.clone();
             textures.color_texture_format = context.color_texture_format();

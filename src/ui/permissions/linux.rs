@@ -1,17 +1,19 @@
 use super::super::AppState;
 use gpui::{App, Entity};
-use std::{fs::OpenOptions, process::Command};
+use std::process::Command;
 
 pub fn statuses() -> [bool; 2] {
     [true, keyboard_access()]
 }
 
+/// Asks the kernel instead of opening devices: opening them blocks startup for about 15 ms.
 fn keyboard_access() -> bool {
-    OpenOptions::new().write(true).open("/dev/uinput").is_ok()
+    use nix::unistd::{AccessFlags, access};
+    access("/dev/uinput", AccessFlags::W_OK).is_ok()
         && std::fs::read_dir("/dev/input").is_ok_and(|entries| {
             entries.filter_map(Result::ok).any(|entry| {
                 entry.file_name().as_encoded_bytes().starts_with(b"event")
-                    && std::fs::File::open(entry.path()).is_ok()
+                    && access(&entry.path(), AccessFlags::R_OK).is_ok()
             })
         })
 }
