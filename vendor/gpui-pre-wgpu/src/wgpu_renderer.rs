@@ -156,6 +156,64 @@ struct InstanceBindings {
     polychrome_sprites: InstanceBinding,
 }
 
+/// Compiling the shaders and pipelines takes 10 to 25 ms, and rasterizing a window's glyphs
+/// several more. Every window and popup on a device shares them, so only the first one pays.
+#[derive(Default)]
+pub(crate) struct RenderCache {
+    layouts: parking_lot::Mutex<Option<Arc<WgpuBindGroupLayouts>>>,
+    pipelines: parking_lot::Mutex<Vec<(PipelineKey, Arc<WgpuPipelines>)>>,
+    atlas: parking_lot::Mutex<Option<Arc<WgpuAtlas>>>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct PipelineKey {
+    surface_format: wgpu::TextureFormat,
+    alpha_mode: wgpu::CompositeAlphaMode,
+    path_sample_count: u32,
+    dual_source_blending: bool,
+    uses_webgl_instance_data: bool,
+}
+
+impl RenderCache {
+    fn atlas(&self, context: &WgpuContext) -> Arc<WgpuAtlas> {
+        self.atlas
+            .lock()
+            .get_or_insert_with(|| Arc::new(WgpuAtlas::from_context(context)))
+            .clone()
+    }
+
+    fn layouts(
+        &self,
+        device: &wgpu::Device,
+        uses_webgl_instance_data: bool,
+    ) -> Arc<WgpuBindGroupLayouts> {
+        self.layouts
+            .lock()
+            .get_or_insert_with(|| {
+                Arc::new(WgpuRendererCore::create_bind_group_layouts(
+                    device,
+                    uses_webgl_instance_data,
+                ))
+            })
+            .clone()
+    }
+
+    fn pipelines(
+        &self,
+        device: &wgpu::Device,
+        layouts: &WgpuBindGroupLayouts,
+        key: PipelineKey,
+    ) -> Arc<WgpuPipelines> {
+        let mut pipelines = self.pipelines.lock();
+        if let Some((_, cached)) = pipelines.iter().find(|(cached, _)| *cached == key) {
+            return cached.clone();
+        }
+        let created = Arc::new(WgpuRendererCore::create_pipelines(device, layouts, key));
+        pipelines.push((key, created.clone()));
+        created
+    }
+}
+
 struct WgpuBindGroupLayouts {
     globals: wgpu::BindGroupLayout,
     instances: wgpu::BindGroupLayout,
@@ -182,8 +240,8 @@ enum InstanceData {
 struct WgpuResources {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    pipelines: WgpuPipelines,
-    bind_group_layouts: WgpuBindGroupLayouts,
+    pipelines: Arc<WgpuPipelines>,
+    bind_group_layouts: Arc<WgpuBindGroupLayouts>,
     atlas_sampler: wgpu::Sampler,
     atlas_texture_bind_groups: FxHashMap<AtlasTextureId, CachedTextureBindGroup>,
     globals_buffer: wgpu::Buffer,
@@ -212,6 +270,7 @@ impl WgpuResources {
 
 struct WgpuRendererCore {
     resources: WgpuResources,
+    render_cache: Arc<RenderCache>,
     atlas: Arc<WgpuAtlas>,
     path_globals_offset: u64,
     gamma_offset: u64,
@@ -262,6 +321,8 @@ pub struct WgpuRenderer {
     observed_error_generation: u64,
     last_surface_error: Option<String>,
     needs_redraw: bool,
+    /// The shared atlas epoch this window's scene was built against.
+    atlas_epoch: u64,
 }
 
 impl WgpuRenderer {
@@ -335,7 +396,7 @@ impl WgpuRenderer {
             None => ctx_ref.insert(WgpuContext::new(instance, &surface, compositor_gpu)?),
         };
 
-        let atlas = Arc::new(WgpuAtlas::from_context(context));
+        let atlas = context.render_cache.atlas(context);
 
         Self::new_internal(
             Some(Rc::clone(&gpu_context)),
@@ -468,7 +529,6 @@ impl WgpuRenderer {
             compositor_gpu,
             state: RendererState::Ready { surface, core },
             surface_config,
-            atlas,
             transparent_alpha_mode,
             opaque_alpha_mode,
             max_texture_size,
@@ -478,6 +538,8 @@ impl WgpuRenderer {
             observed_error_generation: 0,
             last_surface_error: None,
             needs_redraw: false,
+            atlas_epoch: atlas.epoch(),
+            atlas,
         })
     }
 }
@@ -657,12 +719,15 @@ impl WgpuRendererCore {
     fn create_pipelines(
         device: &wgpu::Device,
         layouts: &WgpuBindGroupLayouts,
-        surface_format: wgpu::TextureFormat,
-        alpha_mode: wgpu::CompositeAlphaMode,
-        path_sample_count: u32,
-        dual_source_blending: bool,
-        uses_webgl_instance_data: bool,
+        key: PipelineKey,
     ) -> WgpuPipelines {
+        let PipelineKey {
+            surface_format,
+            alpha_mode,
+            path_sample_count,
+            dual_source_blending,
+            uses_webgl_instance_data,
+        } = key;
         // Diagnostic guard: verify the device actually has
         // DUAL_SOURCE_BLENDING. We have a crash report (ZED-5G1) where a
         // feature mismatch caused a wgpu-hal abort, but we haven't
@@ -1073,14 +1138,16 @@ impl WgpuRenderer {
             return;
         };
         let resources = &mut core.resources;
-        resources.pipelines = WgpuRendererCore::create_pipelines(
+        resources.pipelines = core.render_cache.pipelines(
             &resources.device,
             &resources.bind_group_layouts,
-            format,
-            new_alpha_mode,
-            core.rendering_params.path_sample_count,
-            core.dual_source_blending,
-            core.uses_webgl_instance_data,
+            PipelineKey {
+                surface_format: format,
+                alpha_mode: new_alpha_mode,
+                path_sample_count: core.rendering_params.path_sample_count,
+                dual_source_blending: core.dual_source_blending,
+                uses_webgl_instance_data: core.uses_webgl_instance_data,
+            },
         );
 
         if let RendererState::Ready { surface, core } = &self.state {
@@ -1156,12 +1223,21 @@ impl WgpuRenderer {
             } else if self.failed_frame_count > 5 {
                 core.resources.invalidate_intermediate_textures();
                 self.atlas.clear();
+                self.atlas_epoch = self.atlas.epoch();
                 self.needs_redraw = true;
                 self.failed_frame_count = 0;
                 return false;
             }
         } else {
             self.failed_frame_count = 0;
+        }
+
+        // Another window cleared the shared atlas, so this scene may point at dropped tiles.
+        let atlas_epoch = self.atlas.epoch();
+        if atlas_epoch != self.atlas_epoch {
+            self.atlas_epoch = atlas_epoch;
+            self.needs_redraw = true;
+            return false;
         }
 
         let frame = match surface.get_current_texture() {
@@ -1225,15 +1301,18 @@ impl WgpuRendererCore {
         let uses_webgl_instance_data = context.uses_webgl_instance_data();
         let dual_source_blending =
             context.supports_dual_source_blending() && !uses_webgl_instance_data;
-        let bind_group_layouts = Self::create_bind_group_layouts(&device, uses_webgl_instance_data);
-        let pipelines = Self::create_pipelines(
+        let render_cache = Arc::clone(&context.render_cache);
+        let bind_group_layouts = render_cache.layouts(&device, uses_webgl_instance_data);
+        let pipelines = render_cache.pipelines(
             &device,
             &bind_group_layouts,
-            target_format,
-            alpha_mode,
-            rendering_params.path_sample_count,
-            dual_source_blending,
-            uses_webgl_instance_data,
+            PipelineKey {
+                surface_format: target_format,
+                alpha_mode,
+                path_sample_count: rendering_params.path_sample_count,
+                dual_source_blending,
+                uses_webgl_instance_data,
+            },
         );
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("atlas_sampler"),
@@ -1354,6 +1433,7 @@ impl WgpuRendererCore {
                 path_msaa_texture: None,
                 path_msaa_view: None,
             },
+            render_cache,
             atlas,
             path_globals_offset,
             gamma_offset,
