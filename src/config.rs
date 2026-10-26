@@ -298,6 +298,24 @@ pub enum Source {
     OwnKey,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SpeechSource {
+    Local,
+    #[default]
+    OwnKey,
+    Wispr,
+}
+
+impl From<Source> for SpeechSource {
+    fn from(source: Source) -> Self {
+        match source {
+            Source::Local => Self::Local,
+            Source::OwnKey => Self::OwnKey,
+        }
+    }
+}
+
 fn known_or_default<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<crate::local::ModelId, D::Error> {
@@ -313,7 +331,7 @@ pub struct AppConfig {
     pub mode: RecordingMode,
     pub input_devices: Vec<String>,
     pub keep_microphone_ready: bool,
-    pub transcription: Source,
+    pub transcription: SpeechSource,
     // A removed model falls back to the default instead of invalidating the whole config.
     #[serde(deserialize_with = "known_or_default")]
     pub local_model: crate::local::ModelId,
@@ -359,7 +377,7 @@ impl Default for AppConfig {
             mode: RecordingMode::Hold,
             input_devices: Vec::new(),
             keep_microphone_ready: false,
-            transcription: Source::OwnKey,
+            transcription: SpeechSource::OwnKey,
             local_model: crate::local::ModelId::default(),
             local_unload: LocalUnload::default(),
             stt: Endpoint::new("https://api.groq.com/openai/v1", "whisper-large-v3-turbo"),
@@ -447,7 +465,9 @@ impl AppConfig {
     }
 
     pub fn local_editing(&self) -> bool {
-        self.cleanup.enabled && self.cleanup.source == Source::Local
+        self.transcription != SpeechSource::Wispr
+            && self.cleanup.enabled
+            && self.cleanup.source == Source::Local
     }
 
     pub fn load(paths: &AppPaths) -> Result<(Self, Option<String>)> {

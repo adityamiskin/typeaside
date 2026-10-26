@@ -1053,8 +1053,10 @@ fn run(
                 }
                 monitor = None;
                 stream = match config.transcription {
-                    crate::config::Source::Local => crate::local::Stream::start(&config),
-                    crate::config::Source::OwnKey => None,
+                    crate::config::SpeechSource::Local => crate::local::Stream::start(&config),
+                    crate::config::SpeechSource::OwnKey | crate::config::SpeechSource::Wispr => {
+                        None
+                    }
                 };
                 let capture = ready
                     .take()
@@ -1258,7 +1260,7 @@ fn run(
                         stream = None;
                         phase(&events, busy.map_or(Phase::Idle, |_| busy_phase.clone()));
                         continue;
-                    } else if silent && config.transcription != crate::config::Source::Local {
+                    } else if silent && config.transcription != crate::config::SpeechSource::Local {
                         // The local worker's VAD hears quiet speech this energy gate rejects.
                         stream = None;
                         report_error(&events, "No speech detected");

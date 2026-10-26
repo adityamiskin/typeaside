@@ -14,6 +14,7 @@ pub mod paths;
 pub mod replacements;
 pub mod text_injector;
 pub mod transcribe;
+pub mod wispr;
 
 #[doc(hidden)]
 pub mod cues;

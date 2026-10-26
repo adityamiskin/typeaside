@@ -5,6 +5,7 @@ use std::{
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
+use typeaside::config::SpeechSource;
 use typeaside::{
     config::{AppConfig, Snippet},
     credentials,
@@ -247,9 +248,9 @@ fn selection_fixture() -> Result<()> {
 }
 
 fn file_fixture() -> Result<()> {
-    use typeaside::{config::Source, transcribe::transcribe_file};
+    use typeaside::transcribe::transcribe_file;
     let mut config = fixture_config();
-    config.transcription = Source::OwnKey;
+    config.transcription = SpeechSource::OwnKey;
     // Invalid credentials and an unreachable endpoint prove validation precedes network access.
     config.stt.base_url = "http://127.0.0.1:0".into();
     let path = std::env::temp_dir().join(format!("typeaside-oversize-{}.wav", std::process::id()));
@@ -264,7 +265,7 @@ fn file_fixture() -> Result<()> {
             .to_string()
             == "Unsupported file type"
     );
-    config.transcription = Source::Local;
+    config.transcription = SpeechSource::Local;
     ensure!(
         transcribe_file(&config, Path::new("tests/fixtures/translation.m4a"))
             .unwrap_err()
@@ -308,7 +309,7 @@ fn local_benchmark(measure_idle: bool) -> Result<()> {
     for (name, audio) in clips {
         for source in [Source::OwnKey, Source::Local] {
             let mut config = fixture_config();
-            config.transcription = source;
+            config.transcription = source.into();
             config.cleanup.enabled = false;
             let start = Instant::now();
             let result = pipeline::run(&config, &audio, None, Mode::Dictate, "", &[], None, || {});
@@ -388,7 +389,7 @@ fn main() -> Result<()> {
             continue;
         }
         if flag == "--local" {
-            config.transcription = typeaside::config::Source::Local;
+            config.transcription = SpeechSource::Local;
             config.cleanup.source = typeaside::config::Source::Local;
             continue;
         }
@@ -435,10 +436,7 @@ fn main() -> Result<()> {
     } else {
         read_wav(Path::new(&input))?
     };
-    let stream = if realtime
-        && config.transcription == typeaside::config::Source::Local
-        && !audio.is_empty()
-    {
+    let stream = if realtime && config.transcription == SpeechSource::Local && !audio.is_empty() {
         let stream = typeaside::local::Stream::start(&config)
             .ok_or_else(|| anyhow::anyhow!("No streaming model available"))?;
         let sink = stream.audio();

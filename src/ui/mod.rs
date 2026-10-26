@@ -39,6 +39,8 @@ pub struct AppState {
     is_demo: bool,
     key_hint: String,
     editing_key_hint: String,
+    wispr_account: Option<String>,
+    wispr_login: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     devices: Vec<String>,
     history: Vec<Dictation>,
     notes: typeaside::notes::Store,
@@ -173,6 +175,14 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                     typeaside::engine::save_history(&load_paths, &history)?;
                 }
                 history.sort_by_key(|item| std::cmp::Reverse(item.at));
+                let (wispr_account, wispr_notice) = if is_demo {
+                    (None, None)
+                } else {
+                    match typeaside::wispr::account() {
+                        Ok(account) => (account, None),
+                        Err(error) => (None, Some(format!("Cannot load Wispr account: {error}"))),
+                    }
+                };
                 Ok::<_, anyhow::Error>(Startup {
                     config,
                     history,
@@ -181,7 +191,8 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
                     } else {
                         typeaside::notes::Store::load(&load_paths)?
                     },
-                    notice: config_notice,
+                    notice: config_notice.or(wispr_notice),
+                    wispr_account,
                 })
             });
             cx.spawn(async move |cx| {
@@ -214,6 +225,7 @@ struct Startup {
     config: AppConfig,
     history: Vec<Dictation>,
     notice: Option<String>,
+    wispr_account: Option<String>,
 }
 
 fn start_ui(
@@ -229,6 +241,7 @@ fn start_ui(
         config,
         history,
         notice,
+        wispr_account,
     } = startup;
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if !is_demo {
@@ -280,6 +293,8 @@ fn start_ui(
         engine: None,
         pending_commands: Vec::new(),
         is_demo,
+        wispr_account,
+        wispr_login: None,
         file_transcribing: None,
         key_hint: if is_demo {
             "Saved in keyring"
