@@ -1,6 +1,6 @@
 use crate::{
     cleanup::{self, Answer},
-    config::{AppConfig, Source},
+    config::{AppConfig, Source, SpeechSource},
     engine::Mode,
     snippets,
     text_injector::FocusedApp,
@@ -27,10 +27,16 @@ pub fn unavailable(config: &AppConfig, mode: Mode) -> Option<&'static str> {
         Mode::Command if keyless() => Some(COMMAND_NEEDS_KEY),
         Mode::Translate if keyless() => Some(TRANSLATE_NEEDS_KEY),
         Mode::Dictate | Mode::Command
-            if config.transcription == Source::Local
+            if config.transcription == SpeechSource::Local
                 && config.local_model.available().is_none() =>
         {
             Some(NO_SPEECH_MODEL)
+        }
+        Mode::Dictate | Mode::Command
+            if config.transcription == SpeechSource::Wispr
+                && !matches!(crate::wispr::account(), Ok(Some(_))) =>
+        {
+            Some(crate::wispr::NEEDS_ACCOUNT)
         }
         _ => None,
     }
@@ -143,8 +149,12 @@ pub(crate) fn run_cancellable(
     }
     // True when speech fell back on-device because the provider was unreachable.
     let (raw, offline) = match config.transcription {
-        Source::Local => (crate::local::finish(config, audio, stream)?.0, false),
-        Source::OwnKey => match transcribe::transcribe(config, audio, names) {
+        SpeechSource::Local => (crate::local::finish(config, audio, stream)?.0, false),
+        SpeechSource::Wispr => (
+            crate::wispr::transcribe(config, audio, names, app.and_then(|app| app.id.as_deref()))?,
+            false,
+        ),
+        SpeechSource::OwnKey => match transcribe::transcribe(config, audio, names) {
             Ok(raw) => (raw, false),
             Err(error)
                 if mode == Mode::Dictate && local_fallback(&error) && crate::local::installed() =>
@@ -167,6 +177,11 @@ pub(crate) fn run_cancellable(
     } else if mode == Mode::Command {
         cleaning();
         (cleanup::command(config, &corrected, selection)?, "api")
+    } else if mode == Mode::Dictate && config.transcription == SpeechSource::Wispr {
+        (
+            insert(snippets::expand(text, &config.snippets)),
+            if config.editing() { "wispr" } else { "off" },
+        )
     } else if mode != Mode::Translate && config.cleanup.source == Source::Local {
         let app_id = app.and_then(|a| a.id.as_deref());
         anyhow::ensure!(!cancel.load(Ordering::Relaxed), "Dictation cancelled");
@@ -199,9 +214,10 @@ pub(crate) fn run_cancellable(
         eprintln!(
             "typeaside: speech={} editing={edited_by}",
             match (config.transcription, offline) {
-                (Source::Local, _) => "on-device",
-                (Source::OwnKey, true) => "on-device fallback",
-                (Source::OwnKey, false) => "api",
+                (SpeechSource::Local, _) => "on-device",
+                (SpeechSource::Wispr, _) => "wispr",
+                (SpeechSource::OwnKey, true) => "on-device fallback",
+                (SpeechSource::OwnKey, false) => "api",
             }
         );
         eprintln!(

@@ -498,11 +498,11 @@ fn sender() -> &'static mpsc::Sender<Request> {
 /// when speech uses a key.
 pub fn prewarm(config: &crate::config::AppConfig) {
     let warm = match config.transcription {
-        crate::config::Source::Local => config
+        crate::config::SpeechSource::Local => config
             .local_model
             .available()
             .map(|model| Some((model, config.language.clone()))),
-        crate::config::Source::OwnKey => {
+        crate::config::SpeechSource::OwnKey | crate::config::SpeechSource::Wispr => {
             (config.local_editing() && CleanupModel::installed()).then_some(None)
         }
     };
@@ -512,7 +512,7 @@ pub fn prewarm(config: &crate::config::AppConfig) {
 }
 pub fn apply(config: &crate::config::AppConfig) {
     let _ = sender().send(Request::Idle(config.local_unload.after()));
-    if config.transcription == crate::config::Source::Local
+    if config.transcription == crate::config::SpeechSource::Local
         || (config.local_editing() && CleanupModel::installed())
     {
         prewarm(config);

@@ -9,7 +9,7 @@ use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, img, prelude::
 use gpui_kit::component::input::{Input, InputState};
 use std::time::Instant;
 use typeaside::{
-    config::{RecordingMode, Source},
+    config::{RecordingMode, Source, SpeechSource},
     engine::{Command, Phase},
     local::{CleanupModel, Status},
 };
@@ -194,7 +194,7 @@ fn download_aside(status: Status, size_mb: u64) -> String {
 }
 /// The chosen model's status while on-device speech has nothing installed to dictate with.
 fn speech_download(s: &AppState) -> Option<Status> {
-    (s.config.transcription == Source::Local && !s.models.contains(&Status::Installed))
+    (s.config.transcription == SpeechSource::Local && !s.models.contains(&Status::Installed))
         .then(|| s.models[s.config.local_model.index()])
 }
 /// Names only the edits that happened; capitalization or punctuation alone earns no caption.
@@ -246,7 +246,7 @@ impl MainWindow {
                 Source::OwnKey
             };
             self.state.update(cx, |s, _| {
-                s.config.transcription = source;
+                s.config.transcription = source.into();
                 s.config.cleanup.source = source;
             });
         } else {
@@ -295,11 +295,16 @@ impl MainWindow {
     fn onboarding_ready(&self, cx: &Context<Self>) -> bool {
         let s = self.state.read(cx);
         match s.onboarding_step {
-            Step::Speech if s.config.transcription == Source::OwnKey => {
+            Step::Speech if s.config.transcription == SpeechSource::OwnKey => {
                 !self.settings.key.read(cx).value().is_empty() || s.key_hint == "Saved in keyring"
             }
+            Step::Speech if s.config.transcription == SpeechSource::Wispr => {
+                s.wispr_account.is_some()
+            }
             Step::Editing
-                if s.config.cleanup.enabled && s.config.cleanup.source == Source::OwnKey =>
+                if s.config.transcription != SpeechSource::Wispr
+                    && s.config.cleanup.enabled
+                    && s.config.cleanup.source == Source::OwnKey =>
             {
                 !self.settings.cleanup_key.read(cx).value().is_empty()
                     || s.editing_key_hint == "Saved in keyring"
@@ -354,9 +359,11 @@ impl MainWindow {
             let editing = step == Step::Editing;
             let c = &self.state.read(cx).config;
             let uses_key = if editing {
-                c.cleanup.enabled && c.cleanup.source == Source::OwnKey
+                c.transcription != SpeechSource::Wispr
+                    && c.cleanup.enabled
+                    && c.cleanup.source == Source::OwnKey
             } else {
-                c.transcription == Source::OwnKey
+                c.transcription == SpeechSource::OwnKey
             };
             let input = if editing {
                 &self.settings.cleanup_key
@@ -612,13 +619,18 @@ impl MainWindow {
                         .opacity(reveal(2.6)),
                 ),
             Step::Speech => {
-                let local = s.config.transcription == Source::Local;
+                let local = s.config.transcription == SpeechSource::Local;
+                let wispr = s.config.transcription == SpeechSource::Wispr;
                 let model = s.config.local_model;
-                let set = |source| {
+                let set = |source: SpeechSource| {
                     cx.listener(move |this, _, _, cx| {
                         this.state.update(cx, |s, cx| {
                             s.config.transcription = source;
-                            s.config.cleanup.source = source;
+                            match source {
+                                SpeechSource::Local => s.config.cleanup.source = Source::Local,
+                                SpeechSource::OwnKey => s.config.cleanup.source = Source::OwnKey,
+                                SpeechSource::Wispr => {}
+                            }
                             cx.notify();
                         });
                     })
@@ -648,19 +660,30 @@ impl MainWindow {
                                         )),
                                         p,
                                     )
-                                    .on_click(set(Source::Local)),
+                                    .on_click(set(SpeechSource::Local)),
                                 )
                             })
                             .child(
                                 choice(
                                     "speech-key",
-                                    !local,
+                                    !local && !wispr,
                                     "API key",
                                     "Groq or any OpenAI-compatible endpoint.",
                                     None,
                                     p,
                                 )
-                                .on_click(set(Source::OwnKey)),
+                                .on_click(set(SpeechSource::OwnKey)),
+                            )
+                            .child(
+                                choice(
+                                    "speech-wispr",
+                                    wispr,
+                                    "Wispr Flow",
+                                    "Sign in with your Wispr account.",
+                                    None,
+                                    p,
+                                )
+                                .on_click(set(SpeechSource::Wispr)),
                             ),
                     )
                     .child(if local {
@@ -675,6 +698,42 @@ impl MainWindow {
                         )
                         .h(px(84.))
                         .mt(px(14.))
+                    } else if wispr {
+                        div()
+                            .w_full()
+                            .h(px(84.))
+                            .mt(px(14.))
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(text(
+                                s.save_error.clone().unwrap_or_else(|| {
+                                    if s.wispr_login.is_some() {
+                                        "Finish signing in through your browser.".into()
+                                    } else {
+                                        s.wispr_account.clone().unwrap_or_default()
+                                    }
+                                }),
+                                12.,
+                                if s.save_error.is_some() {
+                                    p.red
+                                } else {
+                                    p.muted
+                                },
+                            ))
+                            .child(
+                                button(
+                                    if s.wispr_login.is_some() {
+                                        "Cancel"
+                                    } else {
+                                        "Sign in"
+                                    },
+                                    false,
+                                    p,
+                                )
+                                .id("onboarding-wispr-login")
+                                .on_click(cx.listener(|this, _, _, cx| this.connect_wispr(cx))),
+                            )
                     } else {
                         div()
                             .w_full()
@@ -687,6 +746,15 @@ impl MainWindow {
                             .child(field("API key", &self.settings.key, p))
                     })
             }
+            Step::Editing if s.config.transcription == SpeechSource::Wispr => col
+                .child(title("AI editing", p))
+                .child(sub("Wispr formats your dictation.", p))
+                .child(div().mt(px(28.)).child(self.toggle(
+                    "wispr-editing",
+                    s.config.cleanup.enabled,
+                    Toggle::Editing,
+                    cx,
+                ))),
             Step::Editing => {
                 let c = &s.config;
                 let local = c.cleanup.enabled && c.cleanup.source == Source::Local;

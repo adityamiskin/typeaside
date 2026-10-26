@@ -18,7 +18,8 @@ use std::sync::{
 };
 use typeaside::{
     config::{
-        AppConfig, HistoryRetention, LocalUnload, MediaControl, RecordingMode, Source, Theme,
+        AppConfig, HistoryRetention, LocalUnload, MediaControl, RecordingMode, Source,
+        SpeechSource, Theme,
     },
     local::{CleanupModel, ModelId, Status},
 };
@@ -215,7 +216,7 @@ impl SettingsInputs {
         let stt = s.key_hint.clone();
         let editing = s.editing_key_hint.clone();
         let endpoints = [
-            (s.config.transcription == Source::OwnKey)
+            (s.config.transcription == SpeechSource::OwnKey)
                 .then(|| (false, s.config.stt.base_url.clone(), stt.clone())),
             Some((
                 true,
@@ -320,6 +321,85 @@ fn select(state: &Entity<SelectState<Vec<String>>>, p: Palette) -> Select<Vec<St
         .text_size(px(13.))
 }
 impl MainWindow {
+    pub(super) fn connect_wispr(&mut self, cx: &mut Context<Self>) {
+        if self.state.read(cx).is_demo {
+            return;
+        }
+        if let Some(cancel) = self.state.update(cx, |s, _| s.wispr_login.take()) {
+            cancel.store(true, Ordering::Relaxed);
+            cx.notify();
+            return;
+        }
+        let login = match typeaside::wispr::Login::new() {
+            Ok(login) => login,
+            Err(error) => {
+                self.state.update(cx, |s, cx| {
+                    s.save_error = Some(error.to_string());
+                    cx.notify();
+                });
+                return;
+            }
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.state.update(cx, |s, cx| {
+            s.wispr_login = Some(cancel.clone());
+            s.save_error = None;
+            cx.notify();
+        });
+        cx.open_url(&login.url());
+        let worker_cancel = cancel.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { login.wait(&worker_cancel) });
+        let state = self.state.clone();
+        cx.spawn(async move |_, cx| {
+            let result = task.await;
+            state.update(cx, |s, cx| {
+                if !s
+                    .wispr_login
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, &cancel))
+                {
+                    return;
+                }
+                s.wispr_login = None;
+                match result {
+                    Ok(account) => {
+                        s.wispr_account = Some(account);
+                        s.persist();
+                    }
+                    Err(error) => s.save_error = Some(format!("Wispr sign-in: {error}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn disconnect_wispr(&mut self, cx: &mut Context<Self>) {
+        if self.state.read(cx).is_demo {
+            return;
+        }
+        if let Some(cancel) = self.state.update(cx, |s, _| s.wispr_login.take()) {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        let task = cx
+            .background_executor()
+            .spawn(async { typeaside::wispr::disconnect() });
+        let state = self.state.clone();
+        cx.spawn(async move |_, cx| {
+            let result = task.await;
+            state.update(cx, |s, cx| {
+                match result {
+                    Ok(()) => s.wispr_account = None,
+                    Err(error) => s.save_error = Some(format!("Cannot disconnect Wispr: {error}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub fn bind_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for (entity, field) in [
             (&self.settings.endpoint, TextField::Endpoint),
@@ -978,6 +1058,8 @@ impl MainWindow {
         let level = s.level;
         let statuses = s.models;
         let downloading = s.model_cancel.is_some();
+        let wispr_connecting = s.wispr_login.is_some();
+        let wispr_account = s.wispr_account.clone();
         let theme = segmented(
             [
                 (Theme::System, "System"),
@@ -1100,7 +1182,8 @@ impl MainWindow {
             |this, value, _, cx| this.state.update(cx, |s, _| s.config.local_unload = value),
         );
         let available = typeaside::local::AVAILABLE;
-        let local_speech = available && c.transcription == Source::Local;
+        let local_speech = available && c.transcription == SpeechSource::Local;
+        let wispr = c.transcription == SpeechSource::Wispr;
         let local_editing = available && c.local_editing();
         let mut models = Vec::new();
         {
@@ -1113,17 +1196,62 @@ impl MainWindow {
                                 .child("Download a model to dictate."),
                         )
                     })
-                    .when(available, |row| {
-                        row.child(source(
-                            "speech-source",
+                    .child(
+                        div().id("speech-source").child(segmented(
+                            [
+                                (SpeechSource::OwnKey, "API key"),
+                                (SpeechSource::Local, "On device"),
+                                (SpeechSource::Wispr, "Wispr Flow"),
+                            ]
+                            .into_iter()
+                            .filter(|(value, _)| available || *value != SpeechSource::Local),
                             c.transcription,
-                            |c, v| c.transcription = v,
+                            p,
                             cx,
-                        ))
-                    }),
+                            |this, value, _, cx| {
+                                this.state.update(cx, |s, _| s.config.transcription = value)
+                            },
+                        )),
+                    ),
             ];
             if local_speech {
                 speech.extend(model_rows);
+            } else if wispr {
+                let connected = wispr_account.is_some();
+                speech.push(
+                    Setting::new("Wispr account")
+                        .description(wispr_account.unwrap_or_else(|| {
+                            if wispr_connecting {
+                                "Finish signing in through your browser.".into()
+                            } else {
+                                "Uses your Wispr Flow account.".into()
+                            }
+                        }))
+                        .child(
+                            button(
+                                if wispr_connecting {
+                                    "Cancel"
+                                } else if connected {
+                                    "Switch account"
+                                } else {
+                                    "Sign in"
+                                },
+                                false,
+                                p,
+                            )
+                            .id("wispr-connect")
+                            .on_click(cx.listener(|this, _, _, cx| this.connect_wispr(cx))),
+                        )
+                        .when(connected, |row| {
+                            row.child(
+                                button("Disconnect", false, p)
+                                    .id("wispr-disconnect")
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.disconnect_wispr(cx)),
+                                    ),
+                            )
+                        }),
+                );
             } else {
                 speech.extend([
                     Setting::new("Endpoint").child(input(&self.settings.endpoint, p)),
@@ -1140,12 +1268,14 @@ impl MainWindow {
         {
             let mut editing = vec![
                 Setting::new("AI editing")
-                    .description(if local_editing {
+                    .description(if wispr {
+                        "Wispr formats your dictation."
+                    } else if local_editing {
                         "English only. Skips code apps."
                     } else {
                         "Fixes fillers, punctuation and lists."
                     })
-                    .when(available && c.cleanup.enabled, |row| {
+                    .when(available && c.cleanup.enabled && !wispr, |row| {
                         row.child(source(
                             "editing-source",
                             c.cleanup.source,
@@ -1221,7 +1351,7 @@ impl MainWindow {
                 )),
                 Setting::new("API key").child(input(&self.settings.cleanup_key, p)),
             ];
-            if c.cleanup.enabled && !local_editing {
+            if c.cleanup.enabled && !local_editing && !wispr {
                 editing.extend(chat);
                 models.push(panel(editing, p));
             } else {

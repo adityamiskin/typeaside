@@ -30,9 +30,21 @@ pub(crate) fn transcribe(config: &AppConfig, audio: &[f32], names: &[String]) ->
 
 pub fn transcribe_file(config: &AppConfig, path: &Path) -> Result<String> {
     anyhow::ensure!(
-        config.transcription != crate::config::Source::Local,
+        config.transcription != crate::config::SpeechSource::Local,
         "File transcription needs your own API key"
     );
+    if config.transcription == crate::config::SpeechSource::Wispr {
+        anyhow::ensure!(
+            std::fs::metadata(path)?.len() <= 20_000_000,
+            "Files up to 20 MB"
+        );
+        let audio = decode_wav(&std::fs::read(path)?)
+            .context("Wispr file transcription requires 16 kHz mono PCM16 WAV")?;
+        return Ok(crate::replacements::apply(
+            &crate::wispr::transcribe(config, &audio, &[], None)?,
+            &config.replacements,
+        ));
+    }
     let extension = path
         .extension()
         .and_then(|s| s.to_str())
@@ -158,20 +170,34 @@ pub(crate) fn encode_flac(audio: &[f32]) -> Result<Vec<u8>> {
 }
 
 pub(crate) fn decode_wav(wav: &[u8]) -> Result<Vec<f32>> {
-    anyhow::ensure!(wav.len() >= 44, "incomplete recording WAV");
     anyhow::ensure!(
-        &wav[..4] == b"RIFF"
-            && &wav[8..20] == b"WAVEfmt \x10\x00\x00\x00"
-            && wav[20..36] == [1, 0, 1, 0, 128, 62, 0, 0, 0, 125, 0, 0, 2, 0, 16, 0]
-            && &wav[36..40] == b"data",
-        "unsupported recording WAV"
+        wav.get(..4) == Some(b"RIFF") && wav.get(8..12) == Some(b"WAVE"),
+        "expected RIFF WAV"
     );
-    let size = u32::from_le_bytes(wav[40..44].try_into()?) as usize;
-    anyhow::ensure!(
-        size == wav.len() - 44 && size.is_multiple_of(2),
-        "incomplete recording WAV"
-    );
-    Ok(wav[44..]
+    let mut offset = 12usize;
+    let mut valid = false;
+    let mut audio = None;
+    while offset + 8 <= wav.len() {
+        let size = u32::from_le_bytes(wav[offset + 4..offset + 8].try_into()?) as usize;
+        let start = offset + 8;
+        let end = start.checked_add(size).context("invalid WAV length")?;
+        let chunk = wav.get(start..end).context("truncated WAV")?;
+        match &wav[offset..offset + 4] {
+            b"fmt " if size >= 16 => {
+                valid = u16::from_le_bytes(chunk[..2].try_into()?) == 1
+                    && u16::from_le_bytes(chunk[2..4].try_into()?) == 1
+                    && u32::from_le_bytes(chunk[4..8].try_into()?) == 16_000
+                    && u16::from_le_bytes(chunk[14..16].try_into()?) == 16;
+            }
+            b"data" => audio = Some(chunk),
+            _ => {}
+        }
+        offset = end.checked_add(size % 2).context("invalid WAV padding")?;
+    }
+    anyhow::ensure!(valid, "expected 16 kHz mono PCM16 WAV");
+    let audio = audio.context("missing WAV data")?;
+    anyhow::ensure!(audio.len().is_multiple_of(2), "incomplete PCM sample");
+    Ok(audio
         .as_chunks::<2>()
         .0
         .iter()

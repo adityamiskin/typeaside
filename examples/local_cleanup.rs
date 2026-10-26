@@ -8,7 +8,7 @@ use std::{
     time::Instant,
 };
 use typeaside::{
-    config::{AppConfig, Source, Tone},
+    config::{AppConfig, Source, SpeechSource, Tone},
     engine::Mode,
     local, pipeline,
 };
@@ -80,7 +80,7 @@ fn main() -> Result<()> {
         return local::CleanupModel::download(&AtomicBool::new(false), |p| eprintln!("{p}%"));
     }
     let mut config = AppConfig {
-        transcription: Source::Local,
+        transcription: SpeechSource::Local,
         language: None,
         ..Default::default()
     };

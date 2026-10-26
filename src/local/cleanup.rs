@@ -1,5 +1,5 @@
 use super::{AVAILABLE, ModelId, assets::S1_MINI, download_assets, inventory_assets};
-use crate::config::{AppCategory, AppConfig, Source, Tone};
+use crate::config::{AppCategory, AppConfig, SpeechSource, Tone};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -87,7 +87,7 @@ impl CleanupSettings {
                 .next()
                 .is_some_and(|s| s.eq_ignore_ascii_case("en")),
             None => {
-                (config.transcription == Source::Local
+                (config.transcription == SpeechSource::Local
                     && matches!(
                         config.local_model,
                         ModelId::Cohere | ModelId::ParakeetUnifiedEn

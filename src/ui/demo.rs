@@ -21,7 +21,8 @@ pub fn config() -> AppConfig {
         transcription: source(
             "TYPEASIDE_DEMO_SPEECH",
             std::env::var("TYPEASIDE_DEMO_MODEL").as_deref() == Ok("installed"),
-        ),
+        )
+        .into(),
         cleanup: typeaside::config::Cleanup {
             enabled: editing.as_deref() != Ok("off"),
             source: source("TYPEASIDE_DEMO_EDITING", false),

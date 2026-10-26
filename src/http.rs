@@ -14,9 +14,9 @@ pub(crate) fn client() -> &'static Client {
 }
 
 pub(crate) fn prewarm(config: &AppConfig) {
-    use crate::config::Source;
+    use crate::config::{Source, SpeechSource};
     let endpoints: Vec<_> = [
-        (config.transcription == Source::OwnKey).then_some(&config.stt),
+        (config.transcription == SpeechSource::OwnKey).then_some(&config.stt),
         (config.cleanup.source == Source::OwnKey).then_some(&config.cleanup.endpoint),
     ]
     .into_iter()
