@@ -115,6 +115,20 @@ pub fn run(is_demo: bool, hidden: bool, started: std::time::Instant) -> anyhow::
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             trace("application ready", started);
+            // Most systems do not have Inter installed, so the app ships its own.
+            if let Err(error) = cx.text_system().add_fonts(vec![
+                include_bytes!("../../assets/fonts/Inter-Regular.ttf")
+                    .as_slice()
+                    .into(),
+                include_bytes!("../../assets/fonts/Inter-Medium.ttf")
+                    .as_slice()
+                    .into(),
+                include_bytes!("../../assets/fonts/Inter-SemiBold.ttf")
+                    .as_slice()
+                    .into(),
+            ]) {
+                eprintln!("typeaside: cannot load Inter: {error:#}");
+            }
             #[cfg(target_os = "macos")]
             {
                 window::show_in_dock(false);
