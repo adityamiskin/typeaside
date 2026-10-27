@@ -676,7 +676,7 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<WindowHandl
             })
         },
     )?;
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "linux"))]
     handle.update(cx, |_, window, _| borderless(window))?;
     Ok(handle)
 }
@@ -697,6 +697,31 @@ pub(super) fn borderless(window: &Window) {
         window.setStyleMask(NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel);
         window.setHasShadow(false);
     }
+}
+
+/// GPUI gives untitled windows a hidden caption, and Windows 11 still outlines that frame.
+#[cfg(target_os = "windows")]
+pub(super) fn borderless(window: &Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::{
+        Foundation::HWND,
+        Graphics::Dwm::{DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DwmSetWindowAttribute},
+    };
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return;
+    };
+    // Fails harmlessly before Windows 11, which draws no such border.
+    let _ = unsafe {
+        DwmSetWindowAttribute(
+            HWND(handle.hwnd.get() as _),
+            DWMWA_BORDER_COLOR,
+            (&DWMWA_COLOR_NONE as *const u32).cast(),
+            size_of::<u32>() as u32,
+        )
+    };
 }
 
 fn text_width(text: &str, window: &Window, cx: &App) -> f32 {
@@ -1034,7 +1059,7 @@ pub fn open_answer(
             })
         },
     )?;
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "linux"))]
     handle.update(cx, |_, window, _| borderless(window))?;
     Ok(handle)
 }
