@@ -450,7 +450,11 @@ fn spawn_dictation_hook(
     #[cfg(windows)]
     let mut process = ProcessCommand::new("cmd");
     #[cfg(windows)]
-    process.arg("/C");
+    {
+        use std::os::windows::process::CommandExt;
+        // TypeAside has no console, so cmd.exe would otherwise open a window of its own.
+        process.arg("/C").creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0);
+    }
     let mut child = process
         .arg(command)
         .stdin(Stdio::piped())

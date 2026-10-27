@@ -468,7 +468,7 @@ fn open(state: &Entity<AppState>, visible: bool, cx: &mut App) {
     );
     match result {
         Ok(handle) => {
-            #[cfg(target_os = "macos")]
+            #[cfg(not(target_os = "linux"))]
             let _ = handle.update(cx, |_, window, _| super::overlay::borderless(window));
             state.update(cx, |s, _| s.capture_window = Some(handle));
             if state.read(cx).is_demo
