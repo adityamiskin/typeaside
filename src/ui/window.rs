@@ -194,7 +194,10 @@ impl MainWindow {
             settings_jump: None,
             focus: cx.focus_handle(),
             page,
-            onboarding: super::onboarding::Onboarding::new(state.read(cx).onboarding_steps.clone()),
+            onboarding: super::onboarding::Onboarding::new(
+                state.read(cx).onboarding_steps.clone(),
+                cx.new(|cx| InputState::new(window, cx).placeholder("Reply to Sam")),
+            ),
             trace_started,
         };
         this.bind_notes(window, cx);
@@ -531,16 +534,7 @@ impl Render for MainWindow {
             .children(self.update_toast(cx))
             .children(self.history_toast(cx));
         let _ = window;
-        root.capture_any_mouse_down(cx.listener(|this, _, _, cx| {
-            if this.skip_intro(cx) {
-                cx.stop_propagation();
-            }
-        }))
-        .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, w, cx| {
-            if this.skip_intro(cx) {
-                cx.stop_propagation();
-                return;
-            }
+        root.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, w, cx| {
             if event.keystroke.key == "escape" && this.note_color_menu.take().is_some() {
                 cx.stop_propagation();
                 cx.notify();
@@ -555,7 +549,7 @@ impl Render for MainWindow {
             } else if !this.state.read(cx).config.onboarded {
                 match event.keystroke.key.as_str() {
                     "enter" => this.onboarding_next(false, w, cx),
-                    "escape" => this.onboarding_back(cx),
+                    "escape" => this.onboarding_back(w, cx),
                     _ => {}
                 }
             }
@@ -567,10 +561,6 @@ impl Render for MainWindow {
         }))
         .on_modifiers_changed(cx.listener(
             |this, event: &gpui::ModifiersChangedEvent, _, cx| {
-                if event.modifiers.modified() && this.skip_intro(cx) {
-                    cx.stop_propagation();
-                    return;
-                }
                 if this.capture.is_some() {
                     if event.modifiers.modified() {
                         this.shortcut_down
