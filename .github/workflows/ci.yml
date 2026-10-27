@@ -1,6 +1,11 @@
 name: CI
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options: [all, windows, macos, linux]
+        default: all
   workflow_call:
 permissions:
   contents: read
@@ -9,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON('{"all":["ubuntu-latest","macos-latest","windows-latest"],"windows":["windows-latest"],"macos":["macos-latest"],"linux":["ubuntu-latest"]}')[inputs.platform || 'all'] }}
     runs-on: ${{ matrix.os }}
     env:
       # gpui debug builds compile Windows shaders at runtime from the cargo registry, which the smoke runner lacks.
@@ -59,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON('{"all":["ubuntu-latest","macos-latest","windows-latest"],"windows":["windows-latest"],"macos":["macos-latest"],"linux":["ubuntu-latest"]}')[inputs.platform || 'all'] }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -105,6 +110,7 @@ jobs:
           name: demo-smoke-${{ runner.os }}
           path: smoke-artifacts/
   web:
+    if: (inputs.platform || 'all') == 'all'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
