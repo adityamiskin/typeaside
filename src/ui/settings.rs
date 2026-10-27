@@ -1060,6 +1060,16 @@ impl MainWindow {
         let downloading = s.model_cancel.is_some();
         let wispr_connecting = s.wispr_login.is_some();
         let wispr_account = s.wispr_account.clone();
+        let version = env!("CARGO_PKG_VERSION");
+        let version = match (&s.update, &s.update_check) {
+            (_, super::update::Check::Checking) => format!("{version} · Checking for updates…"),
+            (Some(release), _) => format!("{version} · {} available", release.version),
+            (None, super::update::Check::UpToDate) => format!("{version} · Up to date"),
+            (None, super::update::Check::Failed(reason)) => {
+                format!("{version} · Couldn't check: {reason}")
+            }
+            (None, super::update::Check::Idle) => version.to_owned(),
+        };
         let theme = segmented(
             [
                 (Theme::System, "System"),
@@ -1486,7 +1496,14 @@ impl MainWindow {
                     .child(self.toggle("login", c.launch_at_login, Toggle::Login, cx)),
                 Setting::new("Keep history").child(select(&self.settings.history_retention, p)),
                 Setting::new("Version")
-                    .description(env!("CARGO_PKG_VERSION"))
+                    .description(version)
+                    .child(
+                        button("Check for updates", false, p)
+                            .id("check-updates")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                super::update::check_now(&this.state, cx)
+                            })),
+                    )
                     .child(
                         button("Open config folder", false, p)
                             .id("config-folder")

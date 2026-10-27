@@ -10,6 +10,13 @@ pub enum Toast {
     Failed(String),
 }
 
+pub enum Check {
+    Idle,
+    Checking,
+    UpToDate,
+    Failed(String),
+}
+
 impl Toast {
     fn busy(&self) -> bool {
         matches!(self, Self::Downloading(_) | Self::Installing)
@@ -106,8 +113,43 @@ pub fn schedule(state: &Entity<AppState>, cx: &mut App) {
                     }
                 });
             }
-            delay = std::time::Duration::from_secs(6 * 60 * 60);
+            delay = std::time::Duration::from_secs(60 * 60);
         }
+    })
+    .detach();
+}
+
+pub fn check_now(state: &Entity<AppState>, cx: &mut App) {
+    let current = state.read(cx);
+    if current.is_demo || matches!(current.update_check, Check::Checking) {
+        return;
+    }
+    state.update(cx, |s, cx| {
+        s.update_check = Check::Checking;
+        cx.notify();
+    });
+    let state = state.downgrade();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async { typeaside::update::check() })
+            .await;
+        let Some(state) = state.upgrade() else { return };
+        state.update(cx, |s, cx| {
+            s.update_check = match result {
+                Ok(Some(release)) => {
+                    if !s.update_status.busy() {
+                        s.update = Some(release);
+                        s.update_status = Toast::Available;
+                        s.update_dismissed = false;
+                    }
+                    Check::Idle
+                }
+                Ok(None) => Check::UpToDate,
+                Err(error) => Check::Failed(error.to_string().chars().take(100).collect()),
+            };
+            cx.notify();
+        });
     })
     .detach();
 }

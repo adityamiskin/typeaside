@@ -598,8 +598,9 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<gpui::AnyWi
             ..Default::default()
         },
         cx,
-        |window, cx| cx.new(|cx| MainWindow::new(state, window, cx)),
+        |window, cx| cx.new(|cx| MainWindow::new(state.clone(), window, cx)),
     )?;
+    super::update::check_now(&state, cx);
     Ok(handle)
 }
 
