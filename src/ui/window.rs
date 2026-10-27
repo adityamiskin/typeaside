@@ -515,9 +515,10 @@ impl Render for MainWindow {
             .track_focus(&self.focus)
             .size_full()
             .bg(p.bg)
-            .border_1()
-            .border_color(p.frame)
-            .rounded(px(10.))
+            // Windows draws its own frame and rounds the corners.
+            .when(cfg!(not(target_os = "windows")), |root| {
+                root.border_1().border_color(p.frame).rounded(px(10.))
+            })
             .overflow_hidden()
             .text_color(p.fg)
             .font_family("Inter")
@@ -590,7 +591,7 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<gpui::AnyWi
             window_min_size: Some(size(px(760.), px(480.))),
             titlebar: Some(gpui::TitlebarOptions {
                 title: Some("TypeAside".into()),
-                appears_transparent: true,
+                appears_transparent: cfg!(target_os = "macos"),
                 ..Default::default()
             }),
             app_id: Some("typeaside".into()),
