@@ -278,14 +278,6 @@ fn speech(tick: u32) -> f32 {
     (0.5 + 0.22 * (t * 0.37).sin() + 0.17 * (t * 1.23).sin()).clamp(0.08, 1.)
 }
 
-pub fn intro_time() -> Option<f32> {
-    std::env::var("TYPEASIDE_DEMO_INTRO")
-        .ok()?
-        .parse::<f32>()
-        .ok()
-        .filter(|t| t.is_finite() && *t >= 0.)
-}
-
 pub fn update() -> (Option<typeaside::update::Release>, super::update::Toast) {
     use super::update::Toast;
     let Ok(value) = std::env::var("TYPEASIDE_DEMO_UPDATE") else {

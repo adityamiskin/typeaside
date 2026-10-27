@@ -65,7 +65,6 @@ pub struct AppState {
     level: f32,
     onboarding_step: onboarding::Step,
     onboarding_steps: Vec<onboarding::Step>,
-    onboarding_heard: bool,
     onboarding_raw: Option<String>,
     onboarding_transcript: Option<String>,
 }
@@ -336,7 +335,6 @@ fn start_ui(
         level: if is_demo { 0.7 } else { 0. },
         onboarding_step: onboarding::Step::initial(is_demo),
         onboarding_steps: onboarding::Onboarding::visible_steps(is_demo),
-        onboarding_heard: is_demo,
         onboarding_raw: None,
         onboarding_transcript: None,
     });
@@ -491,14 +489,11 @@ fn start_ui(
                 }
                 Event::Level(level) => {
                     state.update(cx, |s, cx| {
-                        if s.mic_testing || s.onboarding_step == onboarding::Step::Practice {
-                            if s.onboarding_step == onboarding::Step::Microphone && level > 0.25 {
-                                s.onboarding_heard = true;
-                            }
-                            if s.level != level {
-                                s.level = level;
-                                cx.notify();
-                            }
+                        if (s.mic_testing || s.onboarding_step == onboarding::Step::Practice)
+                            && s.level != level
+                        {
+                            s.level = level;
+                            cx.notify();
                         }
                     });
                     if let Some(surface) = surface {
