@@ -77,35 +77,41 @@ pub struct CleanupSettings {
     email: bool,
 }
 impl CleanupSettings {
+    /// Whether a dictation into this app can reach S1-mini, before its transcript is known.
+    pub fn may_apply(config: &AppConfig, app_id: Option<&str>) -> bool {
+        config.editing()
+            && config.language.as_deref().is_none_or(english)
+            && AppCategory::of(app_id) != AppCategory::Code
+            && CleanupModel::installed()
+    }
     pub fn for_app(config: &AppConfig, app_id: Option<&str>, text: &str) -> Option<Self> {
         // S1-mini is English-only. Parakeet v3 and API speech report no detected language, so
         // Auto checks the transcript itself; Cohere's Auto and Parakeet Unified always
         // transcribe English.
-        let english = match config.language.as_deref() {
-            Some(language) => language
-                .split(['-', '_'])
-                .next()
-                .is_some_and(|s| s.eq_ignore_ascii_case("en")),
-            None => {
-                (config.transcription == SpeechSource::Local
-                    && matches!(
-                        config.local_model,
-                        ModelId::Cohere | ModelId::ParakeetUnifiedEn
-                    ))
-                    || whatlang::detect_lang(text) == Some(whatlang::Lang::Eng)
-            }
-        };
+        let english = config.language.is_some()
+            || (config.transcription == SpeechSource::Local
+                && matches!(
+                    config.local_model,
+                    ModelId::Cohere | ModelId::ParakeetUnifiedEn
+                ))
+            || whatlang::detect_lang(text) == Some(whatlang::Lang::Eng);
         let category = AppCategory::of(app_id);
-        (config.editing() && english && category != AppCategory::Code && CleanupModel::installed())
-            .then(|| Self {
-                styling: match config.styles.get(category) {
-                    Tone::Formal => Styling::Formal,
-                    Tone::Casual => Styling::SemiFormal,
-                    Tone::VeryCasual => Styling::Casual,
-                },
-                email: category == AppCategory::Email,
-            })
+        (english && Self::may_apply(config, app_id)).then(|| Self {
+            styling: match config.styles.get(category) {
+                Tone::Formal => Styling::Formal,
+                Tone::Casual => Styling::SemiFormal,
+                Tone::VeryCasual => Styling::Casual,
+            },
+            email: category == AppCategory::Email,
+        })
     }
+}
+
+fn english(language: &str) -> bool {
+    language
+        .split(['-', '_'])
+        .next()
+        .is_some_and(|s| s.eq_ignore_ascii_case("en"))
 }
 
 const SYSTEM: &str = "You are a text normalizer for speech-to-text transcripts. The input begins with a control line specifying the styling, structure, and context settings; clean the transcript to match those settings and output only the cleaned text.";

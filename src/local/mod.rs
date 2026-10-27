@@ -308,6 +308,7 @@ const FEED: u8 = 2;
 const END: u8 = 3;
 const CANCEL: u8 = 4;
 const CLEAN: u8 = 5;
+const WARM_CLEANUP: u8 = 6;
 
 /// One message to the worker. Transcription, stream end and cleanup are answered.
 enum Job {
@@ -317,6 +318,7 @@ enum Job {
     End,
     Cancel,
     Clean(String, CleanupSettings),
+    WarmCleanup,
 }
 impl Job {
     fn write(&self, output: &mut impl Write) -> Result<()> {
@@ -326,6 +328,7 @@ impl Job {
             Self::Feed(samples) => (FEED, Some(samples)),
             Self::End => (END, None),
             Self::Cancel => (CANCEL, None),
+            Self::WarmCleanup => (WARM_CLEANUP, None),
             Self::Clean(text, settings) => {
                 let bytes = serde_json::to_vec(&(text, settings))?;
                 ensure!(bytes.len() <= 1024 * 1024, "Cleanup request too large");
@@ -378,6 +381,7 @@ enum Request {
     End(Reply),
     Cancel,
     Clean(String, CleanupSettings, Arc<AtomicBool>, Reply),
+    WarmCleanup,
     Unload(Option<mpsc::SyncSender<()>>),
 }
 fn ensure(worker: &mut Option<Worker>, speech: Option<Speech>) -> Result<&mut Worker> {
@@ -476,6 +480,11 @@ fn sender() -> &'static mpsc::Sender<Request> {
                         }
                         let _ = reply.send(result.unwrap_or_else(|e| Err(e.to_string())));
                     }
+                    Ok(Request::WarmCleanup) => {
+                        if let Some(live) = &worker {
+                            let _ = live.send(Job::WarmCleanup);
+                        }
+                    }
                     Ok(Request::Unload(reply)) => {
                         worker = None;
                         streaming = false;
@@ -508,6 +517,13 @@ pub fn prewarm(config: &crate::config::AppConfig) {
     };
     if let Some(speech) = warm {
         let _ = sender().send(Request::Warm(speech));
+    }
+}
+/// Loads S1-mini beside the speech model while the user speaks, so cleanup does not wait for
+/// it after release. Startup leaves it unloaded to keep idle memory low.
+pub fn prewarm_cleanup(config: &crate::config::AppConfig, app_id: Option<&str>) {
+    if config.local_editing() && CleanupSettings::may_apply(config, app_id) {
+        let _ = sender().send(Request::WarmCleanup);
     }
 }
 pub fn apply(config: &crate::config::AppConfig) {
@@ -680,6 +696,10 @@ pub fn worker_main() -> Result<()> {
             (TRANSCRIBE, Some((model, vad))) => Some(transcribe_speech(model, vad, &samples)),
             (BEGIN, Some((model, _))) => stream(model, &mut input, &mut cleanup, &mut output),
             (CLEAN, _) => Some(cleanup_job(&mut input, &mut cleanup)),
+            (WARM_CLEANUP, _) => {
+                warm_cleanup(&mut cleanup);
+                None
+            }
             _ => anyhow::bail!("Unexpected message outside a stream"),
         };
         if let Some(result) = result {
@@ -743,6 +763,13 @@ fn transcribe_speech(
     Ok(parts.join(" "))
 }
 
+// A load failure surfaces from the dictation's own cleanup request instead.
+fn warm_cleanup(model: &mut Option<cleanup::Model>) {
+    if model.is_none() {
+        *model = cleanup::Model::load().ok();
+    }
+}
+
 fn cleanup_job(input: &mut impl Read, model: &mut Option<cleanup::Model>) -> Result<String> {
     let mut size = [0; 8];
     input.read_exact(&mut size)?;
@@ -778,6 +805,10 @@ fn stream(
                     let result = cleanup_job(input, cleanup).map_err(|e| e.to_string());
                     writeln!(output, "{}", serde_json::to_string(&result)?)?;
                     output.flush()?;
+                    continue;
+                }
+                Some((WARM_CLEANUP, _)) => {
+                    warm_cleanup(cleanup);
                     continue;
                 }
                 _ => anyhow::bail!("Stream interrupted"),

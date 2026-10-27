@@ -1108,8 +1108,14 @@ fn run(
                         } else {
                             String::new()
                         };
-                        context = (start_mode, app, selection);
                         crate::local::prewarm(&config);
+                        if start_mode == Mode::Dictate {
+                            crate::local::prewarm_cleanup(
+                                &config,
+                                app.as_ref().and_then(|app| app.id.as_deref()),
+                            );
+                        }
+                        context = (start_mode, app, selection);
                         crate::http::prewarm(&config);
                         effects = crate::media::ListeningEffects::start(
                             config.sounds,
