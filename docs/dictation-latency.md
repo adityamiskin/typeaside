@@ -76,6 +76,8 @@ Repeating the same clip in the real app shows larger cache gains (CPU word 475 â
 
 ## Recommendations
 
+For the lowest English latency without a GPU, **Nemotron English** streams on CPU: 263 to 282 ms median release-to-text at any length, with more CPU while recording and a higher WER than Parakeet v3 ([benchmark](nemotron-streaming-benchmark.md)). The measurements below predate it.
+
 1. **Use the iGPU through Vulkan.** The worker already prefers it; do not force `TYPEASIDE_LOCAL_DEVICE=cpu`. Warm 30 s with AI off goes from 3,893 ms on CPU to 857 ms. For English, choosing **Parakeet Unified EN** in Settings streams while recording and keeps release-to-text near 380 ms for any length.
 2. **Ship prefix KV reuse, early guard rejection and the release-deadline wake** (this PR). Together they save about 15 ms of tail plus 7 to 22 ms per cleanup on typical dictations, and over a second on runaway output.
 3. **Preload S1-mini at key press when AI editing will run.** Shipped: a dictation that may reach S1-mini (editing on, language Auto or English, not a code app) loads it while the key is held, saving about 400 ms on a cold dictation.

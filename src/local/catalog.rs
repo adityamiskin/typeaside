@@ -11,13 +11,15 @@ pub enum ModelId {
     Cohere,
     WhisperTurbo,
     ParakeetUnifiedEn,
+    NemotronEn,
 }
 impl ModelId {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::ParakeetV3,
         Self::Cohere,
         Self::WhisperTurbo,
         Self::ParakeetUnifiedEn,
+        Self::NemotronEn,
     ];
     pub fn key(self) -> &'static str {
         match self {
@@ -25,6 +27,7 @@ impl ModelId {
             Self::Cohere => "cohere",
             Self::WhisperTurbo => "whisper-turbo",
             Self::ParakeetUnifiedEn => "parakeet-unified-en",
+            Self::NemotronEn => "nemotron-en",
         }
     }
     pub fn label(self) -> &'static str {
@@ -33,6 +36,7 @@ impl ModelId {
             Self::Cohere => "Cohere Transcribe",
             Self::WhisperTurbo => "Whisper large-v3-turbo",
             Self::ParakeetUnifiedEn => "Parakeet Unified",
+            Self::NemotronEn => "Nemotron English",
         }
     }
     pub fn description(self) -> &'static str {
@@ -41,6 +45,7 @@ impl ModelId {
             Self::Cohere => "14 languages incl. CJK, select spoken language",
             Self::WhisperTurbo => "99 languages",
             Self::ParakeetUnifiedEn => "English, GPU accelerated",
+            Self::NemotronEn => "English, fastest, streams while you speak",
         }
     }
     pub fn index(self) -> usize {
@@ -53,6 +58,7 @@ impl ModelId {
             Self::Cohere => &COHERE,
             Self::WhisperTurbo => &WHISPER_TURBO,
             Self::ParakeetUnifiedEn => &PARAKEET_UNIFIED_EN,
+            Self::NemotronEn => &NEMOTRON_EN,
         }
     }
     pub fn size_mb(self) -> u64 {

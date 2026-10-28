@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use std::{path::Path, sync::mpsc, time::Duration};
 use transcribe_cpp::{
-    Backend, CancelToken, DeviceType, ModelOptions, RunOptions, Session, SessionOptions,
-    StreamOptions,
+    Backend, CancelToken, DeviceType, ExtSlot, ModelOptions, ParakeetStreamOptions, RunOptions,
+    Session, SessionOptions, StreamExtension, StreamOptions,
 };
 
 const MINIMUM_SAMPLES: usize = 16_000 * 3 / 2;
@@ -24,6 +24,7 @@ pub(super) struct Model {
     options: RunOptions,
     max_samples: Option<usize>,
     streams: bool,
+    stream_options: StreamOptions,
 }
 
 impl Model {
@@ -82,6 +83,8 @@ impl Model {
             },
         };
         let capabilities = model.capabilities()?;
+        // PKST is the public cache-aware extension kind from transcribe/parakeet.h.
+        let cache_aware = model.accepts_ext(ExtSlot::Stream, u32::from_le_bytes(*b"PKST"));
         let language = language
             .filter(|language| capabilities.languages.iter().any(|l| l == language))
             .map(str::to_owned);
@@ -105,15 +108,24 @@ impl Model {
                 .filter(|ms| *ms > 0)
                 .map(|ms| ms * 16),
             streams: false,
+            stream_options: StreamOptions {
+                family: cache_aware.then_some(StreamExtension::ParakeetStream(
+                    ParakeetStreamOptions {
+                        att_context_right: Some(13),
+                    },
+                )),
+                ..Default::default()
+            },
         };
         // Compiles the GPU kernels now instead of during the first dictation.
         model.run(&[])?;
-        // A CPU stream re-encodes every overlapping window, several times the offline cost.
+        // Buffered streams re-encode overlapping windows; only cache-aware streams suit CPU.
         if capabilities.supports_streaming
-            && matches!(
-                model.model.device()?.device_type,
-                DeviceType::Gpu | DeviceType::Igpu
-            )
+            && (cache_aware
+                || matches!(
+                    model.model.device()?.device_type,
+                    DeviceType::Gpu | DeviceType::Igpu
+                ))
         {
             let mut warm_up = [
                 StreamInput::Feed(vec![0.0; STREAM_WARM_UP]),
@@ -138,9 +150,10 @@ impl Model {
     ) -> Result<Option<String>> {
         let cancel = CancelToken::new();
         let options = self.options.clone();
+        let stream_options = self.stream_options.clone();
         self.with_session(|session| {
             session.set_cancel_token(&cancel);
-            let mut stream = session.stream(&options, &StreamOptions::default())?;
+            let mut stream = session.stream(&options, &stream_options)?;
             let mut failed = None;
             loop {
                 match next()? {

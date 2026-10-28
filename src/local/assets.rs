@@ -57,3 +57,24 @@ pub(super) const S1_MINI: [Asset; 3] = [
         sha256: "6eb1e98a0d0046dd1b71da19d3b64ebccc12622e7d62e5efcad10298b4d66292",
     },
 ];
+
+pub(super) const NEMOTRON_EN: [Asset; 3] = [
+    Asset {
+        name: "nemotron-speech-streaming-en-0.6b-Q4_K_M.gguf",
+        url: "https://huggingface.co/handy-computer/nemotron-speech-streaming-en-0.6b-gguf/resolve/7df420cc3fb915a3b334560dac712af44fc41ef5/nemotron-speech-streaming-en-0.6b-Q4_K_M.gguf",
+        sha256: "dc959ca31499b114e395c44eb4f0778968f20e5cfb03305a08a39925b2da8e1e",
+        size: 475436032,
+    },
+    Asset {
+        name: "LICENSE",
+        url: "https://huggingface.co/handy-computer/nemotron-speech-streaming-en-0.6b-gguf/resolve/7df420cc3fb915a3b334560dac712af44fc41ef5/LICENSE",
+        sha256: "99d771ff4869fcddca4907a360e04d4c0a4627dcdc0d74f6618acabe64da5e75",
+        size: 10597,
+    },
+    Asset {
+        name: "NOTICE",
+        url: "https://huggingface.co/handy-computer/nemotron-speech-streaming-en-0.6b-gguf/resolve/7df420cc3fb915a3b334560dac712af44fc41ef5/NOTICE",
+        sha256: "0148580ec14d93f33e31f42df7a5e32b2db78f0926cdd9ddb29c7b6d60df9b63",
+        size: 481,
+    },
+];
