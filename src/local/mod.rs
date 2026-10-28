@@ -622,7 +622,7 @@ impl Drop for Stream {
 }
 
 /// The stream's text, or the whole clip offline when the stream failed, heard nothing or
-/// missed its finalize deadline. CPU workers never stream. True when the stream's text is used.
+/// missed its finalize deadline. True when the stream's text is used.
 pub fn finish(
     config: &crate::config::AppConfig,
     audio: &[f32],

@@ -86,13 +86,13 @@ impl CleanupSettings {
     }
     pub fn for_app(config: &AppConfig, app_id: Option<&str>, text: &str) -> Option<Self> {
         // S1-mini is English-only. Parakeet v3 and API speech report no detected language, so
-        // Auto checks the transcript itself; Cohere's Auto and Parakeet Unified always
-        // transcribe English.
+        // Auto checks the transcript itself; Cohere's Auto and the English-only models
+        // always transcribe English.
         let english = config.language.is_some()
             || (config.transcription == SpeechSource::Local
                 && matches!(
                     config.local_model,
-                    ModelId::Cohere | ModelId::ParakeetUnifiedEn
+                    ModelId::Cohere | ModelId::ParakeetUnifiedEn | ModelId::NemotronEn
                 ))
             || whatlang::detect_lang(text) == Some(whatlang::Lang::Eng);
         let category = AppCategory::of(app_id);

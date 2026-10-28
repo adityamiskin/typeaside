@@ -6,6 +6,7 @@ Settings → Dictation lists the available models. Download several, then use **
 | --------------------- | -------------------------------------------------- | -------- | -------------------------------- |
 | `parakeet-v3`         | 25 European languages                              | 486 MB   | transcribe.cpp, Q4_K_M GGUF      |
 | `parakeet-unified-en` | English                                            | 732 MB   | transcribe.cpp, Q8_0 GGUF, GPU   |
+| `nemotron-en`         | English                                            | 476 MB   | transcribe.cpp, Q4_K_M GGUF, streams on CPU |
 | `cohere`              | 14, including Arabic, Chinese, Japanese and Korean | 1,559 MB | transcribe.cpp, Q4_K_M GGUF      |
 | `whisper-turbo`       | 99                                                 | 620 MB   | transcribe.cpp, Q5_K_M GGUF, GPU |
 
@@ -13,7 +14,7 @@ Sizes use decimal MB and exclude the 1.24 MB Silero VAD downloaded alongside eac
 
 Cohere uses **Spoken language**; Auto uses English. Whisper detects language in Auto. Parakeet v3 detects language itself. All models use transcribe.cpp's Silero VAD v6.2 GGUF on the CPU. Each recording starts with fresh VAD state. The worker trims non-speech edges with 200 ms padding, returns an empty transcript without speech, and splits recordings longer than 25 s at the longest pause in the preceding 10 s, or the least speech-like frame. Chunks without speech are skipped. Whisper uses segment timestamps to keep seeking within a chunk.
 
-Each model's installation marker covers its GGUF and VAD. Stale ONNX installations show as not installed. No shared runtime download is needed. When speech is On device the selected model loads in the background; switching models or language replaces the worker. **Unload when idle** defaults to 30 min. Each GGUF model runs 1.5 s of silence at load to compile GPU kernels before dictation.
+Each model's installation marker covers its GGUF and VAD, plus LICENSE and NOTICE for Nemotron English. Stale ONNX installations show as not installed. No shared runtime download is needed. When speech is On device the selected model loads in the background; switching models or language replaces the worker. **Unload when idle** defaults to 30 min. Each GGUF model runs 1.5 s of silence at load to compile GPU kernels before dictation.
 
 ## Offline AI editing
 
@@ -95,7 +96,9 @@ Building needs CMake, the Vulkan headers and loader, `glslc` and SPIRV-Headers o
 
 ### Streaming while the shortcut is held
 
-With Source On device, every capture opens a stream to the worker and the recorder feeds it 160 ms blocks, pre-roll first, then everything through the 200 ms release tail. Only a model that advertises streaming on a GPU streams: today `parakeet-unified-en` on Vulkan or Metal, buffered with its default 5.6 s left context, 1.04 s chunk and 1.04 s right context. A CPU stream would re-encode every overlapping window, so CPU workers and other models ignore the audio and transcribe the whole clip after release as before. Streams skip the VAD.
+With Source On device, every capture opens a stream to the worker and the recorder feeds it 160 ms blocks, pre-roll first, then everything through the 200 ms release tail. `nemotron-en` accepts transcribe.cpp's cache-aware Parakeet stream extension and streams on CPU, Vulkan or Metal. Encoder and decoder state survive feed boundaries. It uses 13 right-context frames (1040 ms lookahead). `parakeet-unified-en` remains GPU-only for streaming, buffered with its default 5.6 s left context, 1.04 s chunk and 1.04 s right context; re-encoding its overlapping windows is too expensive on CPU. Models without an enabled stream ignore feed audio and transcribe the whole clip after release. Streams skip the VAD.
+
+The [Nemotron benchmark](nemotron-streaming-benchmark.md) measures warm CPU release-to-text of 263 to 282 ms at any length, against 385 to 1,231 ms for Parakeet v3, at the cost of about half a core while the shortcut is held and a higher corpus WER (4.90% against 3.55%). It is opt-in; Parakeet v3 remains the default. Linux CPU and Radeon were measured; Metal and Windows are unverified.
 
 After the 200 ms release tail, capture finalizes the stream immediately, so it ends before a later capture opens its own. The whole clip is transcribed offline, through the VAD, when the stream fails, returns no text, or finalize runs past 1.5 s (the worker cancels it). A tap, Escape or discarded capture abandons the stream. Loading such a model also runs a 1 s silent stream; if that fails the model stays offline-only. Each dictation logs `typeaside local: stream=… finish=… ms` with `TYPEASIDE_TRACE=1`.
 
@@ -269,6 +272,7 @@ Release-to-text no longer grows with the recording on a GPU; at 10 s the offline
 
 Speech inference uses [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) 0.4.1 (MIT) and ggml (MIT). Portable CPU build flags and system BLAS exclusion live in `.cargo/config.toml`.
 
+- Nemotron English: NVIDIA Open Model License, [Q4_K_M conversion](https://huggingface.co/handy-computer/nemotron-speech-streaming-en-0.6b-gguf), commit `7df420cc3fb915a3b334560dac712af44fc41ef5`; LICENSE and NOTICE download alongside the weights.
 - Parakeet v3: NVIDIA weights, CC-BY-4.0, [Q4_K_M conversion](https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf), commit `d8d8c32cb2017c57e5307767343e97870f8a7f53`.
 - Cohere Transcribe: Apache-2.0 weights, [Q4_K_M conversion](https://huggingface.co/handy-computer/cohere-transcribe-03-2026-gguf), commit `7353b6040bdc1be9e5a3823d99d5fe12afe88264`.
 - Silero VAD v6.2: MIT, [F32 conversion](https://huggingface.co/handy-computer/silero-vad-v6.2-gguf), commit `a9b2d61c20ae4ddf3644edb34969e8185a485448`.

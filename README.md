@@ -25,7 +25,7 @@ Hold a key, speak, and the text lands where your cursor is. No account, no serve
 
 ## Features
 
-- **On-device models.** Parakeet v3, Parakeet Unified, Whisper and Cohere run entirely on your computer, using ggml (transcribe.cpp), with GPU acceleration and Silero VAD built in.
+- **On-device models.** Parakeet v3, Parakeet Unified, Nemotron English, Whisper and Cohere run entirely on your computer, using ggml (transcribe.cpp), with GPU acceleration and Silero VAD built in.
 - **Bring your own key.** Point the app at any OpenAI-compatible speech endpoint (Groq works well). Your key lives in the system keychain.
 - **AI editing.** Optional cleanup removes fillers and false starts and formats lists and emails: on device in English with S1-mini by Superwhisper, or through your own key. With your own key, command mode edits selected text or answers a spoken question, and translation covers any language.
 - **Works everywhere you type.** evdev hotkeys and a layer-shell overlay on Wayland, CGEventTap on macOS, a low-level hook on Windows. Injected text is verified against the field and falls back to the clipboard, so a dictation is never lost.
