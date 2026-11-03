@@ -223,8 +223,9 @@ impl Render for Capture {
                     .shadow(vec![
                         BoxShadow {
                             color: p.shadow,
-                            offset: point(px(0.), px(24.)),
-                            blur_radius: px(64.),
+                            // GPUI paints 3x blur_radius, which must stay inside the 40px side gutter.
+                            offset: point(px(0.), px(10.)),
+                            blur_radius: px(12.),
                             spread_radius: px(0.),
                             inset: false,
                         },
